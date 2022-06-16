@@ -27,7 +27,7 @@
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 
 int startupBrightness = 0;
-int brightness = 192;
+int brightness = 100;
 
 unsigned long frameCount=25500;
     uint8_t const cos_wave[256] =  

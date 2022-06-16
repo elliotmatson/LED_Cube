@@ -46,10 +46,10 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/v')
         
     - name: Run PlatformIO
-      run: pio run -e denky32
+      run: pio run -e esp32dev
       
     - name: Rename firmware
-      run: cp .pio/build/denky32/firmware.bin esp32.bin
+      run: cp .pio/build/esp32dev/firmware.bin esp32.bin
       
     - name: Release
       uses: softprops/action-gh-release@v1

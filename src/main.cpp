@@ -13,6 +13,11 @@
   #define VERSION "0.0.0"
 #endif
 
+#ifndef REPO_URL
+  #define REPO_URL "elliotmatson/LED_Cube"
+#endif
+
+
 #define PANEL_WIDTH 64
 #define PANEL_HEIGHT 64
 #define PANELS_NUMBER 3
@@ -196,7 +201,9 @@ void firmwareUpdate(){
     WiFiClientSecure client;
     client.setInsecure();
 
-    String firmwareUrl = "https://github.com/elliotmatson/LED_Cube/releases/latest/download/esp32.bin";
+    String firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
+    Serial.println(firmwareUrl);
+  
     if (!http.begin(client, firmwareUrl))
         return;
 

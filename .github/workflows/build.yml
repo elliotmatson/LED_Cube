@@ -42,7 +42,7 @@ jobs:
         # pio run -t clean
 
     - name: Set version var
-      run: echo "PLATFORMIO_BUILD_FLAGS=-DVERSION='\"${GITHUB_REF#refs/*/}\"'" >> $GITHUB_ENV
+      run: echo "PLATFORMIO_BUILD_FLAGS=-DVERSION='\"${GITHUB_REF#refs/*/}\"' -DREPO_PATH='\"$GITHUB_REPOSITORY\"'" >> $GITHUB_ENV
       if: startsWith(github.ref, 'refs/tags/v')
         
     - name: Run PlatformIO

@@ -5,6 +5,8 @@
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
 
+#include <WiFiManager.h>
+
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <FastLED.h>
 
@@ -18,9 +20,23 @@
 #define PANELS_NUMBER 3
 #define PIN_E 32
 
-#define PANE_WIDTH PANEL_WIDTH * PANELS_NUMBER
-#define PANE_HEIGHT PANEL_HEIGHT
-
+// new PCB pinouts
+/*
+#define R1_PIN 4
+#define G1_PIN 15
+#define B1_PIN 5
+#define R2_PIN 19
+#define G2_PIN 18
+#define B2_PIN 22
+#define A_PIN 32
+#define B_PIN 23
+#define C_PIN 33
+#define D_PIN 14
+#define E_PIN 21
+#define LAT_PIN 27
+#define OE_PIN 26
+#define CLK_PIN 25
+*/
 
 // placeholder for the matrix object
 //MatrixPanel_I2S_DMA dma_display;
@@ -49,6 +65,8 @@ void checkForUpdates(void * parameter);
 inline uint8_t fastCosineCalc( uint16_t preWrapVal);
 inline uint8_t projCalcIntX(uint8_t x, uint8_t y);
 inline uint8_t projCalcY(uint8_t x, uint8_t y);
+void showConfigScreen();
+void scrollString(String str);
 
 TaskHandle_t checkForUpdatesTask = NULL;
 
@@ -61,15 +79,18 @@ void setup() {
   Serial.println(VERSION);
 #endif
 
+  WiFi.setHostname("cube");
+
   HUB75_I2S_CFG mxconfig;
   mxconfig.mx_height = PANEL_HEIGHT;      // we have 64 pix heigh panels
   mxconfig.chain_length = PANELS_NUMBER;  // we have 2 panels chained
   mxconfig.gpio.e = PIN_E;                // we MUST assign pin e to some free pin on a board to drive 64 pix height panels with 1/32 scan
+  mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
   dma_display = new MatrixPanel_I2S_DMA(mxconfig);
 
   // let's adjust default brightness to about 75%
-  dma_display->setPanelBrightness(100);    // range is 0-255, 0 - 0%, 255 - 100%
-  dma_display->setLatBlanking(4);
+  dma_display->setBrightness8(100);    // range is 0-255, 0 - 0%, 255 - 100%
+  dma_display->setLatBlanking(2);
   
 
   // Allocate memory and start DMA display
@@ -77,13 +98,13 @@ void setup() {
       Serial.println("****** !KABOOM! I2S memory allocation failed ***********");
 
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin();
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println("Connection Failed! Rebooting...");
-    delay(5000);
-    ESP.restart();
-  }
+    //WiFiManager
+    //Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wifiManager;
+  wifiManager.resetSettings();
+  wifiManager.setClass("invert");
+  showConfigScreen();
+  wifiManager.autoConnect("Cube");
 
   Serial.println("Ready");
   Serial.print("IP address: ");
@@ -107,8 +128,8 @@ void loop(){
   uint16_t t2 = fastCosineCalc((35 * frameCount)>>6); 
   uint16_t t3 = fastCosineCalc((38 * frameCount)>>6);
         
-  for (uint8_t i = 0; i < PANE_WIDTH; i++) {
-    for (uint8_t j = 0; j < PANE_HEIGHT ; j++) { 
+  for (uint8_t i = 0; i < PANEL_WIDTH; i++) {
+    for (uint8_t j = 0; j < PANEL_HEIGHT ; j++) { 
       //frameTime = micros();
       uint8_t x = (projCalcIntX(i,j)+66);
       uint8_t y = (projCalcY(i,j)+66);
@@ -182,7 +203,32 @@ inline uint8_t projCalcY(uint8_t x, uint8_t y){
   }
 }
   
-
+void showConfigScreen(){
+  dma_display->fillScreenRGB888(0, 0, 0);
+  dma_display->setCursor(1, 1);
+  dma_display->setTextColor(0xFFFF);
+  dma_display->setTextSize(1);
+  dma_display->print("WiFi");
+  scrollString("WiFi WiFi WiFi WiFi WiFi WiFi WiFi WiFi WiFi ");
+}
+void scrollString(String str) {
+    int yoff = 1;
+    dma_display->fillScreenRGB888(0, 0, 0);
+    dma_display->setTextWrap(false);  // we don't wrap text so it scrolls nicely
+    dma_display->setTextSize(1);
+    dma_display->setRotation(1);
+    int charWidth = 12; // textsize 2 @todo auto calculate charwidth from font
+    int pxwidth = (str.length()*charWidth)+32; // @todo get actual string pixel length, add support to gfx if needed
+    for (int32_t x=charWidth; x>=-pxwidth; x--) {
+        dma_display->fillScreenRGB888(0, 0, 0);
+        dma_display->setCursor(x,yoff);
+        // Serial.println((String)x);
+        // display.print("ABCDEFGHIJKLMNONPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789");
+        dma_display->print(str);
+        // delay(ANIMSPEED/2);
+        delay(150);
+    }
+}
 void checkForUpdates(void * parameter){
   for(;;){
     firmwareUpdate();

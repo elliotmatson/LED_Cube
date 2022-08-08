@@ -11,22 +11,23 @@
 #include <FastLED.h>
 
 #define CHECK_FOR_UPDATES_INTERVAL 5
-#ifndef VERSION
-  #define VERSION "0.0.0"
-#endif
+//#ifndef VERSION
+//  #define VERSION "v0.0.6"
+//#endif
+
 
 #ifndef REPO_URL
   #define REPO_URL "elliotmatson/LED_Cube"
 #endif
 
 
+
 #define PANEL_WIDTH 64
 #define PANEL_HEIGHT 64
 #define PANELS_NUMBER 3
-#define PIN_E 32
 
 // new PCB pinouts
-/*
+
 #define R1_PIN 4
 #define G1_PIN 15
 #define B1_PIN 5
@@ -41,17 +42,18 @@
 #define LAT_PIN 27
 #define OE_PIN 26
 #define CLK_PIN 25
-*/
+
 
 // placeholder for the matrix object
 //MatrixPanel_I2S_DMA dma_display;
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 
-int startupBrightness = 0;
-int brightness = 100;
+//int startupBrightness = 0;
+//int brightness = 100;
 
 unsigned long frameCount=25500;
-    uint8_t const cos_wave[256] =  
+
+uint8_t const cos_wave[256] =  
     {0,0,0,0,1,1,1,2,2,3,4,5,6,6,8,9,10,11,12,14,15,17,18,20,22,23,25,27,29,31,33,35,38,40,42,
     45,47,49,52,54,57,60,62,65,68,71,73,76,79,82,85,88,91,94,97,100,103,106,109,113,116,119,
     122,125,128,131,135,138,141,144,147,150,153,156,159,162,165,168,171,174,177,180,183,186,
@@ -64,9 +66,11 @@ unsigned long frameCount=25500;
     42,40,38,35,33,31,29,27,25,23,22,20,18,17,15,14,12,11,10,9,8,6,6,5,4,3,2,2,1,1,1,0,0,0,0
     };
 
-unsigned long getUptimeSeconds();
 void firmwareUpdate();
 void checkForUpdates(void * parameter);
+void checkForOTA(void * parameter);
+void drawFrame(void * parameter);
+void checkStats(void * parameter);
 inline uint8_t fastCosineCalc( uint16_t preWrapVal);
 inline uint8_t projCalcIntX(uint8_t x, uint8_t y);
 inline uint8_t projCalcY(uint8_t x, uint8_t y);
@@ -74,48 +78,33 @@ void showConfigScreen();
 void scrollString(String str);
 
 TaskHandle_t checkForUpdatesTask = NULL;
+TaskHandle_t checkForOTATask = NULL;
+TaskHandle_t drawFrameTask = NULL;
+TaskHandle_t checkStatsTask = NULL;
 
 
 void setup() {
-  Serial.begin(500000);
-  delay(1000);
-  Serial.print("Booting: ");
-#ifdef VERSION
-  Serial.println(VERSION);
-#endif
+  Serial.begin(115200);
+  Serial.printf("Booting: \n");
+  Serial.printf("XTAL=%d, CPU=%d, APB=%d\n", getXtalFrequencyMhz(), getCpuFrequencyMhz(), getApbFrequency());
+  if(psramInit()){
+    Serial.println("PSRAM is correctly initialized");
+  }else{
+    Serial.println("PSRAM not available");
+  }
 
-  WiFi.setHostname("cube");
-
-  HUB75_I2S_CFG mxconfig;
-  mxconfig.mx_height = PANEL_HEIGHT;      // we have 64 pix heigh panels
-  mxconfig.chain_length = PANELS_NUMBER;  // we have 2 panels chained
-  mxconfig.gpio.e = PIN_E;                // we MUST assign pin e to some free pin on a board to drive 64 pix height panels with 1/32 scan
-  mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
-  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-
-  // let's adjust default brightness to about 75%
-  dma_display->setBrightness8(100);    // range is 0-255, 0 - 0%, 255 - 100%
-  dma_display->setLatBlanking(2);
-  
-
-  // Allocate memory and start DMA display
-  if( not dma_display->begin() )
-      Serial.println("****** !KABOOM! I2S memory allocation failed ***********");
-
-
-    //WiFiManager
-    //Local intialization. Once its business is done, there is no need to keep it around
+  Serial.printf("Connecting to WiFi...\n");
   WiFiManager wifiManager;
-  wifiManager.resetSettings();
+  wifiManager.setHostname("cube");
   wifiManager.setClass("invert");
-  showConfigScreen();
   wifiManager.autoConnect("Cube");
 
-  Serial.println("Ready");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
-  pinMode(2, OUTPUT);
+#ifdef VERSION
+  Serial.printf("FW Version: " + VERSION);
+  Serial.printf("Github Update enabled...\n");
 
   xTaskCreate(
     checkForUpdates,    // Function that should be called
@@ -125,41 +114,132 @@ void setup() {
     0,               // Task priority
     &checkForUpdatesTask             // Task handle
   );
+#else
+  Serial.printf("OTA Update Enabled\n");
+  ArduinoOTA.setHostname("cube");
+  ArduinoOTA
+    .onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH)
+        type = "sketch";
+      else // U_SPIFFS
+        type = "filesystem";
+
+      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+      Serial.println("Start updating " + type);
+    })
+    .onEnd([]() {
+      Serial.println("\nEnd");
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+
+  ArduinoOTA.begin();
+
+  xTaskCreate(
+    checkForOTA,    // Function that should be called
+    "Check For OTA",   // Name of the task (for debugging)
+    6000,            // Stack size (bytes)
+    NULL,            // Parameter to pass
+    0,               // Task priority
+    &checkForOTATask             // Task handle
+  );
+#endif
+
+  Serial.printf("Configuring HUB_75\n");
+  HUB75_I2S_CFG::i2s_pins _pins={R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
+  HUB75_I2S_CFG mxconfig(
+  	PANEL_WIDTH, // Module width
+  	PANEL_HEIGHT, // Module height
+  	PANELS_NUMBER, // chain length
+  	_pins // pin mapping
+  );
+  mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_20M;
+  mxconfig.clkphase = false; // Change this if you have issues with ghosting.
+  //mxconfig.driver = HUB75_I2S_CFG::FM6126A; // Change this according to your pane.
+  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
+
+  // let's adjust default brightness to about 75%
+  dma_display->setBrightness8(255);    // range is 0-255, 0 - 0%, 255 - 100%
+  //dma_display->setLatBlanking(2);
+  
+
+  // Allocate memory and start DMA display
+  if( not dma_display->begin() )
+      Serial.println("****** !KABOOM! I2S memory allocation failed ***********");
+
+  /*xTaskCreate(
+    drawFrame,    // Function that should be called
+    "Draw Frame",   // Name of the task (for debugging)
+    10000,            // Stack size (bytes)
+    NULL,            // Parameter to pass
+    1,               // Task priority
+    &drawFrameTask             // Task handle
+  );*/
+
+  Serial.printf("Ready. Starting loop\n");
+
+  xTaskCreate(
+    checkStats,    // Function that should be called
+    "Draw Frame",   // Name of the task (for debugging)
+    5000,            // Stack size (bytes)
+    NULL,            // Parameter to pass
+    1,               // Task priority
+    &checkStatsTask             // Task handle
+  );
 }
 
 void loop(){
+  for (uint8_t i = 0; i < 100; i++) {
+    dma_display->drawPixelRGB888(random(0,64*3),random(0,64),255,255,255);
+    dma_display->drawPixelRGB888(random(0,64*3),random(0,64),0,0,0);
+  }
+  delay(100);
+}
+
+void plasma()
+{
   frameCount++ ; 
   uint16_t t = fastCosineCalc((42 * frameCount)>>6);  //time displacement - fiddle with these til it looks good...
   uint16_t t2 = fastCosineCalc((35 * frameCount)>>6); 
   uint16_t t3 = fastCosineCalc((38 * frameCount)>>6);
+//  double frameTime, projTime, plasmaTime, drawTime = 0;
         
-  for (uint8_t i = 0; i < PANEL_WIDTH; i++) {
+  for (uint8_t i = 0; i < PANEL_WIDTH*PANELS_NUMBER; i++) {
     for (uint8_t j = 0; j < PANEL_HEIGHT ; j++) { 
-      //frameTime = micros();
+//      frameTime = micros();
       uint8_t x = (projCalcIntX(i,j)+66);
       uint8_t y = (projCalcY(i,j)+66);
-      //projTime += micros()-frameTime;
+//      projTime += micros()-frameTime;
 
-      //frameTime = micros();
+//      frameTime = micros();
       uint8_t r = fastCosineCalc(((x << 3) + (t >> 1) + fastCosineCalc((t2 + (y << 3))))>>2);
       uint8_t g = fastCosineCalc(((y << 3) + t + fastCosineCalc(((t3 >> 2) + (x << 3))))>>2);
       uint8_t b = fastCosineCalc(((y << 3) + t2 + fastCosineCalc((t + x + (g >> 2))))>>2);
-      //frameTime = micros()-frameTime;
-      //plasmaTime += frameTime;
+//      frameTime = micros()-frameTime;
+//      plasmaTime += frameTime;
 
-      //frameTime = micros();
+//      frameTime = micros();
       dma_display->drawPixelRGB888(i,j,r,g,b);
-      //frameTime = micros()-frameTime;
-      //drawTime += frameTime;
+//      frameTime = micros()-frameTime;
+//      drawTime += frameTime;
     }
   }
-  //double divi = MATRIX_HEIGHT*MATRIX_WIDTH;
-  //printf("Proj: %f [us], Plasma: %f [us], Draw: %f [us]\n",projTime/divi, plasmaTime/divi, drawTime/divi);
-
-  if(startupBrightness<brightness){
-    startupBrightness++;
-    dma_display->setPanelBrightness(startupBrightness);
-  }
+//  double divi = MATRIX_HEIGHT*192;
+//  printf("Proj: %f [us], Plasma: %f [us], Draw: %f [us]\n",projTime/divi, plasmaTime/divi, drawTime/divi);
+  //if(startupBrightness<brightness){
+  //  startupBrightness++;
+  //  dma_display->setPanelBrightness(startupBrightness);
+  //}
 }
 
 
@@ -234,6 +314,15 @@ void scrollString(String str) {
         delay(150);
     }
 }
+
+void drawFrame(void * parameter){
+  for(;;){
+    plasma();
+    vTaskDelay(33 / portTICK_PERIOD_MS);
+  }
+}
+
+#ifdef VERSION
 void checkForUpdates(void * parameter){
   for(;;){
     firmwareUpdate();
@@ -242,7 +331,6 @@ void checkForUpdates(void * parameter){
 }
 
 void firmwareUpdate(){
-#ifdef VERSION
     HTTPClient http;
     WiFiClientSecure client;
     client.setInsecure();
@@ -282,5 +370,22 @@ void firmwareUpdate(){
         Serial.printf("Update OK!\n");
         break;
     }
+}
+#else
+void checkForOTA(void * parameter){
+  for(;;){
+    ArduinoOTA.handle();
+    vTaskDelay(200 / portTICK_PERIOD_MS);
+  }
+}
 #endif
+
+void checkStats(void * parameter){
+  for(;;){
+    log_d("Total heap: %d", ESP.getHeapSize());
+    log_d("Free heap: %d", ESP.getFreeHeap());
+    log_d("Total PSRAM: %d", ESP.getPsramSize());
+    log_d("Free PSRAM: %d", ESP.getFreePsram());
+    vTaskDelay(15000 / portTICK_PERIOD_MS);
+  }
 }

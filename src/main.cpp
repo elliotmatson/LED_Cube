@@ -7,7 +7,8 @@
 
 #include <WiFiManager.h>
 
-#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+//#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+#include <ESP32-VirtualMatrixPanel-I2S-DMA.h>
 #include <FastLED.h>
 
 #define CHECK_FOR_UPDATES_INTERVAL 5
@@ -47,6 +48,8 @@
 // placeholder for the matrix object
 //MatrixPanel_I2S_DMA dma_display;
 MatrixPanel_I2S_DMA *dma_display = nullptr;
+VirtualMatrixPanel  *virtualDisp = nullptr;
+
 
 //int startupBrightness = 0;
 //int brightness = 100;
@@ -163,7 +166,7 @@ void setup() {
   	PANELS_NUMBER, // chain length
   	_pins // pin mapping
   );
-  mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_20M;
+  mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
   mxconfig.clkphase = false; // Change this if you have issues with ghosting.
   //mxconfig.driver = HUB75_I2S_CFG::FM6126A; // Change this according to your pane.
   dma_display = new MatrixPanel_I2S_DMA(mxconfig);
@@ -199,11 +202,67 @@ void setup() {
 }
 
 void loop(){
-  for (uint8_t i = 0; i < 100; i++) {
-    dma_display->drawPixelRGB888(random(0,64*3),random(0,64),255,255,255);
-    dma_display->drawPixelRGB888(random(0,64*3),random(0,64),0,0,0);
+  dma_display->fillScreenRGB888(255, 0, 0);
+  delay(2000);
+  dma_display->fillScreenRGB888(0, 255, 0);
+  delay(2000);
+  dma_display->fillScreenRGB888(0, 0, 255);
+  delay(2000);
+  dma_display->fillScreenRGB888(255, 255, 255);
+  delay(2000);
+  dma_display->fillScreenRGB888(0, 0, 0);
+
+  /*
+  virtualDisp->fillScreen(virtualDisp->color444(0, 0, 0));
+  virtualDisp->drawDisplayTest(); // draw text numbering on each screen to check connectivity
+  delay(2000);
+  virtualDisp->setRotate(false);
+  virtualDisp->setTextWrap(false);
+  virtualDisp->setCursor(0,0);
+  virtualDisp->printf("draw text numbering on each screen to check connectivity");
+  delay(5000);
+  virtualDisp->setRotate(false);
+  virtualDisp->setTextWrap(false);
+  virtualDisp->setCursor(64,0);
+  virtualDisp->printf("TEST\nMODE2\nSTARTED");
+  delay(5000);
+  virtualDisp->setRotate(true);
+  virtualDisp->setTextWrap(false);
+  virtualDisp->setCursor(0,0);
+  virtualDisp->printf("TEST\nMODE3\nSTARTED");
+  delay(5000);
+  virtualDisp->setRotate(true);
+  virtualDisp->setTextWrap(false);
+  virtualDisp->setCursor(64,0);
+  virtualDisp->printf("TEST\nMODE4\nSTARTED");
+  delay(5000);
+  */
+
+  for (uint8_t i = 0; i < 64*PANELS_NUMBER; i++) {
+    for (uint8_t j = 0; j < 64; j++) {
+      dma_display->drawPixelRGB888(i,j,255,255,255);
+    }
+    delay(10);
   }
-  delay(100);
+  for (uint8_t i = 0; i < 64*PANELS_NUMBER; i++) {
+    for (uint8_t j = 0; j < 64; j++) {
+      dma_display->drawPixelRGB888(i,j,0,0,0);
+    }
+    delay(10);
+  }
+  for (uint8_t j = 0; j < 64; j++) {
+    for (uint8_t i = 0; i < 64*PANELS_NUMBER; i++) {
+      dma_display->drawPixelRGB888(i,j,255,255,255);
+    }
+    delay(10);
+  }
+  for (uint8_t j = 0; j < 64; j++) {
+    for (uint8_t i = 0; i < 64*PANELS_NUMBER; i++) {
+      dma_display->drawPixelRGB888(i,j,0,0,0);
+    }
+    delay(10);
+  }
+
 }
 
 void plasma()

@@ -11,7 +11,7 @@
 
 // Repo for automatic updates (Github Actions automatically sets this)
 #ifndef REPO_URL
-  #define REPO_URL "elliotmatson/LED_Cube"
+#define REPO_URL "elliotmatson/LED_Cube"
 #endif
 
 // Panel Settings
@@ -37,6 +37,5 @@
 
 #define WIFI_LED 13
 #define USR_LED 2
-
 
 #endif

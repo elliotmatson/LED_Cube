@@ -1,21 +1,18 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// DEV mode switch
-#define DEVELOPMENT
-
-#ifdef DEVELOPMENT
-#define FW_VERSION "DEV"
-#endif
+// Uncomment to switch gtom DEV mode to GHA updates
+//#define FW_VERSION "v0.0.0"
 
 // SW Version (Github Actions automatically sets this)
 #ifndef FW_VERSION
-  #define FW_VERSION "v0.0.6"
+  #define FW_VERSION "DEV"
+  #define DEVELOPMENT
 #endif
 
 // Repo for automatic updates (Github Actions automatically sets this)
 #ifndef REPO_URL
-#define REPO_URL "elliotmatson/LED_Cube"
+  #define REPO_URL "elliotmatson/LED_Cube"
 #endif
 
 // Github polling interval

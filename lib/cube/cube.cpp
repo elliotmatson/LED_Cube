@@ -17,13 +17,24 @@ MatrixPanel_I2S_DMA *dma_display = nullptr;
 VirtualMatrixPanel *virtualDisp = nullptr;
 Preferences prefs;
 
+// Initialize PSRAM
+void initPsram()
+{
+    if (psramInit())
+    {
+        Serial.println("PSRAM is correctly initialized");
+    }
+    else
+    {
+        Serial.println("PSRAM not available");
+    }
+}
+
 // Initialize update methods, setup check tasks
 void initUpdates()
 {
-#ifdef VERSION
-    Serial.printf("FW Version: " + VERSION);
+#ifndef DEVELOPMENT
     Serial.printf("Github Update enabled...\n");
-
     xTaskCreate(
         checkForUpdates,     // Function that should be called
         "Check For Updates", // Name of the task (for debugging)
@@ -31,43 +42,6 @@ void initUpdates()
         NULL,                // Parameter to pass
         0,                   // Task priority
         &checkForUpdatesTask // Task handle
-    );
-#else
-    Serial.printf("OTA Update Enabled\n");
-    ArduinoOTA.setHostname("cube");
-    ArduinoOTA
-        .onStart([]()
-                 {
-        String type;
-        if (ArduinoOTA.getCommand() == U_FLASH)
-            type = "sketch";
-        else // U_SPIFFS
-            type = "filesystem";
-
-        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-        Serial.println("Start updating " + type); })
-        .onEnd([]()
-               { Serial.println("\nEnd"); })
-        .onProgress([](unsigned int progress, unsigned int total)
-                    { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
-        .onError([](ota_error_t error)
-                 {
-        Serial.printf("Error[%u]: ", error);
-        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-        else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
-
-    ArduinoOTA.begin();
-
-    xTaskCreate(
-        checkForOTA,     // Function that should be called
-        "Check For OTA", // Name of the task (for debugging)
-        6000,            // Stack size (bytes)
-        NULL,            // Parameter to pass
-        0,               // Task priority
-        &checkForOTATask // Task handle
     );
 #endif
 }
@@ -92,17 +66,26 @@ void initDisplay()
 // Initialize wifi and prompt for connection if needed
 void initWifi()
 {
-    pinMode(WIFI_LED, OUTPUT);
-    digitalWrite(WIFI_LED, 0);
-    Serial.printf("Connecting to WiFi...\n");
-    WiFiManager wifiManager;
-    wifiManager.setHostname("cube");
-    wifiManager.setClass("invert");
-    wifiManager.autoConnect("Cube");
+    homeSpan.setControlPin(CONTROL_BUTTON);
+    homeSpan.setStatusPin(USR_LED);
+    homeSpan.setApSSID("cube");
+    homeSpan.enableOTA(false, true);
+    homeSpan.enableAutoStartAP();
+    homeSpan.setHostNameSuffix("");
+    homeSpan.setSketchVersion(FW_VERSION);
+    homeSpan.enableWebLog(100,"pool.ntp.org","UTC-5:00","status"); 
 
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    digitalWrite(WIFI_LED, 1);
+    homeSpan.begin(Category::Lighting,"cube","cube");
+    new SpanAccessory();                              // Begin by creating a new Accessory using SpanAccessory(), no arguments needed
+        new Service::AccessoryInformation();            // HAP requires every Accessory to implement an AccessoryInformation Service
+        new Characteristic::Identify();               // Create the required Identify Characteristic                                
+        new Characteristic::Manufacturer("elliotmatson");   // Manufacturer of the Accessory (arbitrary text string, and can be the same for every Accessory)
+        new Characteristic::SerialNumber("lll");    // Serial Number of the Accessory (arbitrary text string, and can be the same for every Accessory)
+        new Characteristic::Model("LED Cube");     // Model of the Accessory (arbitrary text string, and can be the same for every Accessory)
+        new Characteristic::FirmwareRevision(FW_VERSION);    // Firmware of the Accessory (arbitrary text string, and can be the same for every Accessory)
+        new DEV_Cube();
+  
+    homeSpan.autoPoll();
 }
 
 // shows debug info on display
@@ -115,24 +98,17 @@ void showDebug()
     dma_display->setCursor(1, 1);
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
-    dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nUP: %s\nSER: %s",
+    dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
                         WiFi.localIP().toString(),
                         prefs.getString("HW"),
-#ifndef VERSION
-                        "dev",
-                        "OTA",
-#else
-                        VERSION,
-                        "Github",
-#endif
+                        FW_VERSION,
                         prefs.getString("SER"));
 }
 
 // Calculates Cosine quickly using constants in flash
-inline uint8_t fastCosineCalc(uint16_t preWrapVal)
+inline uint8_t fastCosineCalc(uint16_t x)
 {
-    uint8_t wrapVal = (preWrapVal % 255);
-    return (cos_wave[wrapVal]);
+    return cos_wave[x%256];
 }
 
 // Calculates precise projected X values of a pixel
@@ -186,7 +162,55 @@ inline uint8_t projCalcY(uint8_t x, uint8_t y)
     }
 }
 
-#ifdef VERSION
+// Show a basic test sequence for testing panels
+void showTestSequence()
+{
+  dma_display->fillScreenRGB888(255, 0, 0);
+  delay(500);
+  dma_display->fillScreenRGB888(0, 255, 0);
+  delay(500);
+  dma_display->fillScreenRGB888(0, 0, 255);
+  delay(500);
+  dma_display->fillScreenRGB888(255, 255, 255);
+  delay(500);
+  dma_display->fillScreenRGB888(0, 0, 0);
+
+  for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
+  {
+    for (uint8_t j = 0; j < 64; j++)
+    {
+      dma_display->drawPixelRGB888(i, j, 255, 255, 255);
+    }
+    delay(50);
+  }
+  for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
+  {
+    for (uint8_t j = 0; j < 64; j++)
+    {
+      dma_display->drawPixelRGB888(i, j, 0, 0, 0);
+    }
+    delay(50);
+  }
+  for (uint8_t j = 0; j < 64; j++)
+  {
+    for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
+    {
+      dma_display->drawPixelRGB888(i, j, 255, 255, 255);
+    }
+    delay(50);
+  }
+  for (uint8_t j = 0; j < 64; j++)
+  {
+    for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
+    {
+      dma_display->drawPixelRGB888(i, j, 0, 0, 0);
+    }
+    delay(50);
+  }
+}
+
+// Task to check for updates
+#ifndef DEVELOPMENT
 void checkForUpdates(void *parameter)
 {
     for (;;)
@@ -196,6 +220,7 @@ void checkForUpdates(void *parameter)
     }
 }
 
+// Check for web updates
 void firmwareUpdate()
 {
     HTTPClient http;
@@ -209,7 +234,7 @@ void firmwareUpdate()
         return;
 
     int httpCode = http.sendRequest("HEAD");
-    if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(VERSION)) > 0)
+    if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
     {
         Serial.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
         http.end();
@@ -236,15 +261,6 @@ void firmwareUpdate()
     case HTTP_UPDATE_OK:
         Serial.printf("Update OK!\n");
         break;
-    }
-}
-#else
-void checkForOTA(void *parameter)
-{
-    for (;;)
-    {
-        ArduinoOTA.handle();
-        vTaskDelay(300 / portTICK_PERIOD_MS);
     }
 }
 #endif

@@ -1,18 +1,25 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Github polling interval
-#define CHECK_FOR_UPDATES_INTERVAL 5 // Seconds
+// DEV mode switch
+#define DEVELOPMENT
+
+#ifdef DEVELOPMENT
+#define FW_VERSION "DEV"
+#endif
 
 // SW Version (Github Actions automatically sets this)
-//#ifndef VERSION
-//  #define VERSION "v0.0.6"
-//#endif
+#ifndef FW_VERSION
+  #define FW_VERSION "v0.0.6"
+#endif
 
 // Repo for automatic updates (Github Actions automatically sets this)
 #ifndef REPO_URL
 #define REPO_URL "elliotmatson/LED_Cube"
 #endif
+
+// Github polling interval
+#define CHECK_FOR_UPDATES_INTERVAL 30 // Seconds
 
 // Panel Settings
 #define PANEL_WIDTH 64
@@ -37,5 +44,7 @@
 
 #define WIFI_LED 13
 #define USR_LED 2
+
+#define CONTROL_BUTTON 0
 
 #endif

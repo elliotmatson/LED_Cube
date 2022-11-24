@@ -18,15 +18,16 @@ VirtualMatrixPanel *virtualDisp = nullptr;
 Preferences prefs;
 
 // Initialize PSRAM
-void initPsram()
+void initStorage()
 {
+    prefs.begin("cube");
     if (psramInit())
     {
-        Serial.println("PSRAM is correctly initialized");
+        WEBLOG("PSRAM is correctly initialized\n");
     }
     else
     {
-        Serial.println("PSRAM not available");
+        WEBLOG("PSRAM not available\n");
     }
 }
 
@@ -34,7 +35,7 @@ void initPsram()
 void initUpdates()
 {
 #ifndef DEVELOPMENT
-    Serial.printf("Github Update enabled...\n");
+    WEBLOG("Github Update enabled...\n");
     xTaskCreate(
         checkForUpdates,     // Function that should be called
         "Check For Updates", // Name of the task (for debugging)
@@ -49,7 +50,7 @@ void initUpdates()
 // Initialize display driver
 void initDisplay()
 {
-    Serial.printf("Configuring HUB_75\n");
+    WEBLOG("Configuring HUB_75\n");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
@@ -60,7 +61,7 @@ void initDisplay()
 
     // Allocate memory and start DMA display
     if (not dma_display->begin())
-        Serial.println("****** !KABOOM! I2S memory allocation failed ***********");
+         WEBLOG("****** !KABOOM! I2S memory allocation failed ***********");
 }
 
 // Initialize wifi and prompt for connection if needed
@@ -72,8 +73,13 @@ void initWifi()
     homeSpan.enableOTA(false, true);
     homeSpan.enableAutoStartAP();
     homeSpan.setHostNameSuffix("");
+    homeSpan.setQRID("CUBE");
     homeSpan.setSketchVersion(FW_VERSION);
-    homeSpan.enableWebLog(100,"pool.ntp.org","UTC-5:00","status"); 
+    homeSpan.enableWebLog(100,"pool.ntp.org","UTC-5:00","status");
+    homeSpan.reserveSocketConnections(4);
+    homeSpan.setPortNum(8080);              // change port number for HomeSpan so we can use port 80 for the Web Server
+    // later
+    //homeSpan.setWifiCallback(setupWeb);     // need to start Web Server after WiFi is established   
 
     homeSpan.begin(Category::Lighting,"cube","cube");
     new SpanAccessory();                              // Begin by creating a new Accessory using SpanAccessory(), no arguments needed
@@ -85,17 +91,16 @@ void initWifi()
         new Characteristic::FirmwareRevision(FW_VERSION);    // Firmware of the Accessory (arbitrary text string, and can be the same for every Accessory)
         new DEV_Cube();
   
-    homeSpan.autoPoll();
+    homeSpan.autoPoll(4000);
 }
 
 // shows debug info on display
 void showDebug()
 {
-    prefs.begin("cube");
     // prefs.putString("HW", "v0.0.1");
     // prefs.putString("SER", "005");
     dma_display->fillScreenRGB888(0, 0, 0);
-    dma_display->setCursor(1, 1);
+    dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
     dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
@@ -228,7 +233,7 @@ void firmwareUpdate()
     client.setInsecure();
 
     String firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
-    Serial.println(firmwareUrl);
+    WEBLOG("%s\n",firmwareUrl);
 
     if (!http.begin(client, firmwareUrl))
         return;
@@ -236,13 +241,13 @@ void firmwareUpdate()
     int httpCode = http.sendRequest("HEAD");
     if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
     {
-        Serial.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+        WEBLOG("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
         http.end();
         return;
     }
     else
     {
-        Serial.printf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+        WEBLOG("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
     }
 
     httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
@@ -251,15 +256,15 @@ void firmwareUpdate()
     switch (ret)
     {
     case HTTP_UPDATE_FAILED:
-        Serial.printf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+        WEBLOG("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
         break;
 
     case HTTP_UPDATE_NO_UPDATES:
-        Serial.printf("No Update!\n");
+        WEBLOG("No Update!\n");
         break;
 
     case HTTP_UPDATE_OK:
-        Serial.printf("Update OK!\n");
+        WEBLOG("Update OK!\n");
         break;
     }
 }

@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Uncomment to switch gtom DEV mode to GHA updates
+// Uncomment to switch from DEV mode to GHA updates
 //#define FW_VERSION "v0.0.0"
 
 // SW Version (Github Actions automatically sets this)
@@ -16,7 +16,7 @@
 #endif
 
 // Github polling interval
-#define CHECK_FOR_UPDATES_INTERVAL 30 // Seconds
+#define CHECK_FOR_UPDATES_INTERVAL 60 // Seconds
 
 // Panel Settings
 #define PANEL_WIDTH 64

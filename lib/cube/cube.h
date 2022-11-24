@@ -6,12 +6,9 @@
 #include <HTTPUpdate.h>
 #include <ESP32-VirtualMatrixPanel-I2S-DMA.h>
 #include <FastLED.h>
-#include <WiFi.h>
-#include <ESPmDNS.h>
-#include <WiFiUdp.h>
-#include <WiFiManager.h>
 #include <Preferences.h>
 #include <HomeSpan.h>
+//#include <WebSerial.h>
 
 #include "config.h"
 
@@ -22,7 +19,7 @@ extern MatrixPanel_I2S_DMA *dma_display;
 extern VirtualMatrixPanel *virtualDisp;
 extern Preferences prefs;
 
-void initPsram();
+void initStorage();
 void initUpdates();
 void initDisplay();
 void initWifi();

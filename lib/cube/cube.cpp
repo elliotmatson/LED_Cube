@@ -23,11 +23,11 @@ void initStorage()
     prefs.begin("cube");
     if (psramInit())
     {
-        WEBLOG("PSRAM is correctly initialized\n");
+        Serial.printf("PSRAM is correctly initialized\n");
     }
     else
     {
-        WEBLOG("PSRAM not available\n");
+        Serial.printf("PSRAM not available\n");
     }
 }
 
@@ -35,7 +35,7 @@ void initStorage()
 void initUpdates()
 {
 #ifndef DEVELOPMENT
-    WEBLOG("Github Update enabled...\n");
+    Serial.printf("Github Update enabled...\n");
     xTaskCreate(
         checkForUpdates,     // Function that should be called
         "Check For Updates", // Name of the task (for debugging)
@@ -44,13 +44,50 @@ void initUpdates()
         0,                   // Task priority
         &checkForUpdatesTask // Task handle
     );
+#else
+    Serial.printf("OTA Update Enabled\n");
+    ArduinoOTA.setHostname("cube");
+    ArduinoOTA
+        .onStart([]()
+                 {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+            type = "sketch";
+        else // U_SPIFFS
+            type = "filesystem";
+
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("Start updating " + type); })
+        .onEnd([]()
+               { Serial.println("\nEnd"); })
+        .onProgress([](unsigned int progress, unsigned int total)
+                    { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
+        .onError([](ota_error_t error)
+                 {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
+
+    ArduinoOTA.begin();
+
+    xTaskCreate(
+        checkForOTA,     // Function that should be called
+        "Check For OTA", // Name of the task (for debugging)
+        6000,            // Stack size (bytes)
+        NULL,            // Parameter to pass
+        0,               // Task priority
+        &checkForOTATask // Task handle
+    );
 #endif
 }
 
 // Initialize display driver
 void initDisplay()
 {
-    WEBLOG("Configuring HUB_75\n");
+    Serial.printf("Configuring HUB_75\n");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
@@ -61,37 +98,23 @@ void initDisplay()
 
     // Allocate memory and start DMA display
     if (not dma_display->begin())
-         WEBLOG("****** !KABOOM! I2S memory allocation failed ***********");
+         Serial.printf("****** !KABOOM! I2S memory allocation failed ***********");
 }
 
 // Initialize wifi and prompt for connection if needed
 void initWifi()
 {
-    homeSpan.setControlPin(CONTROL_BUTTON);
-    homeSpan.setStatusPin(USR_LED);
-    homeSpan.setApSSID("cube");
-    homeSpan.enableOTA(false, true);
-    homeSpan.enableAutoStartAP();
-    homeSpan.setHostNameSuffix("");
-    homeSpan.setQRID("CUBE");
-    homeSpan.setSketchVersion(FW_VERSION);
-    homeSpan.enableWebLog(100,"pool.ntp.org","UTC-5:00","status");
-    homeSpan.reserveSocketConnections(4);
-    homeSpan.setPortNum(8080);              // change port number for HomeSpan so we can use port 80 for the Web Server
-    // later
-    //homeSpan.setWifiCallback(setupWeb);     // need to start Web Server after WiFi is established   
+    pinMode(WIFI_LED, OUTPUT);
+    digitalWrite(WIFI_LED, 0);
+    Serial.printf("Connecting to WiFi...\n");
+    WiFiManager wifiManager;
+    wifiManager.setHostname("cube");
+    wifiManager.setClass("invert");
+    wifiManager.autoConnect("Cube");
 
-    homeSpan.begin(Category::Lighting,"cube","cube");
-    new SpanAccessory();                              // Begin by creating a new Accessory using SpanAccessory(), no arguments needed
-        new Service::AccessoryInformation();            // HAP requires every Accessory to implement an AccessoryInformation Service
-        new Characteristic::Identify();               // Create the required Identify Characteristic                                
-        new Characteristic::Manufacturer("elliotmatson");   // Manufacturer of the Accessory (arbitrary text string, and can be the same for every Accessory)
-        new Characteristic::SerialNumber("lll");    // Serial Number of the Accessory (arbitrary text string, and can be the same for every Accessory)
-        new Characteristic::Model("LED Cube");     // Model of the Accessory (arbitrary text string, and can be the same for every Accessory)
-        new Characteristic::FirmwareRevision(FW_VERSION);    // Firmware of the Accessory (arbitrary text string, and can be the same for every Accessory)
-        new DEV_Cube();
-  
-    homeSpan.autoPoll(4000);
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+    digitalWrite(WIFI_LED, 1);
 }
 
 // shows debug info on display
@@ -104,6 +127,11 @@ void showDebug()
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
     dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
+                        WiFi.localIP().toString(),
+                        prefs.getString("HW"),
+                        FW_VERSION,
+                        prefs.getString("SER"));
+    Serial.printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
                         WiFi.localIP().toString(),
                         prefs.getString("HW"),
                         FW_VERSION,
@@ -233,7 +261,7 @@ void firmwareUpdate()
     client.setInsecure();
 
     String firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
-    WEBLOG("%s\n",firmwareUrl);
+    Serial.printf("%s\n",firmwareUrl);
 
     if (!http.begin(client, firmwareUrl))
         return;
@@ -241,13 +269,13 @@ void firmwareUpdate()
     int httpCode = http.sendRequest("HEAD");
     if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
     {
-        WEBLOG("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+        Serial.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
         http.end();
         return;
     }
     else
     {
-        WEBLOG("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+        Serial.printf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
     }
 
     httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
@@ -256,16 +284,25 @@ void firmwareUpdate()
     switch (ret)
     {
     case HTTP_UPDATE_FAILED:
-        WEBLOG("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+        Serial.printf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
         break;
 
     case HTTP_UPDATE_NO_UPDATES:
-        WEBLOG("No Update!\n");
+        Serial.printf("No Update!\n");
         break;
 
     case HTTP_UPDATE_OK:
-        WEBLOG("Update OK!\n");
+        Serial.printf("Update OK!\n");
         break;
+    }
+}
+#else
+void checkForOTA(void *parameter)
+{
+    for (;;)
+    {
+        ArduinoOTA.handle();
+        vTaskDelay(300 / portTICK_PERIOD_MS);
     }
 }
 #endif

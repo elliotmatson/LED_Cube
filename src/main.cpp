@@ -1,7 +1,7 @@
 #include "config.h"
 #include "cube.h"
 #include "patterns.h"
-#include "secrets.h"
+//#include "secrets.h"
 
 #include <WebServer.h>
 #include <WiFiClient.h>
@@ -72,11 +72,6 @@ void setup()
 
   delay(5000);
   dma_display->fillScreenRGB888(0, 0, 50);
-
-  prefs.putString("SPOTIFY_ID", SPOTIFY_CLIENT_ID);
-  prefs.putString("SPOTIFY_SECRET", SPOTIFY_CLIENT_SECRET);
-  prefs.putString("HW", "v0.0.1");
-  prefs.putString("SER", "003");
 
   prefs.getString("SPOTIFY_ID").toCharArray(spotifyID,33);
   prefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret,33);

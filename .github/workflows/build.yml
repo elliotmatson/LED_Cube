@@ -49,7 +49,7 @@ jobs:
       with:
         artifacts: "*.bin"
         generateReleaseNotes: true
-        tag: inputs.release-version
+        tag: ${{ inputs.release-version }}
         token: ${{ secrets.GITHUB_TOKEN }}
     - name: Archive Build
       uses: actions/upload-artifact@v3

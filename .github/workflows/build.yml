@@ -5,6 +5,7 @@ on:
       release-version:
         type: string
         description: Firmware Version
+        default: 'v0.0.0'
         required: true
   pull_request:
     

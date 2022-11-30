@@ -38,14 +38,14 @@ jobs:
         # pio run -t clean
     - name: Set version var
       run: echo "PLATFORMIO_BUILD_FLAGS=-DFW_VERSION='\"${{ inputs.release-version }}\"' -DREPO_PATH='\"$GITHUB_REPOSITORY\"'" >> $GITHUB_ENV
-      if: $GITHUB_EVENT_NAME == 'workflow_dispatch'
+      if: github.event_name	== 'workflow_dispatch'
     - name: Run PlatformIO
       run: pio run -e esp-wrover-kit
     - name: Rename firmware
       run: cp .pio/build/esp-wrover-kit/firmware.bin esp32.bin
     - name: Release
       uses: ncipollo/release-action@v1
-      if: $GITHUB_EVENT_NAME == 'workflow_dispatch'
+      if: github.event_name == 'workflow_dispatch'
       with:
         artifacts: "*.bin"
         generateReleaseNotes: true

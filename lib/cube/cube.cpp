@@ -1,3 +1,8 @@
+#include <stdio.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <Arduino.h>
+
 #include "cube.h"
 
 uint8_t const cos_wave[256] =
@@ -18,17 +23,9 @@ VirtualMatrixPanel *virtualDisp = nullptr;
 Preferences prefs;
 
 // Initialize PSRAM
-void initStorage()
+void initPrefs()
 {
     prefs.begin("cube");
-    if (psramInit())
-    {
-        Serial.printf("PSRAM is correctly initialized\n");
-    }
-    else
-    {
-        Serial.printf("PSRAM not available\n");
-    }
 }
 
 // Initialize update methods, setup check tasks
@@ -127,15 +124,15 @@ void showDebug()
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
     dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
-                        WiFi.localIP().toString(),
-                        prefs.getString("HW"),
+                        WiFi.localIP().toString().c_str(),
+                        prefs.getString("HW").c_str(),
                         FW_VERSION,
-                        prefs.getString("SER"));
+                        prefs.getString("SER").c_str());
     Serial.printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
-                        WiFi.localIP().toString(),
-                        prefs.getString("HW"),
+                        WiFi.localIP().toString().c_str(),
+                        prefs.getString("HW").c_str(),
                         FW_VERSION,
-                        prefs.getString("SER"));
+                        prefs.getString("SER").c_str());
 }
 
 // Calculates Cosine quickly using constants in flash
@@ -306,3 +303,8 @@ void checkForOTA(void *parameter)
     }
 }
 #endif
+
+void printMem() {
+    Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n",ESP.getFreeHeap(), ESP.getHeapSize(),ESP.getPsramSize() - ESP.getFreePsram(),ESP.getPsramSize());
+    Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
+}

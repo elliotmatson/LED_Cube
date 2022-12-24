@@ -20,7 +20,7 @@ extern MatrixPanel_I2S_DMA *dma_display;
 extern VirtualMatrixPanel *virtualDisp;
 extern Preferences prefs;
 
-void initStorage();
+void initPrefs();
 void initUpdates();
 void initDisplay();
 void initWifi();
@@ -32,5 +32,6 @@ inline uint8_t projCalcY(uint8_t x, uint8_t y);
 void firmwareUpdate();
 void checkForUpdates(void *parameter);
 void checkForOTA(void *parameter);
+void printMem();
 
 #endif

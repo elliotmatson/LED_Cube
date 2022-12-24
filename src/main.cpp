@@ -1,7 +1,7 @@
 #include "config.h"
 #include "cube.h"
 #include "patterns.h"
-//#include "secrets.h"
+#include "secrets.h"
 
 #include <WebServer.h>
 #include <WiFiClient.h>
@@ -9,7 +9,6 @@
 
 #include <SpotifyArduino.h>
 #include <SpotifyArduinoCert.h>
-#include <ArduinoJson.h>
 #include <TJpg_Decoder.h>
 
 
@@ -25,7 +24,7 @@ SpotifyArduino spotify(client);
 char spotifyID[33];
 char spotifySecret[33];
 
-unsigned long delayBetweenRequests = 10000; // Time between requests (1 minute)
+unsigned long delayBetweenRequests = 30000; // Time between requests (1 minute)
 unsigned long requestDueTime;               //time when request due
 
 const char *webpageTemplate =
@@ -56,23 +55,23 @@ int displayImage(char *albumArtUrl);
 void setup()
 {
   Serial.begin(115200);
-  Serial.printf("Booting: \n");
-  initStorage();
-  delay(1000);
-  Serial.printf("fffff");
-  Serial.printf("After Storage: Free Heap: %d, Free PSRAM: %d\n",ESP.getFreeHeap(),ESP.getFreePsram());
-  initWifi();
-  Serial.printf("After Wifi: Free Heap: %d, Free PSRAM: %d\n",ESP.getFreeHeap(),ESP.getFreePsram());
-  initUpdates();
-  Serial.printf("After Updates: Free Heap: %d, Free PSRAM: %d\n",ESP.getFreeHeap(),ESP.getFreePsram());
+  initPrefs();
   initDisplay();
-  Serial.printf("After Display: Free Heap: %d, Free PSRAM: %d\n",ESP.getFreeHeap(),ESP.getFreePsram());
   showDebug();
-  Serial.printf("After Display debug: Free Heap: %d, Free PSRAM: %d\n",ESP.getFreeHeap(),ESP.getFreePsram());
+  initWifi();
+  initUpdates();
 
   delay(5000);
-  dma_display->fillScreenRGB888(0, 0, 50);
-
+  while(true){
+    dma_display->fillScreenRGB888(255, 0, 0);
+    delay(500);
+    dma_display->fillScreenRGB888(0, 255, 0);
+    delay(500);
+    dma_display->fillScreenRGB888(0, 0, 255);
+    delay(500);
+    dma_display->fillScreenRGB888(255, 255, 255);
+    delay(500);
+  }
   prefs.getString("SPOTIFY_ID").toCharArray(spotifyID,33);
   prefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret,33);
   spotify.lateInit(spotifyID, spotifySecret ,prefs.getString("SPOTIFY_TOKEN").c_str());
@@ -83,17 +82,18 @@ void setup()
   server.begin();
   Serial.println("HTTP server started");
   TJpgDec.setJpgScale(1);
+  Serial.printf("After Spotify Setup:\n");
+  printMem();
 
   // The decoder must be given the exact name of the rendering function above
   TJpgDec.setCallback(displayOutput);
 
   Serial.println("Refreshing Access Tokens");
-    if (!spotify.refreshAccessToken())
-    {
-        Serial.println("Failed to get access tokens");
-    }
-
-        Serial.println("getting currently playing song:");
+  if (!spotify.refreshAccessToken())
+  {
+    Serial.println("Failed to get access tokens");
+  }
+  Serial.println("getting currently playing song:");
         // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
         int status = spotify.getCurrentlyPlaying(printCurrentlyPlayingToSerial, "US");
         if (status == 200)
@@ -117,10 +117,10 @@ void loop()
   server.handleClient();
   if (millis() > requestDueTime)
     {
-        Serial.printf("\n\nFree Heap: %d, Free PSRAM: %d\n",ESP.getFreeHeap(),ESP.getFreePsram());
-        Serial.printf("Stack remaining for task '%s' is %d bytes\n\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
+        
+        Serial.printf("Loop:\n");
+        printMem();
       
-        Serial.println("getting currently playing song:");
         // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
         int status = spotify.getCurrentlyPlaying(printCurrentlyPlayingToSerial, "US");
         if (status == 200)

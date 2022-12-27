@@ -3,9 +3,6 @@
 #include "patterns.h"
 //#include "secrets.h"
 
-#include <WebServer.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 
 void setup()
 {

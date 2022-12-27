@@ -9,6 +9,10 @@
 #include <SpotifyArduinoCert.h>
 #include <TJpg_Decoder.h>
 
+#include <WebServer.h>
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+
 String lastAlbumArtUrl;
 char scope[] = "user-read-playback-state%20user-modify-playback-state";
 

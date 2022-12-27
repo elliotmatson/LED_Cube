@@ -1,7 +1,4 @@
 #include "plasma.h"
-#include <Arduino.h>
-#include "config.h"
-#include "cube.h"
 
 unsigned long frameCount = 25500;
 

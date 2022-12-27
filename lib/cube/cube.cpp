@@ -3,6 +3,9 @@
 #include <freertos/task.h>
 #include <Arduino.h>
 
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+
 #include "cube.h"
 
 uint8_t const cos_wave[256] =

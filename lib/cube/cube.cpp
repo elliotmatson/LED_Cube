@@ -19,12 +19,16 @@ uint8_t const cos_wave[256] =
 TaskHandle_t checkForUpdatesTask = NULL;
 TaskHandle_t checkForOTATask = NULL;
 MatrixPanel_I2S_DMA *dma_display = nullptr;
-VirtualMatrixPanel *virtualDisp = nullptr;
 Preferences prefs;
 
-// Initialize PSRAM
+String serial;
+String hostname;
+
+// Initialize Preferences Library
 void initPrefs()
 {
+    serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
+    hostname = "cube-" + serial;
     prefs.begin("cube");
 }
 
@@ -90,7 +94,7 @@ void initDisplay()
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
     mxconfig.clkphase = false;
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-    dma_display->setBrightness8(255);
+    dma_display->setBrightness8(100);
     dma_display->setLatBlanking(2);
 
     // Allocate memory and start DMA display
@@ -123,73 +127,17 @@ void showDebug()
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
-    dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
+    dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s\n\nHostname:\n%s",
                         WiFi.localIP().toString().c_str(),
                         prefs.getString("HW").c_str(),
                         FW_VERSION,
-                        prefs.getString("SER").c_str());
+                        serial.c_str(),
+                        ArduinoOTA.getHostname().c_str());
     Serial.printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
                         WiFi.localIP().toString().c_str(),
                         prefs.getString("HW").c_str(),
                         FW_VERSION,
                         prefs.getString("SER").c_str());
-}
-
-// Calculates Cosine quickly using constants in flash
-inline uint8_t fastCosineCalc(uint16_t x)
-{
-    return cos_wave[x%256];
-}
-
-// Calculates precise projected X values of a pixel
-inline float projCalcX(uint8_t x, uint8_t y)
-{
-    if (x < 64)
-    { // Panel 1 (top)
-        return 0.8660254 * (x - y);
-    }
-    else if (x < 128)
-    { // Panel 2 (right)
-        return 111.7173 - 0.8660254 * x;
-    }
-    else if (x < 192)
-    { // Panel 3 (left)
-        return 109.1192 - 0.8660254 * x;
-    }
-}
-
-// Calculates less precise, but faster projected X values of a pixel
-inline uint8_t projCalcIntX(uint8_t x, uint8_t y)
-{
-    if (x < 64)
-    { // Panel 1 (top)
-        return (7 * (x - y)) >> 3;
-    }
-    else if (x < 128)
-    { // Panel 2 (right)
-        return 112 - ((7 * x) >> 3);
-    }
-    else if (x < 192)
-    { // Panel 3 (left)
-        return 109 - ((7 * x) >> 3);
-    }
-}
-
-// Calculates precise projected Y values of a pixel
-inline uint8_t projCalcY(uint8_t x, uint8_t y)
-{
-    if (x < 64)
-    { // Panel 1 (top)
-        return (130 - x - y) >> 1;
-    }
-    else if (x < 128)
-    { // Panel 2 (right)
-        return y - (x >> 1);
-    }
-    else if (x < 192)
-    { // Panel 3 (left)
-        return (x >> 1) + y - 128;
-    }
 }
 
 // Show a basic test sequence for testing panels

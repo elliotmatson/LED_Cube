@@ -5,8 +5,6 @@
 #include "config.h"
 #include "cube.h"
 
-unsigned long frameCount = 25500;
-
 void plasma();
 
 #endif

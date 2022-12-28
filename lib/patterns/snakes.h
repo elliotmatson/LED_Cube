@@ -74,7 +74,7 @@ struct Snake{
 class SnakeGame: public Pattern{
     public:
         SnakeGame(MatrixPanel_I2S_DMA *display, uint8_t, uint8_t, uint8_t);
-        void init_game();
+        void init();
         void update();
         void draw();
         void show();

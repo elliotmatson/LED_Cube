@@ -132,7 +132,7 @@ void Cube::initDisplay()
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
     mxconfig.clkphase = false;
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-    dma_display->setBrightness8(100);
+    dma_display->setBrightness8(255);
     dma_display->setLatBlanking(2);
 
     // Allocate memory and start DMA display
@@ -329,7 +329,7 @@ void Cube::printMem()
 
 void showPattern(void *parameter)
 {
-    SnakeGame game( (MatrixPanel_I2S_DMA *) parameter, 100, 10, 100);
+    SnakeGame game( (MatrixPanel_I2S_DMA *) parameter, 15, 3, 200);
     game.init();
     for (;;)
     {

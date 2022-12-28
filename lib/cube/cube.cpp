@@ -150,23 +150,22 @@ void initWifi()
 // shows debug info on display
 void showDebug()
 {
+    Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
+    Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
     // prefs.putString("HW", "v0.0.1");
     // prefs.putString("SER", "005");
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
-    dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s\n\nHostname:\n%s",
+    dma_display->printf("%s\nH%s S%s\nSER: %s\nHostname:\n%s\nH: %d P: %d",
                         WiFi.localIP().toString().c_str(),
                         prefs.getString("HW").c_str(),
                         FW_VERSION,
                         serial.c_str(),
-                        ArduinoOTA.getHostname().c_str());
-    Serial.printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
-                        WiFi.localIP().toString().c_str(),
-                        prefs.getString("HW").c_str(),
-                        FW_VERSION,
-                        prefs.getString("SER").c_str());
+                        ArduinoOTA.getHostname().c_str(),
+                        ESP.getFreeHeap(),
+                        ESP.getFreePsram());
 }
 
 void showCoordinates() {

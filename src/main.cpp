@@ -7,7 +7,6 @@ Cube cube;
 void setup()
 {
   cube.init();
-  //showCoordinates();
 }
 
 void loop()

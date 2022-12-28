@@ -1,34 +1,39 @@
-#include <stdio.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <Arduino.h>
-
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
-
 #include "cube.h"
 
-uint8_t const cos_wave[256] =
-    {0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 6, 6, 8, 9, 10, 11, 12, 14, 15, 17, 18, 20, 22, 23, 25, 27, 29, 31, 33, 35, 38, 40, 42,
-     45, 47, 49, 52, 54, 57, 60, 62, 65, 68, 71, 73, 76, 79, 82, 85, 88, 91, 94, 97, 100, 103, 106, 109, 113, 116, 119,
-     122, 125, 128, 131, 135, 138, 141, 144, 147, 150, 153, 156, 159, 162, 165, 168, 171, 174, 177, 180, 183, 186,
-     189, 191, 194, 197, 199, 202, 204, 207, 209, 212, 214, 216, 218, 221, 223, 225, 227, 229, 231, 232, 234, 236,
-     238, 239, 241, 242, 243, 245, 246, 247, 248, 249, 250, 251, 252, 252, 253, 253, 254, 254, 255, 255, 255, 255,
-     255, 255, 255, 255, 254, 254, 253, 253, 252, 252, 251, 250, 249, 248, 247, 246, 245, 243, 242, 241, 239, 238,
-     236, 234, 232, 231, 229, 227, 225, 223, 221, 218, 216, 214, 212, 209, 207, 204, 202, 199, 197, 194, 191, 189,
-     186, 183, 180, 177, 174, 171, 168, 165, 162, 159, 156, 153, 150, 147, 144, 141, 138, 135, 131, 128, 125, 122,
-     119, 116, 113, 109, 106, 103, 100, 97, 94, 91, 88, 85, 82, 79, 76, 73, 71, 68, 65, 62, 60, 57, 54, 52, 49, 47, 45,
-     42, 40, 38, 35, 33, 31, 29, 27, 25, 23, 22, 20, 18, 17, 15, 14, 12, 11, 10, 9, 8, 6, 6, 5, 4, 3, 2, 2, 1, 1, 1, 0, 0, 0, 0};
-TaskHandle_t checkForUpdatesTask = NULL;
-TaskHandle_t checkForOTATask = NULL;
-MatrixPanel_I2S_DMA *dma_display = nullptr;
-Preferences prefs;
+//TaskHandle_t checkForUpdatesTask = NULL;
+//TaskHandle_t checkForOTATask = NULL;
+//MatrixPanel_I2S_DMA *dma_display = nullptr;
+//Preferences prefs;
 
 String serial;
 String hostname;
 
+Cube::Cube()
+{
+
+}
+
+void Cube::init()
+{
+    Serial.begin(115200);
+    initPrefs();
+    initDisplay();
+    initWifi();
+    initUpdates();
+    showDebug();
+    delay(2000);
+    xTaskCreate(
+        showPattern,         // Function that should be called
+        "Show Pattern",      // Name of the task (for debugging)
+        6000,                // Stack size (bytes)
+        (void *) dma_display, // Parameter to pass
+        3,                   // Task priority
+        &showPatternTask // Task handle
+    );
+}
+
 // Initialize Preferences Library
-void initPrefs()
+void Cube::initPrefs()
 {
     serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
     hostname = "cube-" + serial;
@@ -36,7 +41,7 @@ void initPrefs()
 }
 
 // Initialize update methods, setup check tasks
-void initUpdates()
+void Cube::initUpdates()
 {
 #ifndef DEVELOPMENT
     Serial.printf("Github Update enabled...\n");
@@ -52,7 +57,7 @@ void initUpdates()
     Serial.printf("OTA Update Enabled\n");
     ArduinoOTA.setHostname("cube");
     ArduinoOTA
-        .onStart([]()
+        .onStart([&]()
                  {
                     String type;
                     if (ArduinoOTA.getCommand() == U_FLASH)
@@ -61,11 +66,12 @@ void initUpdates()
                         type = "filesystem";
 
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-                    Serial.println("Start updating " + type); 
+                    Serial.println("Start updating " + type);
+                    vTaskDelete(showPatternTask);
                     dma_display->fillScreenRGB888(0, 0, 0); })
         .onEnd([]()
                { Serial.println("\nEnd"); })
-        .onProgress([](unsigned int progress, unsigned int total)
+        .onProgress([&](unsigned int progress, unsigned int total)
                     { 
                         Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
                         
@@ -74,13 +80,17 @@ void initUpdates()
                             dma_display->drawPixelRGB888(128+i, 0, 255, 255, 255);
                         } else if (i < 128) {
                             dma_display->drawPixelRGB888(191, i-64, 255, 255, 255);
-                        } else if (i < 192) {
+                        }
+                        else if (i < 192)
+                        {
                             dma_display->drawPixelRGB888(0, 63-(i-128), 255, 255, 255);
                         } else if (i < 256) {
                             dma_display->drawPixelRGB888((i-192), 0, 255, 255, 255);
                         } else if (i < 320) {
                             dma_display->drawPixelRGB888(64, 63 - (i - 256), 255, 255, 255);
-                        } else if (i < 384) {
+                        }
+                        else if (i < 384)
+                        {
                             dma_display->drawPixelRGB888(64 + (i - 320), 0, 255, 255, 255);
                         } else if (i < 448) {
                             dma_display->drawPixelRGB888(127, (i - 384), 255, 255, 255);
@@ -90,8 +100,7 @@ void initUpdates()
                             dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
                             dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
                             dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
-                        }
-                    } )
+                        } })
         .onError([](ota_error_t error)
                  {
         Serial.printf("Error[%u]: ", error);
@@ -115,7 +124,7 @@ void initUpdates()
 }
 
 // Initialize display driver
-void initDisplay()
+void Cube::initDisplay()
 {
     Serial.printf("Configuring HUB_75\n");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
@@ -132,7 +141,7 @@ void initDisplay()
 }
 
 // Initialize wifi and prompt for connection if needed
-void initWifi()
+void Cube::initWifi()
 {
     pinMode(WIFI_LED, OUTPUT);
     digitalWrite(WIFI_LED, 0);
@@ -148,7 +157,7 @@ void initWifi()
 }
 
 // shows debug info on display
-void showDebug()
+void Cube::showDebug()
 {
     Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
     Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
@@ -158,7 +167,7 @@ void showDebug()
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
-    dma_display->printf("%s\nH%s S%s\nSER: %s\nHostname:\n%s\nH: %d P: %d",
+    dma_display->printf("%s\nH%s\nS%s\nSER: %s\nHostname:\n%s\nH: %d\nP: %d",
                         WiFi.localIP().toString().c_str(),
                         prefs.getString("HW").c_str(),
                         FW_VERSION,
@@ -168,7 +177,7 @@ void showDebug()
                         ESP.getFreePsram());
 }
 
-void showCoordinates() {
+void Cube::showCoordinates() {
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setTextColor(RED);
     dma_display->setTextSize(1);
@@ -207,7 +216,7 @@ void showCoordinates() {
 }
 
 // Show a basic test sequence for testing panels
-void showTestSequence()
+void Cube::showTestSequence()
 {
   dma_display->fillScreenRGB888(255, 0, 0);
   delay(500);
@@ -259,52 +268,46 @@ void checkForUpdates(void *parameter)
 {
     for (;;)
     {
-        firmwareUpdate();
-        vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
-    }
-}
+        HTTPClient http;
+        WiFiClientSecure client;
+        client.setInsecure();
 
-// Check for web updates
-void firmwareUpdate()
-{
-    HTTPClient http;
-    WiFiClientSecure client;
-    client.setInsecure();
+        String firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
+        Serial.printf("%s\n", firmwareUrl);
 
-    String firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
-    Serial.printf("%s\n",firmwareUrl);
-
-    if (!http.begin(client, firmwareUrl))
+        if (!http.begin(client, firmwareUrl))
         return;
 
-    int httpCode = http.sendRequest("HEAD");
-    if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
-    {
+        int httpCode = http.sendRequest("HEAD");
+        if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
+        {
         Serial.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
         http.end();
         return;
-    }
-    else
-    {
+        }
+        else
+        {
         Serial.printf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
-    }
+        }
 
-    httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-    t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
+        httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+        t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
 
-    switch (ret)
-    {
-    case HTTP_UPDATE_FAILED:
+        switch (ret)
+        {
+        case HTTP_UPDATE_FAILED:
         Serial.printf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
         break;
 
-    case HTTP_UPDATE_NO_UPDATES:
+        case HTTP_UPDATE_NO_UPDATES:
         Serial.printf("No Update!\n");
         break;
 
-    case HTTP_UPDATE_OK:
+        case HTTP_UPDATE_OK:
         Serial.printf("Update OK!\n");
         break;
+        }
+        vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
     }
 }
 #else
@@ -318,7 +321,18 @@ void checkForOTA(void *parameter)
 }
 #endif
 
-void printMem() {
+void Cube::printMem()
+{
     Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n",ESP.getFreeHeap(), ESP.getHeapSize(),ESP.getPsramSize() - ESP.getFreePsram(),ESP.getPsramSize());
     Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
+}
+
+void showPattern(void *parameter)
+{
+    SnakeGame game( (MatrixPanel_I2S_DMA *) parameter, 100, 10);
+    game.init();
+    for (;;)
+    {
+        game.show();
+    }
 }

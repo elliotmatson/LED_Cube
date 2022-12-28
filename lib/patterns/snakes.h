@@ -3,7 +3,8 @@
 
 #include <Arduino.h>
 #include "config.h"
-#include "cube.h"
+#include "pattern.h"
+#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
@@ -65,18 +66,21 @@ struct Snake{
   }
 };
 
-class SnakeGame{
+class SnakeGame: public Pattern{
     public:
-        SnakeGame(uint8_t, uint8_t);
-        void init_game();
-        void update();
-        void draw();
-        ~SnakeGame();
+      SnakeGame(MatrixPanel_I2S_DMA *display, uint8_t, uint8_t);
+      void init();
+      void update();
+      void draw();
+      void show();
+      ~SnakeGame();
+
     private:
-        uint8_t len;
-        Snake * snakes;
-        std::pair<uint8_t,uint8_t> ** board;
-        uint8_t n_snakes;
+      MatrixPanel_I2S_DMA *display;
+      uint8_t len;
+      Snake *snakes;
+      std::pair<uint8_t, uint8_t> **board;
+      uint8_t n_snakes;
 };
 
 #endif

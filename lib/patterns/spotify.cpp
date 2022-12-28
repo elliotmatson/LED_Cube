@@ -1,5 +1,5 @@
 #include "spotify.h"
-
+/*
 void spotifyInit(){
     prefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
     prefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
@@ -255,3 +255,4 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
         Serial.println("------------------------");
     }
 }
+*/

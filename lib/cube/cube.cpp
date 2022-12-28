@@ -54,18 +54,44 @@ void initUpdates()
     ArduinoOTA
         .onStart([]()
                  {
-        String type;
-        if (ArduinoOTA.getCommand() == U_FLASH)
-            type = "sketch";
-        else // U_SPIFFS
-            type = "filesystem";
+                    String type;
+                    if (ArduinoOTA.getCommand() == U_FLASH)
+                        type = "sketch";
+                    else // U_SPIFFS
+                        type = "filesystem";
 
-        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-        Serial.println("Start updating " + type); })
+                    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+                    Serial.println("Start updating " + type); 
+                    dma_display->fillScreenRGB888(0, 0, 0); })
         .onEnd([]()
                { Serial.println("\nEnd"); })
         .onProgress([](unsigned int progress, unsigned int total)
-                    { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
+                    { 
+                        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+                        
+                        int i = map(progress, 0, total, 0, 512);
+                        if (i < 64) {
+                            dma_display->drawPixelRGB888(128+i, 0, 255, 255, 255);
+                        } else if (i < 128) {
+                            dma_display->drawPixelRGB888(191, i-64, 255, 255, 255);
+                        } else if (i < 192) {
+                            dma_display->drawPixelRGB888(0, 63-(i-128), 255, 255, 255);
+                        } else if (i < 256) {
+                            dma_display->drawPixelRGB888((i-192), 0, 255, 255, 255);
+                        } else if (i < 320) {
+                            dma_display->drawPixelRGB888(64, 63 - (i - 256), 255, 255, 255);
+                        } else if (i < 384) {
+                            dma_display->drawPixelRGB888(64 + (i - 320), 0, 255, 255, 255);
+                        } else if (i < 448) {
+                            dma_display->drawPixelRGB888(127, (i - 384), 255, 255, 255);
+                            dma_display->drawPixelRGB888(128, (i - 384), 255, 255, 255);
+                        } else if (i < 512){
+                            dma_display->drawPixelRGB888(127 - (i - 448), 63, 255, 255, 255);
+                            dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
+                            dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
+                            dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
+                        }
+                    } )
         .onError([](ota_error_t error)
                  {
         Serial.printf("Error[%u]: ", error);
@@ -124,23 +150,60 @@ void initWifi()
 // shows debug info on display
 void showDebug()
 {
+    Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
+    Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
     // prefs.putString("HW", "v0.0.1");
     // prefs.putString("SER", "005");
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
-    dma_display->printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s\n\nHostname:\n%s",
+    dma_display->printf("%s\nH%s S%s\nSER: %s\nHostname:\n%s\nH: %d P: %d",
                         WiFi.localIP().toString().c_str(),
                         prefs.getString("HW").c_str(),
                         FW_VERSION,
                         serial.c_str(),
-                        ArduinoOTA.getHostname().c_str());
-    Serial.printf("Wifi Conn\n%s\nHW: %s\nSW: %s\nSER: %s",
-                        WiFi.localIP().toString().c_str(),
-                        prefs.getString("HW").c_str(),
-                        FW_VERSION,
-                        prefs.getString("SER").c_str());
+                        ArduinoOTA.getHostname().c_str(),
+                        ESP.getFreeHeap(),
+                        ESP.getFreePsram());
+}
+
+void showCoordinates() {
+    dma_display->fillScreenRGB888(0, 0, 0);
+    dma_display->setTextColor(RED);
+    dma_display->setTextSize(1);
+    dma_display->drawFastHLine(0, 0, 192, 0x4208);
+    dma_display->drawFastHLine(0, 63, 192, 0x4208);
+    for(int i = 0; i < 3; i++) {
+        int x0 = i*64;
+        int y0 = 0;
+        dma_display->drawFastVLine(i * 64, 0, 64, 0x4208);
+        dma_display->drawFastVLine((i * 64) + 63, 0, 64, 0x4208);
+        dma_display->drawPixel(x0, y0, RED);
+        dma_display->drawPixel(x0, y0+63, GREEN);
+        dma_display->drawPixel(x0+63, y0, BLUE);
+        dma_display->drawPixel(x0+63, y0+63, YELLOW);
+        dma_display->setTextColor(RED);
+        dma_display->setCursor(x0 + 1, y0 + 1);
+        dma_display->printf("%d,%d", x0, y0);
+        dma_display->setTextColor(GREEN);
+        dma_display->setCursor(x0+1, y0+55);
+        dma_display->printf("%d,%d", x0, y0+63);
+    }
+    dma_display->setTextColor(BLUE);
+    dma_display->setCursor(40, 1);
+    dma_display->printf("%d,%d", 63, 0);
+    dma_display->setCursor(98, 1);
+    dma_display->printf("%d,%d", 127, 0);
+    dma_display->setCursor(162, 1);
+    dma_display->printf("%d,%d", 191, 0);
+    dma_display->setTextColor(YELLOW);
+    dma_display->setCursor(34, 55);
+    dma_display->printf("%d,%d", 63, 63);
+    dma_display->setCursor(92, 47);
+    dma_display->printf("%d,%d", 127, 63);
+    dma_display->setCursor(156, 47);
+    dma_display->printf("%d,%d", 191, 63);
 }
 
 // Show a basic test sequence for testing panels

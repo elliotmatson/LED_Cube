@@ -23,6 +23,15 @@
 // Calculates precise projected Y values of a pixel
 #define PROJ_CALC_Y(x, y) ((x < 64) ? ((130 - x - y) >> 1) : ((x < 128) ? (y - (x >> 1)) : ((x >> 1) + y - 128)))
 
+#define BLACK 0x0000
+#define BLUE 0x001F
+#define RED 0xF800
+#define GREEN 0x07E0
+#define CYAN 0x07FF
+#define MAGENTA 0xF81F
+#define YELLOW 0xFFE0
+#define WHITE 0xFFFF
+
 extern uint8_t const cos_wave[256];
 extern TaskHandle_t checkForUpdatesTask;
 extern TaskHandle_t checkForOTATask;
@@ -34,6 +43,7 @@ void initUpdates();
 void initDisplay();
 void initWifi();
 void showDebug();
+void showCoordinates();
 void firmwareUpdate();
 void checkForUpdates(void *parameter);
 void checkForOTA(void *parameter);

@@ -2,7 +2,9 @@
 #include "cube.h"
 #include "patterns.h"
 //#include "secrets.h"
+#include "snakes.h"
 
+SnakeGame game(10,20);
 
 void setup()
 {
@@ -14,9 +16,11 @@ void setup()
   showDebug();
 
   delay(5000);
+  game.init_game(); 
 }
 
 void loop()
 {
-  plasma();
+  game.update();
+  game.draw();
 }

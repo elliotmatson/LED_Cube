@@ -12,7 +12,7 @@ void Cube::init()
     initDisplay();
     initWifi();
     initUpdates();
-    if (this->getDevMode() == 0) {
+    if (this->getDevMode()) {
         showDebug();
         delay(2000);
     }

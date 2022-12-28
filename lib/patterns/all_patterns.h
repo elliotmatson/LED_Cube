@@ -5,5 +5,11 @@
 #include "plasma.h"
 #include "snakes.h"
 
+// Enum for all patterns
+enum patterns
+{
+    snake,
+    plasma
+};
 
 #endif

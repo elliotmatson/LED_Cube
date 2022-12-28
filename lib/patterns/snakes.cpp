@@ -1,4 +1,5 @@
 #include "snakes.h"
+#include <utility>
 unsigned long frameCount = 25500;
 
 // v----This function is for allocating memory on the external drive (we have more of that)
@@ -8,9 +9,9 @@ unsigned long frameCount = 25500;
 SnakeGame::SnakeGame(uint8_t n_snakes, uint8_t len = 10){
   this->len = len;
   this->n_snakes = n_snakes;
-  this->board = (uint8_t **)malloc(PANEL_HEIGHT * sizeof(uint8_t *));
+  this->board = (std::pair<uint8_t,uint8_t> **)malloc(PANEL_HEIGHT * sizeof(uint8_t *));
   for(int i = 0; i < PANEL_HEIGHT; i++){
-    this->board[i] = (uint8_t *)malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(uint8_t));
+    this->board[i] = (std::pair<uint8_t,uint8_t> *)malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t,uint8_t>));
   }
   this->snakes = (Snake *)malloc(n_snakes * sizeof(Snake));
 }
@@ -24,10 +25,11 @@ SnakeGame::~SnakeGame(){
 void SnakeGame::init_game(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
-      this->board[i][j] = 0;
+      this->board[i][j].first = 0;
+      this->board[i][j].second = 0;
     }
   }
-  for(uint8_t i = 0; i < 4; i++){
+  for(uint8_t i = 0; i < n_snakes; i++){
     snakes[i].alive = true;
     snakes[i].r = random(255);
     snakes[i].g = random(255);
@@ -35,23 +37,25 @@ void SnakeGame::init_game(){
     snakes[i].t = 0;
     snakes[i].dir = 0;
     snakes[i].len = this->len;
+    snakes[i].id = i;
     do{
       snakes[i].col = random(PANEL_WIDTH * PANELS_NUMBER);
       snakes[i].row = random(PANEL_HEIGHT);
-    } while(this->board[snakes[i].row][snakes[i].col] != 0);
-    this->board[snakes[i].row][snakes[i].col] = this->len;
+    } while(this->board[snakes[i].row][snakes[i].col].second != 0);
+    this->board[snakes[i].row][snakes[i].col].second = this->len;
+    this->board[snakes[i].row][snakes[i].col].first = i;
   }
 }
 void SnakeGame::update(){
-  for(uint8_t i = 0; i < 4; i++){
+  for(uint8_t i = 0; i < n_snakes; i++){
     if(snakes[i].alive){
       snakes[i].move(board);
     }
   }
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
-      if(this->board[i][j] != 0){
-        this->board[i][j]--;
+      if(this->board[i][j].second != 0){
+        this->board[i][j].second--;
       }
     }
   }
@@ -59,8 +63,9 @@ void SnakeGame::update(){
 void SnakeGame::draw(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
-      if(this->board[i][j] != 0){
-        dma_display->drawPixelRGB888(j, i, 255, 255 , 255);
+      if(this->board[i][j].second != 0){
+        Snake * s = &snakes[this->board[i][j].first];
+        dma_display->drawPixelRGB888(j, i, s->r, s->g , s->b);
       } else{
         dma_display->drawPixelRGB888(j, i, 0, 0 , 0);
       }

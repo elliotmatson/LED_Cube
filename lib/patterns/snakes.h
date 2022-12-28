@@ -8,24 +8,24 @@
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
-  uint8_t r, g, b, dir, col, row, t, len;
+  uint8_t r, g, b, dir, col, row, t, len, id;
   bool alive;
-  void move(uint8_t ** board){
+  void move(std::pair<uint8_t, uint8_t> ** board){
     bool valid_dirs[4] = {true, true, true, true};
     uint8_t n_dirs = 4;
-    if(this->row == 0 || board[this->row - 1][this->col] != 0){
+    if(this->row == 0 || board[this->row - 1][this->col].second != 0){
       valid_dirs[0] = false;
       n_dirs--;
     }
-    if(this->col == PANEL_WIDTH * PANELS_NUMBER - 1 || board[this->row][this->col + 1] != 0){
+    if(this->col == PANEL_WIDTH * PANELS_NUMBER - 1 || board[this->row][this->col + 1].second != 0){
       valid_dirs[1] = false;
       n_dirs--;
     }
-    if(this->row == PANEL_HEIGHT - 1 || board[this->row + 1][this->col] != 0){
+    if(this->row == PANEL_HEIGHT - 1 || board[this->row + 1][this->col].second != 0){
       valid_dirs[2] = false;
       n_dirs--;
     }
-    if(this->col == 0 || board[this->row][this->col - 1] != 0){
+    if(this->col == 0 || board[this->row][this->col - 1].second != 0){
       valid_dirs[3] = false;
       n_dirs--;
     }
@@ -37,7 +37,7 @@ struct Snake{
     }
 
     // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
-    if(random(100) < 5 * t || !valid_dirs[this->dir]){
+    if(random(100) < 3 * t || !valid_dirs[this->dir]){
       do{
         this->dir = random(4);
       } while(!valid_dirs[this->dir]);
@@ -60,7 +60,8 @@ struct Snake{
         this->col--;
         break;
     }
-    board[this->row][this->col] = this->len;
+    board[this->row][this->col].second = this->len;
+    board[this->row][this->col].first = this->id;
   }
 };
 
@@ -74,7 +75,7 @@ class SnakeGame{
     private:
         uint8_t len;
         Snake * snakes;
-        uint8_t ** board;
+        std::pair<uint8_t,uint8_t> ** board;
         uint8_t n_snakes;
 };
 

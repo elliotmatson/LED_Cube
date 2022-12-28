@@ -1,45 +1,22 @@
 #include "config.h"
 #include "cube.h"
-#include "patterns.h"
 //#include "secrets.h"
-#include "snakes.h"
 
+<<<<<<< HEAD
 SnakeGame game(100,10, 100);
 TaskHandle_t showPatternTask;
 void showPattern(void *parameter);
+=======
+Cube cube;
+>>>>>>> 96efb4d1eec9f2637df363b097c824f470bf18c3
 
 void setup()
 {
-  Serial.begin(115200);
-  initPrefs();
-  initDisplay();
-  initWifi();
-  initUpdates();
-  showDebug();
-  delay(5000);
-  game.init_game(); 
-  showCoordinates();
-
-  /*xTaskCreate(
-      showPattern,     // Function that should be called
-      "Show Pattern", // Name of the task (for debugging)
-      8000,            // Stack size (bytes)
-      NULL,            // Parameter to pass
-      0,               // Task priority
-      &showPatternTask // Task handle
-  );*/
+  cube.init();
 }
 
 void loop()
 {
-  game.update();
-  game.draw();
   yield();
+  vTaskDelay(100/portTICK_PERIOD_MS);
 }
-
-/* void showPattern(void *parameter)
-{
-  while (true) {
-    plasma();
-  }
-}*/

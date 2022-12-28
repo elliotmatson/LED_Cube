@@ -1,12 +1,14 @@
 #include "snakes.h"
 #include <utility>
+
 unsigned long frameCount = 25500;
 
 // v----This function is for allocating memory on the external drive (we have more of that)
 //ps_malloc()
 
 
-SnakeGame::SnakeGame(uint8_t n_snakes = 10, uint8_t len = 10, uint8_t n_food = 100){
+SnakeGame::SnakeGame(MatrixPanel_I2S_DMA * display, uint8_t n_snakes = 10, uint8_t len = 10, uint8_t n_food = 100){
+  this->display = display;
   this->len = len;
   this->n_snakes = n_snakes;
   this->board = (std::pair<uint8_t,uint8_t> **)malloc(PANEL_HEIGHT * sizeof(uint8_t *));
@@ -23,7 +25,7 @@ SnakeGame::~SnakeGame(){
   free(this->board);
   free(this->snakes);
 }
-void SnakeGame::init_game(){
+void SnakeGame::init(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       this->board[i][j].first = 0;
@@ -76,11 +78,11 @@ void SnakeGame::draw(){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){
         Snake * s = &snakes[this->board[i][j].first];
-        dma_display->drawPixelRGB888(j, i, s->r, s->g , s->b);
+        display->drawPixelRGB888(j, i, s->r, s->g , s->b);
       } else if (this->board[i][j].first == FOOD_ID){
-        dma_display->drawPixelRGB888(j, i, 255, 255 , 255);
+        display->drawPixelRGB888(j, i, 255, 255 , 255);
       } else {
-        dma_display->drawPixelRGB888(j, i, 0, 0 , 0);
+        display->drawPixelRGB888(j, i, 0, 0 , 0);
       }
     }
   }
@@ -93,4 +95,9 @@ void SnakeGame::place_food(){
     col = random(PANEL_WIDTH * PANELS_NUMBER);
   } while(this->board[row][col].first != 0);
   this->board[row][col].first = FOOD_ID;
+}
+
+void SnakeGame::show(){
+  this->update();
+  this->draw();
 }

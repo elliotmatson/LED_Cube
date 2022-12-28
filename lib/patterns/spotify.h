@@ -1,6 +1,6 @@
 #ifndef SPOTIFY_H
 #define SPOTIFY_H
-
+/*
 #include <Arduino.h>
 #include "config.h"
 #include "cube.h"
@@ -53,5 +53,5 @@ bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitma
 int displayImage(char *albumArtUrl);
 void spotifyInit();
 void spotifyLoop();
-
+*/
 #endif

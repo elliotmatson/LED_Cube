@@ -3,7 +3,8 @@
 
 #include <Arduino.h>
 #include "config.h"
-#include "cube.h"
+#include "pattern.h"
+#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 255;
 
@@ -70,12 +71,13 @@ struct Snake{
   }
 };
 
-class SnakeGame{
+class SnakeGame: public Pattern{
     public:
-        SnakeGame(uint8_t, uint8_t, uint8_t);
+        SnakeGame(MatrixPanel_I2S_DMA *display, uint8_t, uint8_t, uint8_t);
         void init_game();
         void update();
         void draw();
+        void show();
         ~SnakeGame();
     private:
         uint8_t len; // Starting length of all snakes
@@ -83,6 +85,7 @@ class SnakeGame{
         std::pair<uint8_t,uint8_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
         uint8_t n_snakes;
         uint8_t n_food;
+        MatrixPanel_I2S_DMA *display;
 
         void place_food();
 };

@@ -2,7 +2,9 @@
 #include "cube.h"
 #include "patterns.h"
 //#include "secrets.h"
+#include "snakes.h"
 
+SnakeGame game(100,10);
 TaskHandle_t showPatternTask;
 void showPattern(void *parameter);
 
@@ -15,6 +17,7 @@ void setup()
   initUpdates();
   showDebug();
   delay(5000);
+  game.init_game(); 
   showCoordinates();
 
   /*xTaskCreate(
@@ -29,6 +32,8 @@ void setup()
 
 void loop()
 {
+  game.update();
+  game.draw();
   yield();
 }
 

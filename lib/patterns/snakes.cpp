@@ -6,7 +6,7 @@ unsigned long frameCount = 25500;
 //ps_malloc()
 
 
-SnakeGame::SnakeGame(uint8_t n_snakes, uint8_t len = 10){
+SnakeGame::SnakeGame(uint8_t n_snakes = 10, uint8_t len = 10, uint8_t n_food = 100){
   this->len = len;
   this->n_snakes = n_snakes;
   this->board = (std::pair<uint8_t,uint8_t> **)malloc(PANEL_HEIGHT * sizeof(uint8_t *));
@@ -14,6 +14,7 @@ SnakeGame::SnakeGame(uint8_t n_snakes, uint8_t len = 10){
     this->board[i] = (std::pair<uint8_t,uint8_t> *)malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t,uint8_t>));
   }
   this->snakes = (Snake *)malloc(n_snakes * sizeof(Snake));
+  this->n_food = n_food;
 }
 SnakeGame::~SnakeGame(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
@@ -41,7 +42,7 @@ void SnakeGame::init_game(){
     do{
       snakes[i].col = random(PANEL_WIDTH * PANELS_NUMBER);
       snakes[i].row = random(PANEL_HEIGHT);
-    } while(this->board[snakes[i].row][snakes[i].col].second != 0);
+    } while(this->board[snakes[i].row][snakes[i].col].first != 0);
     this->board[snakes[i].row][snakes[i].col].second = this->len;
     this->board[snakes[i].row][snakes[i].col].first = i;
   }
@@ -52,12 +53,22 @@ void SnakeGame::update(){
       snakes[i].move(board);
     }
   }
+  uint8_t count_food = 0;
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){
         this->board[i][j].second--;
+        if(this->board[i][j].second == 0){
+          this->board[i][j].first = 0;
+        }
+      }
+      if(this->board[i][j].first == FOOD_ID){
+        count_food++;
       }
     }
+  }
+  for(uint8_t i = 0; i < n_food - count_food; i++){
+    place_food();
   }
 }
 void SnakeGame::draw(){
@@ -66,34 +77,20 @@ void SnakeGame::draw(){
       if(this->board[i][j].second != 0){
         Snake * s = &snakes[this->board[i][j].first];
         dma_display->drawPixelRGB888(j, i, s->r, s->g , s->b);
-      } else{
+      } else if (this->board[i][j].first == FOOD_ID){
+        dma_display->drawPixelRGB888(j, i, 255, 255 , 255);
+      } else {
         dma_display->drawPixelRGB888(j, i, 0, 0 , 0);
       }
     }
   }
 }
 
-
-
-// void plasma()
-// {
-//   frameCount++;
-//   uint16_t t = FAST_COS((42 * frameCount) >> 6); // time displacement - fiddle with these til it looks good...
-//   uint16_t t2 = FAST_COS((35 * frameCount) >> 6);
-//   uint16_t t3 = FAST_COS((38 * frameCount) >> 6);
-
-//   for (uint8_t i = 0; i < PANEL_WIDTH * PANELS_NUMBER; i++)
-//   {
-//     for (uint8_t j = 0; j < PANEL_HEIGHT; j++)
-//     {
-//       uint8_t x = (PROJ_CALC_INT_X(i, j) + 66);
-//       uint8_t y = (PROJ_CALC_Y(i, j) + 66);
-
-//       uint8_t r = FAST_COS(((x << 3) + (t >> 1) + FAST_COS((t2 + (y << 3)))) >> 2);
-//       uint8_t g = FAST_COS(((y << 3) + t + FAST_COS(((t3 >> 2) + (x << 3)))) >> 2);
-//       uint8_t b = FAST_COS(((y << 3) + t2 + FAST_COS((t + x + (g >> 2)))) >> 2);
-
-//       dma_display->drawPixelRGB888(i, j, r, g, b);
-//     }
-//   }
-// }
+void SnakeGame::place_food(){
+  u_int8_t row, col;
+  do{
+    row = random(PANEL_HEIGHT);
+    col = random(PANEL_WIDTH * PANELS_NUMBER);
+  } while(this->board[row][col].first != 0);
+  this->board[row][col].first = FOOD_ID;
+}

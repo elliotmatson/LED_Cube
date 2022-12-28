@@ -5,6 +5,8 @@
 #include "config.h"
 #include "cube.h"
 
+const uint8_t FOOD_ID = 255;
+
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
@@ -60,6 +62,9 @@ struct Snake{
         this->col--;
         break;
     }
+    if(board[this->row][this->col].first == FOOD_ID){
+      this->len++;
+    }
     board[this->row][this->col].second = this->len;
     board[this->row][this->col].first = this->id;
   }
@@ -67,16 +72,19 @@ struct Snake{
 
 class SnakeGame{
     public:
-        SnakeGame(uint8_t, uint8_t);
+        SnakeGame(uint8_t, uint8_t, uint8_t);
         void init_game();
         void update();
         void draw();
         ~SnakeGame();
     private:
-        uint8_t len;
-        Snake * snakes;
-        std::pair<uint8_t,uint8_t> ** board;
+        uint8_t len; // Starting length of all snakes
+        Snake * snakes; // Array of all snakes in the game
+        std::pair<uint8_t,uint8_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
         uint8_t n_snakes;
+        uint8_t n_food;
+
+        void place_food();
 };
 
 #endif

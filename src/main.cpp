@@ -4,7 +4,7 @@
 //#include "secrets.h"
 #include "snakes.h"
 
-SnakeGame game(100,10);
+SnakeGame game(100,10, 100);
 TaskHandle_t showPatternTask;
 void showPattern(void *parameter);
 

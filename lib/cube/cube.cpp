@@ -1,14 +1,9 @@
 #include "cube.h"
 
-//TaskHandle_t checkForUpdatesTask = NULL;
-//TaskHandle_t checkForOTATask = NULL;
-//MatrixPanel_I2S_DMA *dma_display = nullptr;
-//Preferences prefs;
-
-String serial;
-String hostname;
-
-Cube::Cube(){}
+Cube::Cube(bool devMode){
+    this->devMode = devMode;
+    this->serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
+}
 
 void Cube::init()
 {
@@ -17,8 +12,10 @@ void Cube::init()
     initDisplay();
     initWifi();
     initUpdates();
-    showDebug();
-    delay(2000);
+    if (this->getDevMode() == 0) {
+        showDebug();
+        delay(2000);
+    }
     xTaskCreate(
         showPattern,         // Function that should be called
         "Show Pattern",      // Name of the task (for debugging)
@@ -32,30 +29,28 @@ void Cube::init()
 // Initialize Preferences Library
 void Cube::initPrefs()
 {
-    serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
-    hostname = "cube-" + serial;
     prefs.begin("cube");
 }
 
 // Initialize update methods, setup check tasks
 void Cube::initUpdates()
 {
-#ifndef DEVELOPMENT
-    Serial.printf("Github Update enabled...\n");
-    xTaskCreate(
-        checkForUpdates,     // Function that should be called
-        "Check For Updates", // Name of the task (for debugging)
-        6000,                // Stack size (bytes)
-        NULL,                // Parameter to pass
-        0,                   // Task priority
-        &checkForUpdatesTask // Task handle
-    );
-#else
-    Serial.printf("OTA Update Enabled\n");
-    ArduinoOTA.setHostname("cube");
-    ArduinoOTA
-        .onStart([&]()
-                 {
+    if(this->getDevMode() == 0) {
+        Serial.printf("Github Update enabled...\n");
+        xTaskCreate(
+            checkForUpdates,     // Function that should be called
+            "Check For Updates", // Name of the task (for debugging)
+            6000,                // Stack size (bytes)
+            NULL,                // Parameter to pass
+            0,                   // Task priority
+            &checkForUpdatesTask // Task handle
+        );
+    } else {
+        Serial.printf("OTA Update Enabled\n");
+        ArduinoOTA.setHostname("cube");
+        ArduinoOTA
+            .onStart([&]()
+                     {
                     String type;
                     if (ArduinoOTA.getCommand() == U_FLASH)
                         type = "sketch";
@@ -67,15 +62,14 @@ void Cube::initUpdates()
                     vTaskDelete(showPatternTask);
                     setBrightness(100);
                     dma_display->fillScreenRGB888(0, 0, 0); })
-        .onEnd([&]()
-                { 
+            .onEnd([&]()
+                   { 
                     Serial.println("\nEnd"); 
                     for(uint8_t i = getBrightness(); i > 0; i--) {
                         setBrightness(i);
-                    }
-                })
-        .onProgress([&](unsigned int progress, unsigned int total)
-                { 
+                    } })
+            .onProgress([&](unsigned int progress, unsigned int total)
+                        { 
                     Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
                     
                     int i = map(progress, 0, total, 0, 512);
@@ -103,10 +97,9 @@ void Cube::initUpdates()
                         dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
                         dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
                         dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
-                    } 
-                })
-        .onError([](ota_error_t error)
-                 {
+                    } })
+            .onError([](ota_error_t error)
+                     {
         Serial.printf("Error[%u]: ", error);
         if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
         else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
@@ -114,17 +107,17 @@ void Cube::initUpdates()
         else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
         else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
 
-    ArduinoOTA.begin();
+        ArduinoOTA.begin();
 
-    xTaskCreate(
-        checkForOTA,     // Function that should be called
-        "Check For OTA", // Name of the task (for debugging)
-        6000,            // Stack size (bytes)
-        NULL,            // Parameter to pass
-        0,               // Task priority
-        &checkForOTATask // Task handle
-    );
-#endif
+        xTaskCreate(
+            checkForOTA,     // Function that should be called
+            "Check For OTA", // Name of the task (for debugging)
+            6000,            // Stack size (bytes)
+            NULL,            // Parameter to pass
+            0,               // Task priority
+            &checkForOTATask // Task handle
+        );
+    }
 }
 
 // Initialize display driver
@@ -171,6 +164,16 @@ uint8_t Cube::getBrightness()
     return this->brightness;
 }
 
+void Cube::setDevMode(bool devMode)
+{
+    this->devMode = devMode;
+}
+
+bool Cube::getDevMode()
+{
+    return this->devMode;
+}
+
 // shows debug info on display
 void Cube::showDebug()
 {
@@ -182,12 +185,11 @@ void Cube::showDebug()
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
     dma_display->setTextSize(1);
-    dma_display->printf("%s\nH%s\nS%s\nSER: %s\nHostname:\n%s\nH: %d\nP: %d",
+    dma_display->printf("%s\nH%s\nS%s\nSER: %s\nH: %d\nP: %d",
                         WiFi.localIP().toString().c_str(),
                         prefs.getString("HW").c_str(),
                         FW_VERSION,
                         serial.c_str(),
-                        ArduinoOTA.getHostname().c_str(),
                         ESP.getFreeHeap(),
                         ESP.getFreePsram());
 }
@@ -278,7 +280,6 @@ void Cube::showTestSequence()
 }
 
 // Task to check for updates
-#ifndef DEVELOPMENT
 void checkForUpdates(void *parameter)
 {
     for (;;)
@@ -325,7 +326,7 @@ void checkForUpdates(void *parameter)
         vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
     }
 }
-#else
+
 void checkForOTA(void *parameter)
 {
     for (;;)
@@ -334,7 +335,6 @@ void checkForOTA(void *parameter)
         vTaskDelay(300 / portTICK_PERIOD_MS);
     }
 }
-#endif
 
 void Cube::printMem()
 {

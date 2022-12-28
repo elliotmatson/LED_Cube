@@ -20,7 +20,7 @@
 
 class Cube {
     public:
-        Cube();
+        Cube(bool devMode = 0);
         void init();
         MatrixPanel_I2S_DMA *dma_display;
         void printMem();
@@ -29,6 +29,8 @@ class Cube {
         void showTestSequence();
         void setBrightness(uint8_t brightness);
         uint8_t getBrightness();
+        void setDevMode(bool devMode);
+        bool getDevMode();
 
     private:
         TaskHandle_t checkForUpdatesTask;
@@ -36,16 +38,17 @@ class Cube {
         TaskHandle_t showPatternTask;
         Preferences prefs;
         uint8_t brightness;
+        String serial;
         void initPrefs();
         void initUpdates();
         void initDisplay();
         void initWifi();
         patterns currentPattern;
+        bool devMode;
 
 };
-#ifndef DEVELOPMENT
+
 void checkForUpdates(void *parameter);
-#endif
 void checkForOTA(void *parameter);
 void showPattern(void *parameter);
 

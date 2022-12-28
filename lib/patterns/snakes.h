@@ -6,6 +6,8 @@
 #include "pattern.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
+const uint8_t FOOD_ID = 255;
+
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
@@ -61,6 +63,9 @@ struct Snake{
         this->col--;
         break;
     }
+    if(board[this->row][this->col].first == FOOD_ID){
+      this->len++;
+    }
     board[this->row][this->col].second = this->len;
     board[this->row][this->col].first = this->id;
   }
@@ -68,19 +73,21 @@ struct Snake{
 
 class SnakeGame: public Pattern{
     public:
-      SnakeGame(MatrixPanel_I2S_DMA *display, uint8_t, uint8_t);
-      void init();
-      void update();
-      void draw();
-      void show();
-      ~SnakeGame();
-
+        SnakeGame(MatrixPanel_I2S_DMA *display, uint8_t, uint8_t, uint8_t);
+        void init();
+        void update();
+        void draw();
+        void show();
+        ~SnakeGame();
     private:
-      MatrixPanel_I2S_DMA *display;
-      uint8_t len;
-      Snake *snakes;
-      std::pair<uint8_t, uint8_t> **board;
-      uint8_t n_snakes;
+        uint8_t len; // Starting length of all snakes
+        Snake * snakes; // Array of all snakes in the game
+        std::pair<uint8_t,uint8_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
+        uint8_t n_snakes;
+        uint8_t n_food;
+        MatrixPanel_I2S_DMA *display;
+
+        void place_food();
 };
 
 #endif

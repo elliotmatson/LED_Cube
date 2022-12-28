@@ -329,7 +329,7 @@ void Cube::printMem()
 
 void showPattern(void *parameter)
 {
-    SnakeGame game( (MatrixPanel_I2S_DMA *) parameter, 100, 10);
+    SnakeGame game( (MatrixPanel_I2S_DMA *) parameter, 100, 10, 100);
     game.init();
     for (;;)
     {

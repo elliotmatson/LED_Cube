@@ -11,7 +11,7 @@ const uint8_t FOOD_ID = 255;
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
-  uint8_t r, g, b, dir, col, row, t, len, id;
+  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, len, id, respawn_delay;
   bool alive;
   void move(std::pair<uint8_t, uint8_t> ** board){
     bool valid_dirs[4] = {true, true, true, true};
@@ -36,11 +36,12 @@ struct Snake{
     // If the snake has no valid moves, the snake is dead :(
     if(n_dirs == 0){
       this->alive = false;
+      this->respawn_delay = this->len;
       return;
     }
 
     // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
-    if(random(100) < 3 * t || !valid_dirs[this->dir]){
+    if(random(1000) < 30 * (1.0/sqrt(len)) * t || !valid_dirs[this->dir]){
       do{
         this->dir = random(4);
       } while(!valid_dirs[this->dir]);
@@ -64,7 +65,7 @@ struct Snake{
         break;
     }
     if(board[this->row][this->col].first == FOOD_ID){
-      this->len++;
+      this->len+=2;
     }
     board[this->row][this->col].second = this->len;
     board[this->row][this->col].first = this->id;
@@ -73,7 +74,7 @@ struct Snake{
 
 class SnakeGame: public Pattern{
     public:
-        SnakeGame(MatrixPanel_I2S_DMA *display, uint8_t, uint8_t, uint8_t);
+        SnakeGame(MatrixPanel_I2S_DMA *display, uint8_t, uint8_t, uint16_t);
         void init();
         void update();
         void draw();
@@ -84,10 +85,11 @@ class SnakeGame: public Pattern{
         Snake * snakes; // Array of all snakes in the game
         std::pair<uint8_t,uint8_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
         uint8_t n_snakes;
-        uint8_t n_food;
+        uint16_t n_food;
         MatrixPanel_I2S_DMA *display;
 
         void place_food();
+        void spawn_snake(uint8_t i);
 };
 
 #endif

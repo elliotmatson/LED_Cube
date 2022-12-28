@@ -348,7 +348,7 @@ void showPattern(void *parameter)
     patterns pattern = snake;
     switch (pattern) {
         case snake: {
-            SnakeGame game(&display, 100, 10, 100);
+            SnakeGame game(&display, 15, 3, 200);
             game.init();
             for (;;)
             {

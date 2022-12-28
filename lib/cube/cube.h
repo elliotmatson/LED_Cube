@@ -13,7 +13,6 @@
 #include <freertos/task.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
-//#include <WebSerial.h>
 
 #include "config.h"
 #include "pattern.h"
@@ -28,19 +27,25 @@ class Cube {
         void showDebug();
         void showCoordinates();
         void showTestSequence();
+        void setBrightness(uint8_t brightness);
+        uint8_t getBrightness();
 
     private:
         TaskHandle_t checkForUpdatesTask;
         TaskHandle_t checkForOTATask;
         TaskHandle_t showPatternTask;
         Preferences prefs;
+        uint8_t brightness;
         void initPrefs();
         void initUpdates();
         void initDisplay();
         void initWifi();
-};
+        patterns currentPattern;
 
+};
+#ifndef DEVELOPMENT
 void checkForUpdates(void *parameter);
+#endif
 void checkForOTA(void *parameter);
 void showPattern(void *parameter);
 

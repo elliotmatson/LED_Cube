@@ -8,10 +8,7 @@
 String serial;
 String hostname;
 
-Cube::Cube()
-{
-
-}
+Cube::Cube(){}
 
 void Cube::init()
 {
@@ -68,39 +65,46 @@ void Cube::initUpdates()
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
                     Serial.println("Start updating " + type);
                     vTaskDelete(showPatternTask);
+                    setBrightness(100);
                     dma_display->fillScreenRGB888(0, 0, 0); })
-        .onEnd([]()
-               { Serial.println("\nEnd"); })
+        .onEnd([&]()
+                { 
+                    Serial.println("\nEnd"); 
+                    for(uint8_t i = getBrightness(); i > 0; i--) {
+                        setBrightness(i);
+                    }
+                })
         .onProgress([&](unsigned int progress, unsigned int total)
-                    { 
-                        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-                        
-                        int i = map(progress, 0, total, 0, 512);
-                        if (i < 64) {
-                            dma_display->drawPixelRGB888(128+i, 0, 255, 255, 255);
-                        } else if (i < 128) {
-                            dma_display->drawPixelRGB888(191, i-64, 255, 255, 255);
-                        }
-                        else if (i < 192)
-                        {
-                            dma_display->drawPixelRGB888(0, 63-(i-128), 255, 255, 255);
-                        } else if (i < 256) {
-                            dma_display->drawPixelRGB888((i-192), 0, 255, 255, 255);
-                        } else if (i < 320) {
-                            dma_display->drawPixelRGB888(64, 63 - (i - 256), 255, 255, 255);
-                        }
-                        else if (i < 384)
-                        {
-                            dma_display->drawPixelRGB888(64 + (i - 320), 0, 255, 255, 255);
-                        } else if (i < 448) {
-                            dma_display->drawPixelRGB888(127, (i - 384), 255, 255, 255);
-                            dma_display->drawPixelRGB888(128, (i - 384), 255, 255, 255);
-                        } else if (i < 512){
-                            dma_display->drawPixelRGB888(127 - (i - 448), 63, 255, 255, 255);
-                            dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
-                            dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
-                            dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
-                        } })
+                { 
+                    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+                    
+                    int i = map(progress, 0, total, 0, 512);
+                    if (i < 64) {
+                        dma_display->drawPixelRGB888(128+i, 0, 255, 255, 255);
+                    } else if (i < 128) {
+                        dma_display->drawPixelRGB888(191, i-64, 255, 255, 255);
+                    }
+                    else if (i < 192)
+                    {
+                        dma_display->drawPixelRGB888(0, 63-(i-128), 255, 255, 255);
+                    } else if (i < 256) {
+                        dma_display->drawPixelRGB888((i-192), 0, 255, 255, 255);
+                    } else if (i < 320) {
+                        dma_display->drawPixelRGB888(64, 63 - (i - 256), 255, 255, 255);
+                    }
+                    else if (i < 384)
+                    {
+                        dma_display->drawPixelRGB888(64 + (i - 320), 0, 255, 255, 255);
+                    } else if (i < 448) {
+                        dma_display->drawPixelRGB888(127, (i - 384), 255, 255, 255);
+                        dma_display->drawPixelRGB888(128, (i - 384), 255, 255, 255);
+                    } else if (i < 512){
+                        dma_display->drawPixelRGB888(127 - (i - 448), 63, 255, 255, 255);
+                        dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
+                        dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
+                        dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
+                    } 
+                })
         .onError([](ota_error_t error)
                  {
         Serial.printf("Error[%u]: ", error);
@@ -132,7 +136,7 @@ void Cube::initDisplay()
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
     mxconfig.clkphase = false;
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-    dma_display->setBrightness8(100);
+    setBrightness(255);
     dma_display->setLatBlanking(2);
 
     // Allocate memory and start DMA display
@@ -154,6 +158,17 @@ void Cube::initWifi()
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
     digitalWrite(WIFI_LED, 1);
+}
+
+void Cube::setBrightness(uint8_t brightness)
+{
+    this->brightness = brightness;
+    dma_display->setBrightness8(brightness);
+}
+
+uint8_t Cube::getBrightness()
+{
+    return this->brightness;
 }
 
 // shows debug info on display
@@ -329,10 +344,26 @@ void Cube::printMem()
 
 void showPattern(void *parameter)
 {
-    SnakeGame game( (MatrixPanel_I2S_DMA *) parameter, 100, 10, 100);
-    game.init();
-    for (;;)
-    {
-        game.show();
+    MatrixPanel_I2S_DMA display = *(MatrixPanel_I2S_DMA *) parameter;
+    patterns pattern = snake;
+    switch (pattern) {
+        case snake: {
+            SnakeGame game(&display, 100, 10, 100);
+            game.init();
+            for (;;)
+            {
+                game.show();
+            }
+            break;
+        }
+        case plasma: {
+            Plasma plasma(&display);
+            plasma.init();
+            for (;;)
+            {
+                plasma.show();
+            }
+            break;
+        }
     }
 }

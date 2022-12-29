@@ -11,7 +11,7 @@ const uint8_t FOOD_ID = 255;
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
-  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, len, id, respawn_delay;
+  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, len, id, respawn_delay, type;
   bool alive;
   void move(std::pair<uint8_t, uint8_t> ** board){
     bool valid_dirs[4] = {true, true, true, true};
@@ -90,6 +90,7 @@ class SnakeGame: public Pattern{
 
         void place_food();
         void spawn_snake(uint8_t i);
+        enum SnakeType {REGULAR = 0, GRADIENT = 1, ALTERNATING = 2, GHOST = 3};
 };
 
 #endif

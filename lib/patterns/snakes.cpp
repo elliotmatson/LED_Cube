@@ -77,22 +77,43 @@ void SnakeGame::update(){
 void SnakeGame::draw(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
-      if(this->board[i][j].second != 0){
+      if(this->board[i][j].second != 0){ // If there is a snake part here
         Snake * s = &snakes[this->board[i][j].first];
-        if(s->alive){
-          double c1_factor = (double)(this->board[i][j].second - 1) / (s->len - 1);
-          double c2_factor = (double)((s->len-1) - (this->board[i][j].second - 1)) / (s->len - 1);
-          display->drawPixelRGB888(
-            j, 
-            i, 
-            (c1_factor * s->r1 + c2_factor * s->r2) / 2, 
-            (c1_factor * s->g1 + c2_factor * s->g2) / 2, 
-            (c1_factor * s->b1 + c2_factor * s->b2) / 2
-          );
-        } else {
-          double brigtness = s->respawn_delay / (double)s->len;
-          display->drawPixelRGB888(j, i, s->r1 * brigtness, s->g1 * brigtness, s->b1 * brigtness);
+        uint8_t r = 0, g = 0, b = 0;
+        double c1_factor = (double)(this->board[i][j].second - 1) / (s->len - 1);
+        double c2_factor = (double)((s->len-1) - (this->board[i][j].second - 1)) / (s->len - 1);
+        
+        // Multicolor gradient snake
+        if(s->type == SnakeType::GRADIENT){
+          r = (c1_factor * s->r1 + c2_factor * s->r2) / 2;
+          g = (c1_factor * s->g1 + c2_factor * s->g2) / 2;
+          b = (c1_factor * s->b1 + c2_factor * s->b2) / 2;
+        } else if(s->type == SnakeType::REGULAR){
+          r = s->r1;
+          g = s->g1;
+          b = s->b1;
+        } else if(s->type == SnakeType::ALTERNATING){
+          if(this->board[i][j].second / 4 % 2 == 0){
+            r = s->r1;
+            g = s->g1;
+            b = s->b1;
+          } else {
+            r = s->r2;
+            g = s->g2;
+            b = s->b2;
+          }
         }
+        if(s->alive){
+          display->drawPixelRGB888(j, i, r, g, b);
+        } else {
+          double brightness = s->respawn_delay / (double)s->len; 
+          display->drawPixelRGB888(j, i, 
+            min(255, (int)(r * brightness * 4)),
+            min(255, (int)(g * brightness * 4)),
+            min(255, (int)(b * brightness * 4))
+          );
+        }
+
       } else if (this->board[i][j].first == FOOD_ID){
         display->drawPixelRGB888(j, i, 100, 100, 100);
       } else {
@@ -107,9 +128,24 @@ void SnakeGame::spawn_snake(uint8_t i){
   snakes[i].r2 = random(255);
   snakes[i].g2 = random(255);
   snakes[i].b2 = random(255);
-  snakes[i].r1 = min(255, snakes[i].r2 + 50);
-  snakes[i].g1 = min(255, snakes[i].g2 + 50);
-  snakes[i].b1 = min(255, snakes[i].b2 + 50);
+
+  snakes[i].r1 = random(255);
+  snakes[i].g1 = random(255);
+  snakes[i].b1 = random(255);
+
+  // Determines how the snake is colored
+  int typeGen = random(10);
+  if(typeGen < 8){
+    snakes[i].type = SnakeType::REGULAR;
+  } else if(typeGen == 9){
+    snakes[i].type = SnakeType::GRADIENT;
+  } else {
+    snakes[i].type = SnakeType::ALTERNATING;
+  }
+
+  // snakes[i].r1 = min(255, snakes[i].r2 + 50);
+  // snakes[i].g1 = min(255, snakes[i].g2 + 50);
+  // snakes[i].b1 = min(255, snakes[i].b2 + 50);
 
   snakes[i].t = 0;
   snakes[i].dir = 0;

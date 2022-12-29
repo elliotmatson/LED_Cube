@@ -228,5 +228,20 @@ void SnakeGame::place_food(){
 void SnakeGame::show(){
   this->update();
   this->draw();
+
+  display->drawPixelRGB888(0, 0, 255, 0, 0); // Red
+  display->drawPixelRGB888(63, 0, 0, 255, 0); // Green
+  display->drawPixelRGB888(63, 63, 0, 0, 255); // Blue
+  display->drawPixelRGB888(0, 63, 255, 255, 255); // White
+
+  display->drawPixelRGB888(64, 0, 255, 0, 0);
+  display->drawPixelRGB888(127, 0, 0, 255, 0);
+  display->drawPixelRGB888(127, 63, 0, 0, 255);
+  display->drawPixelRGB888(64, 63, 255, 255, 0); // Yellow
+
+  display->drawPixelRGB888(128, 0, 255, 0, 0);
+  display->drawPixelRGB888(191, 0, 0, 255, 0);
+  display->drawPixelRGB888(191, 63, 0, 0, 255);
+  display->drawPixelRGB888(128, 63, 0, 255, 255); // Cyan
   frameCount++;
 }

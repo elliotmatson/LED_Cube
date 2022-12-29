@@ -2,11 +2,109 @@
 #define SNAKES_H
 
 #include <Arduino.h>
+#include <utility>
 #include "config.h"
 #include "pattern.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 255;
+
+inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
+  // Check if the move is valid, and if so, return the new position
+  // Movement space is 3 sides of a cube (top, left, right) 64 x 64 pixels for each face. 
+  // Cols 0-63 are the left face, 64-127 are the right face, and 128-191 are the top face
+  
+  switch (col / PANEL_WIDTH){
+    case 0: // Top face
+      switch (dir){
+        case 0: // Up
+          if(row == 0){ // Top border (invalid move)
+            return std::make_pair(255, 255);
+          } else {
+            return std::make_pair(row - 1, col);
+          }
+          break;
+        case 1: // Right
+          if(col == 63){ // Move to the right face 
+            return std::make_pair(63, 64 + row);
+          } else {
+            return std::make_pair(row, col + 1);
+          }
+          break;
+        case 2: // Down
+          if(row == 63){ // Move to the left face
+            return std::make_pair(63, 191 - col);
+          } else {
+            return std::make_pair(row + 1, col);
+          }
+          break;
+        case 3: // Left
+          if(col == 0){ // Left border (invalid move)
+            return std::make_pair(255, 255);
+          } else {
+            return std::make_pair(row, col - 1);
+          }
+          break;
+      }
+      break;
+    case 1: // Right face
+      switch (dir){
+        case 0: // Up
+          if(row == 0){ // Bottom border (invalid move)
+            return std::make_pair(255, 255);
+          } else {
+            return std::make_pair(row - 1, col);
+          }
+          break;
+        case 1: // Right
+          return std::make_pair(row, col + 1);
+          break;
+        case 2: // Down
+          if(row == 63){ // Move to the top face
+            return std::make_pair(col - 64, 63);
+          } else {
+            return std::make_pair(row + 1, col);
+          }
+          break;
+        case 3:
+          if(col == 64){ // Right border (invalid move)
+            return std::make_pair(255, 255);
+          } else {
+            return std::make_pair(row, col-1);
+          }
+      }
+      break;
+    case 2: // Left face
+      switch (dir){
+        case 0: // Up
+          if(row == 0){ // Bottom border (invalid move)
+            return std::make_pair(255, 255);
+          } else {
+            return std::make_pair(row - 1, col);
+          }
+          break;
+        case 1: // Right
+          if(row == 0){ // Left border (invalid move)
+            return std::make_pair(255, 255);
+          } else {
+            return std::make_pair(row, col + 1);
+          }
+          break;
+        case 2: // Down
+          if(row == 63){ // Move to the top face
+            return std::make_pair(63, 191 - col);
+          } else {
+            return std::make_pair(row + 1, col);
+          }
+          break;
+        case 3: // Left
+          return std::make_pair(row, col - 1);
+          break;
+      }
+      break;
+  }
+  return std::make_pair(255, 255);
+}
 
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
@@ -16,21 +114,12 @@ struct Snake{
   void move(std::pair<uint8_t, uint8_t> ** board){
     bool valid_dirs[4] = {true, true, true, true};
     uint8_t n_dirs = 4;
-    if(this->row == 0 || board[this->row - 1][this->col].second != 0){
-      valid_dirs[0] = false;
-      n_dirs--;
-    }
-    if(this->col == PANEL_WIDTH * PANELS_NUMBER - 1 || board[this->row][this->col + 1].second != 0){
-      valid_dirs[1] = false;
-      n_dirs--;
-    }
-    if(this->row == PANEL_HEIGHT - 1 || board[this->row + 1][this->col].second != 0){
-      valid_dirs[2] = false;
-      n_dirs--;
-    }
-    if(this->col == 0 || board[this->row][this->col - 1].second != 0){
-      valid_dirs[3] = false;
-      n_dirs--;
+    for(uint8_t i = 0 ; i < 4; i++){
+      std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, i);
+      if(new_pos.first == 255 || board[new_pos.first][new_pos.second].second != 0){
+        valid_dirs[i] = false;
+        n_dirs--;
+      }
     }
     
     // If the snake has no valid moves, the snake is dead :(
@@ -50,20 +139,10 @@ struct Snake{
     t++;
 
     // Move the snake
-    switch(this->dir){
-      case 0:
-        this->row--;
-        break;
-      case 1:
-        this->col++;
-        break;
-      case 2:
-        this->row++;
-        break;
-      case 3:
-        this->col--;
-        break;
-    }
+    std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, this->dir);
+    this->row = new_pos.first;
+    this->col = new_pos.second;
+    
     if(board[this->row][this->col].first == FOOD_ID){
       this->len+=2;
     }

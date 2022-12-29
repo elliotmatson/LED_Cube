@@ -4,9 +4,26 @@
 
 unsigned long frameCount = 0;
 
-// v----This function is for allocating memory on the external drive (we have more of that)
-//ps_malloc()
+struct Color{
+  uint8_t r, g, b;
+};
 
+Color transform_hue(Color * c, float angle){
+  float U = cos(angle*M_PI/180);
+  float W = sin(angle*M_PI/180);
+
+  Color ret;
+  ret.r = (.299+.701*U+.168*W)*c->r
+    + (.587-.587*U+.330*W)*c->g
+    + (.114-.114*U-.497*W)*c->b;
+  ret.g = (.299-.299*U-.328*W)*c->r
+    + (.587+.413*U+.035*W)*c->g
+    + (.114-.114*U+.292*W)*c->b;
+  ret.b = (.299-.3*U+1.25*W)*c->r
+    + (.587-.588*U-1.05*W)*c->g
+    + (.114+.886*U-.203*W)*c->b;
+  return ret;
+}
 
 SnakeGame::SnakeGame(MatrixPanel_I2S_DMA * display, uint8_t n_snakes = 10, uint8_t len = 10, uint16_t n_food = 100){
   this->display = display;
@@ -65,6 +82,11 @@ void SnakeGame::update(){
   }
   uint8_t n_alive = 0;
   for(uint8_t i = 0; i < n_snakes; i++){
+    if(snakes[i].type == SnakeType::STROBE){
+      snakes[i].r1 = random(256);
+      snakes[i].g1 = random(256);
+      snakes[i].b1 = random(256);
+    }
     if(snakes[i].alive){
       n_alive++;
       snakes[i].move(board);
@@ -102,6 +124,34 @@ void SnakeGame::draw(){
             g = s->g2;
             b = s->b2;
           }
+        } else if(s->type == SnakeType::GHOST){
+          r = random(20);
+          g = random(20);
+          b = random(20);
+        } else if(s->type == SnakeType::SPARKLE){
+          if(random(10) == 0){
+            r = min(255, s->r1 * 4);
+            g = min(255, s->g1 * 4);
+            b = min(255, s->b1 * 4);
+          } else {
+            r = s->r1;
+            g = s->g1;
+            b = s->b1;
+          }
+        } else if(s->type == SnakeType::CHROMATIC){
+          Color c;
+          c.r = s->r1;
+          c.g = s->g1;
+          c.b = s->b1;
+          c = transform_hue(&c, frameCount % 360);
+          r = c.r;
+          g = c.g;
+          b = c.b;
+        } else if(s->type == SnakeType::STROBE){
+          // Actual color is set in update()
+          r = s->r1;
+          g = s->g1;
+          b = s->b1;
         }
         if(s->alive){
           display->drawPixelRGB888(j, i, r, g, b);
@@ -134,13 +184,20 @@ void SnakeGame::spawn_snake(uint8_t i){
   snakes[i].b1 = random(255);
 
   // Determines how the snake is colored
-  int typeGen = random(10);
-  if(typeGen < 8){
-    snakes[i].type = SnakeType::REGULAR;
-  } else if(typeGen == 9){
+  int typeGen = random(1000);
+  if(typeGen < 40){
     snakes[i].type = SnakeType::GRADIENT;
-  } else {
+  } else if(typeGen < 80){
     snakes[i].type = SnakeType::ALTERNATING;
+  } else if(typeGen < 81 ){
+    snakes[i].type = SnakeType::GHOST;
+  } else if(typeGen < 82){
+    snakes[i].type = SnakeType::SPARKLE;
+  } else if(typeGen < 83){
+    snakes[i].type = SnakeType::STROBE;
+  } 
+  else {
+    snakes[i].type = SnakeType::REGULAR;
   }
 
   // snakes[i].r1 = min(255, snakes[i].r2 + 50);

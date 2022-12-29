@@ -90,7 +90,7 @@ class SnakeGame: public Pattern{
 
         void place_food();
         void spawn_snake(uint8_t i);
-        enum SnakeType {REGULAR = 0, GRADIENT = 1, ALTERNATING = 2, GHOST = 3};
+        enum SnakeType {REGULAR = 0, GRADIENT = 1, ALTERNATING = 2, GHOST = 3, SPARKLE = 4, CHROMATIC = 5, STROBE = 6};
 };
 
 #endif

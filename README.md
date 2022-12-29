@@ -32,6 +32,7 @@ Then, click the upload button in your IDE. This will upload the firmware to the 
 
 ### Serial
 The third method is using a USB to serial adapter. This is mostly only useful if you have uploaded firmware that breaks OTA, bur can also be used for debugging. To upload using serial, you need to have the cube connected to your computer via USB. Like a fool, I didn't add silkscreen labels for RX and TX, so here is a labeled image:
+
 ![Screenshot 2022-12-29 at 4 50 48 PM](https://user-images.githubusercontent.com/1711604/210018862-ec6aab7d-4b61-4290-a931-6ad4d5c13356.png)
 
 

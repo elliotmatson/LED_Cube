@@ -153,10 +153,6 @@ void Cube::initWifi()
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
     digitalWrite(WIFI_LED, 1);
-
-    this->server = new AsyncWebServer(80);
-    WebSerial.begin(server);
-    server->begin();
 }
 
 // set brightness of display
@@ -366,6 +362,7 @@ void showPattern(void *parameter)
             for (;;)
             {
                 game.show();
+                yield();
             }
             break;
         }
@@ -375,6 +372,7 @@ void showPattern(void *parameter)
             for (;;)
             {
                 plasma.show();
+                yield();
             }
             break;
         }

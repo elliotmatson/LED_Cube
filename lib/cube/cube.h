@@ -14,7 +14,6 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
-#include <WebSerial.h>
 
 #include "config.h"
 #include "pattern.h"
@@ -47,7 +46,6 @@ class Cube {
         void initWifi();
         patterns currentPattern;
         bool devMode;
-        AsyncWebServer *server;
 };
 
 void checkForUpdates(void *parameter);

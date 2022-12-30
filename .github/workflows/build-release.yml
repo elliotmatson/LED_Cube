@@ -50,10 +50,30 @@ jobs:
       run: pio run -e esp-wrover-kit
     - name: Rename firmware
       run: cp .pio/build/esp-wrover-kit/firmware.bin esp32.bin
+    - name: Cache Build
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/cache@v3
+      with:
+        path: 'esp32.bin'
+        key: ${{ runner.os }}-${{ github.run_id }}
+
+  archive:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Get Cached Build
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/cache@v3
+      with:
+        path: 'esp32.bin'
+        key: ${{ runner.os }}-${{ github.run_id	 }}
     - name: Archive Build
       uses: actions/upload-artifact@v3
       with:
         path: 'esp32.bin'
+        
   release:
     needs: build
     if: github.event_name == 'workflow_dispatch'
@@ -61,9 +81,12 @@ jobs:
     permissions:
       contents: write
     steps:
-    - uses: actions/download-artifact@v2
+    - name: Get Cached Build
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/cache@v3
       with:
-        name: 'esp32.bin'
+        path: 'esp32.bin'
+        key: ${{ runner.os }}-${{ github.run_id	 }}
     - name: Development Release
       uses: ncipollo/release-action@v1
       if: inputs.release-type == 'development'

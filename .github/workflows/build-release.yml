@@ -7,6 +7,13 @@ on:
         description: Firmware Version
         default: 'v0.0.0'
         required: true
+      release-type:
+        type: choice
+        description: Production or Development?
+        options: 
+        - production
+        - development
+        default: production
   pull_request:
     
 jobs:
@@ -41,11 +48,28 @@ jobs:
       if: github.event_name	== 'workflow_dispatch'
     - name: Run PlatformIO
       run: pio run -e esp-wrover-kit
+  release:
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
     - name: Rename firmware
       run: cp .pio/build/esp-wrover-kit/firmware.bin esp32.bin
-    - name: Release
+    - name: Development Release
       uses: ncipollo/release-action@v1
-      if: github.event_name == 'workflow_dispatch'
+      if: inputs.release-type == development
+      with:
+        artifacts: "*.bin"
+        generateReleaseNotes: true
+        tag: ${{ inputs.release-version }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        prerelease: true
+        makeLatest: false
+    - name: Production Release
+      uses: ncipollo/release-action@v1
+      if: inputs.release-type == production
       with:
         artifacts: "*.bin"
         generateReleaseNotes: true

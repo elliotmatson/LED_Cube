@@ -5,6 +5,8 @@
 Cube::Cube(bool devMode){
     this->devMode = devMode;
     this->serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
+    this->server = new AsyncWebServer(80);
+    this->dashboard = new ESPDash(this->server);
 }
 
 void Cube::init()
@@ -153,6 +155,11 @@ void Cube::initWifi()
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
     digitalWrite(WIFI_LED, 1);
+
+    server->begin();
+    WebSerial.begin(this->server, "/log");
+    dashboard->sendUpdates();
+
 }
 
 // set brightness of display
@@ -348,6 +355,7 @@ void Cube::printMem()
 {
     Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n",ESP.getFreeHeap(), ESP.getHeapSize(),ESP.getPsramSize() - ESP.getFreePsram(),ESP.getPsramSize());
     Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
+    WebSerial.println("test Log");
 }
 
 

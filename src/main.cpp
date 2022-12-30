@@ -15,4 +15,5 @@ void loop()
   yield();
   vTaskDelay(10000/portTICK_PERIOD_MS);
   cube.printMem();
+  WebSerial.print("loop");
 }

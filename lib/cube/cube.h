@@ -15,6 +15,11 @@
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
 
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <ESPDash.h>
+#include <WebSerial.h>
+
 #include "config.h"
 #include "pattern.h"
 #include "all_patterns.h"
@@ -46,6 +51,8 @@ class Cube {
         void initWifi();
         patterns currentPattern;
         bool devMode;
+        AsyncWebServer *server;
+        ESPDash *dashboard;
 };
 
 void checkForUpdates(void *parameter);

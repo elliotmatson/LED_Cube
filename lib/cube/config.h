@@ -7,7 +7,6 @@
 // SW Version (Github Actions automatically sets this)
 #ifndef FW_VERSION
   #define FW_VERSION "DEV"
-  #define DEVELOPMENT
 #endif
 
 // Repo for automatic updates (Github Actions automatically sets this)

@@ -1,7 +1,7 @@
 #include "cube.h"
 //#include "secrets.h"
 
-Cube cube(true);
+Cube cube(true,false,true);
 
 void setup()
 {

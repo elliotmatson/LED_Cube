@@ -2,11 +2,18 @@
 
 
 // Create a new Cube object with optional devMode
-Cube::Cube(bool devMode){
-    this->devMode = devMode;
+Cube::Cube(bool ota, bool github, bool development)
+{
+    this->otaEnabled = ota;
+    this->GHUpdateEnabled = github;
+    this->developmentBranch = development;
     this->serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
     this->server = new AsyncWebServer(80);
     this->dashboard = new ESPDash(this->server);
+    this->otaToggle = new Card(this->dashboard, BUTTON_CARD, "OTA Update Enabled");
+    this->GHUpdateToggle = new Card(this->dashboard, BUTTON_CARD, "Github Update Enabled");
+    this->developmentToggle = new Card(this->dashboard, BUTTON_CARD, "Use Development Builds");
+    this->fwVersion = new Statistic(this->dashboard, "Firmware Version", FW_VERSION);
 }
 
 void Cube::init()
@@ -16,10 +23,6 @@ void Cube::init()
     initDisplay();
     initWifi();
     initUpdates();
-    if (this->getDevMode()) {
-        showDebug();
-        delay(2000);
-    }
     xTaskCreate(
         showPattern,         // Function that should be called
         "Show Pattern",      // Name of the task (for debugging)
@@ -39,18 +42,94 @@ void Cube::initPrefs()
 // Initialize update methods, setup check tasks
 void Cube::initUpdates()
 {
-    if(this->getDevMode() == 0) {
-        Serial.printf("Github Update enabled...\n");
-        xTaskCreate(
-            checkForUpdates,     // Function that should be called
-            "Check For Updates", // Name of the task (for debugging)
-            6000,                // Stack size (bytes)
-            NULL,                // Parameter to pass
-            0,                   // Task priority
-            &checkForUpdatesTask // Task handle
-        );
-    } else {
-        Serial.printf("OTA Update Enabled\n");
+    if (this->otaEnabled)
+    {
+        this->setOTA(true);
+    }
+    if (this->GHUpdateEnabled)
+    {
+        this->setGHUpdate(true);
+    }
+}
+
+// Initialize display driver
+void Cube::initDisplay()
+{
+    Serial.printf("Configuring HUB_75\n");
+    HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
+    HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
+    mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
+    mxconfig.clkphase = false;
+    dma_display = new MatrixPanel_I2S_DMA(mxconfig);
+    setBrightness(255);
+    dma_display->setLatBlanking(2);
+
+    // Allocate memory and start DMA display
+    if (not dma_display->begin())
+         Serial.printf("****** !KABOOM! I2S memory allocation failed ***********");
+}
+
+// Initialize wifi and prompt for connection if needed
+void Cube::initWifi()
+{
+    pinMode(WIFI_LED, OUTPUT);
+    digitalWrite(WIFI_LED, 0);
+    Serial.printf("Connecting to WiFi...\n");
+    WiFiManager wifiManager;
+    wifiManager.setHostname("cube");
+    wifiManager.setClass("invert");
+    wifiManager.autoConnect("Cube");
+
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+    digitalWrite(WIFI_LED, 1);
+
+    this->server->begin();
+    WebSerial.begin(this->server, "/log");
+    this->otaToggle->attachCallback([&](bool value)
+        {
+            this->setOTA(value);
+            this->otaToggle->update(value);
+            this->dashboard->sendUpdates(); 
+        });
+    this->developmentToggle->attachCallback([&](bool value)
+        {
+            this->setDevelopment(value);
+            this->developmentToggle->update(value);
+            this->dashboard->sendUpdates(); 
+        });
+    this->GHUpdateToggle->attachCallback([&](bool value)
+        {
+            this->setGHUpdate(value);
+            this->GHUpdateToggle->update(value);
+            this->dashboard->sendUpdates(); 
+        });
+    this->otaToggle->update(this->otaEnabled);
+    this->developmentToggle->update(this->developmentBranch);
+    this->GHUpdateToggle->update(this->GHUpdateEnabled);
+    dashboard->sendUpdates();
+
+}
+
+// set brightness of display
+void Cube::setBrightness(uint8_t brightness)
+{
+    this->brightness = brightness;
+    dma_display->setBrightness8(brightness);
+}
+
+// get brightness of display
+uint8_t Cube::getBrightness()
+{
+    return this->brightness;
+}
+
+// set OTA enabled/disabled
+void Cube::setOTA(bool ota)
+{
+    this->otaEnabled = ota;
+    if(ota) {
+        Serial.printf("Starting OTA\n");
         ArduinoOTA.setHostname("cube");
         ArduinoOTA
             .onStart([&]()
@@ -114,77 +193,89 @@ void Cube::initUpdates()
         ArduinoOTA.begin();
 
         xTaskCreate(
-            checkForOTA,     // Function that should be called
+            [](void* o){ static_cast<Cube*>(o)->checkForOTA(); }, // This is disgusting, but it works
             "Check For OTA", // Name of the task (for debugging)
             6000,            // Stack size (bytes)
             NULL,            // Parameter to pass
             0,               // Task priority
             &checkForOTATask // Task handle
         );
+    } else {
+        Serial.printf("Stopping OTA\n");
+        vTaskDelete(checkForOTATask);
+        ArduinoOTA.end();
     }
 }
 
-// Initialize display driver
-void Cube::initDisplay()
+// set Github Update enabled/disabled
+void Cube::setGHUpdate(bool github)
 {
-    Serial.printf("Configuring HUB_75\n");
-    HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
-    HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
-    mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
-    mxconfig.clkphase = false;
-    dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-    setBrightness(255);
-    dma_display->setLatBlanking(2);
-
-    // Allocate memory and start DMA display
-    if (not dma_display->begin())
-         Serial.printf("****** !KABOOM! I2S memory allocation failed ***********");
-}
-
-// Initialize wifi and prompt for connection if needed
-void Cube::initWifi()
-{
-    pinMode(WIFI_LED, OUTPUT);
-    digitalWrite(WIFI_LED, 0);
-    Serial.printf("Connecting to WiFi...\n");
-    WiFiManager wifiManager;
-    wifiManager.setHostname("cube");
-    wifiManager.setClass("invert");
-    wifiManager.autoConnect("Cube");
-
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    digitalWrite(WIFI_LED, 1);
-
-    server->begin();
-    WebSerial.begin(this->server, "/log");
-    dashboard->sendUpdates();
-
-}
-
-// set brightness of display
-void Cube::setBrightness(uint8_t brightness)
-{
-    this->brightness = brightness;
-    dma_display->setBrightness8(brightness);
-}
-
-// get brightness of display
-uint8_t Cube::getBrightness()
-{
-    return this->brightness;
-}
-
-// set dev mode
-void Cube::setDevMode(bool devMode)
-{
-    this->devMode = devMode;
+    this->GHUpdateEnabled = github;
+    if(github) {
+        Serial.printf("Github Update enabled...\n");
+        httpUpdate.onStart([&]()
+        {
+            Serial.println("Start updating");
+            vTaskDelete(showPatternTask);
+            setBrightness(100);
+            dma_display->fillScreenRGB888(0, 0, 0);
+        });
+        httpUpdate.onEnd([&]()
+        { 
+            Serial.println("\nEnd"); 
+            for(uint8_t i = getBrightness(); i > 0; i--) {
+                setBrightness(i);
+            }
+        });
+        httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
+        { 
+            Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+                    
+            int i = map(progress, 0, total, 0, 512);
+            if (i < 64) {
+                dma_display->drawPixelRGB888(128+i, 0, 255, 255, 255);
+            } else if (i < 128) {
+                dma_display->drawPixelRGB888(191, i-64, 255, 255, 255);
+            }
+            else if (i < 192)
+            {
+                dma_display->drawPixelRGB888(0, 63-(i-128), 255, 255, 255);
+            } else if (i < 256) {
+                dma_display->drawPixelRGB888((i-192), 0, 255, 255, 255);
+            } else if (i < 320) {
+                dma_display->drawPixelRGB888(64, 63 - (i - 256), 255, 255, 255);
+            }
+            else if (i < 384)
+            {
+                dma_display->drawPixelRGB888(64 + (i - 320), 0, 255, 255, 255);
+            } else if (i < 448) {
+                dma_display->drawPixelRGB888(127, (i - 384), 255, 255, 255);
+                dma_display->drawPixelRGB888(128, (i - 384), 255, 255, 255);
+            } else if (i < 512){
+                dma_display->drawPixelRGB888(127 - (i - 448), 63, 255, 255, 255);
+                dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
+                dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
+                dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
+            } 
+        });
+        xTaskCreate(
+            [](void* o){ static_cast<Cube*>(o)->checkForUpdates(); },     // This is disgusting, but it works
+            "Check For Updates",    // Name of the task (for debugging)
+            8000,                   // Stack size (bytes)
+            this,                   // Parameter to pass
+            0,                      // Task priority
+            &checkForUpdatesTask    // Task handle
+        );
+    } else {
+        Serial.printf("Stopping Github Update\n");
+        vTaskDelete(checkForUpdatesTask);
+    }
 }
 
 // get dev mode
-bool Cube::getDevMode()
+void Cube::setDevelopment(bool development)
 {
-    return this->devMode;
+    this->developmentBranch = development;
 }
 
 // shows debug info on display
@@ -294,54 +385,89 @@ void Cube::showTestSequence()
 }
 
 // Task to check for updates
-void checkForUpdates(void *parameter)
+void Cube::checkForUpdates()
 {
     for (;;)
     {
         HTTPClient http;
         WiFiClientSecure client;
+        client.setCACertBundle(rootca_crt_bundle_start);
 
-        String firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
+        String firmwareUrl = "";
+        Serial.printf("Branch = %s\n", this->developmentBranch ? "development" : "master");
+        if(this->developmentBranch) {
+            // https://api.github.com/repos/elliotmatson/LED_Cube/releases
+            String jsonUrl = String("https://api.github.com/repos/") + REPO_URL + String("/releases");
+            Serial.printf("%s\n", jsonUrl.c_str());
+            http.useHTTP10(true);
+            if (http.begin(client, jsonUrl)) {
+                SpiRamJsonDocument filter(200);
+                filter[0]["name"] = true;
+                filter[0]["prerelease"] = true;
+                filter[0]["assets"] = true;
+                filter[0]["published_at"] = true;
+                int httpCode = http.GET();
+                SpiRamJsonDocument doc(4096);
+                deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+                JsonArray releases = doc.as<JsonArray>();
+                int newestPrereleaseIndex = -1;
+                String newestPrereleaseDate = "";
+                for (int i=0; i<releases.size(); i++)
+                {
+                    JsonObject release = releases[i].as<JsonObject>();
+                    if (release["prerelease"].as<bool>() && release["published_at"].as<String>() > newestPrereleaseDate)
+                    {
+                        newestPrereleaseIndex = i;
+                        newestPrereleaseDate = release["published_at"].as<String>();
+                    }
+                }
+                JsonObject newestPrerelease = releases[newestPrereleaseIndex].as<JsonObject>();
+                Serial.printf("Newest Prerelease: %s  date:%s\n", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
+                // https://github.com/elliotmatson/LED_Cube/releases/download/v0.2.3/esp32.bin
+                firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/download/") + newestPrerelease["name"].as<String>() + String("/esp32.bin");
+                http.end();
+            }
+        } else {
+            firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
+        }
         Serial.printf("%s\n", firmwareUrl.c_str());
 
-        if (!http.begin(client, firmwareUrl))
-        return;
+        if (http.begin(client, firmwareUrl) && firmwareUrl != "") {
+            int httpCode = http.sendRequest("HEAD");
+            if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
+            {
+                Serial.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+                http.end();
+            }
+            else
+            {
+                Serial.printf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
 
-        int httpCode = http.sendRequest("HEAD");
-        if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
-        {
-        Serial.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
-        http.end();
-        return;
-        }
-        else
-        {
-        Serial.printf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
-        }
+                httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+                t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
 
-        httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-        t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
+                switch (ret)
+                {
+                case HTTP_UPDATE_FAILED:
+                    Serial.printf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+                    break;
 
-        switch (ret)
-        {
-        case HTTP_UPDATE_FAILED:
-        Serial.printf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-        break;
+                case HTTP_UPDATE_NO_UPDATES:
+                    Serial.printf("No Update!\n");
+                    break;
 
-        case HTTP_UPDATE_NO_UPDATES:
-        Serial.printf("No Update!\n");
-        break;
-
-        case HTTP_UPDATE_OK:
-        Serial.printf("Update OK!\n");
-        break;
+                case HTTP_UPDATE_OK:
+                    Serial.printf("Update OK!\n");
+                    break;
+                }
+            }
         }
         vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
     }
 }
 
 // Task to handle OTA updates
-void checkForOTA(void *parameter)
+void Cube::checkForOTA()
 {
     for (;;)
     {

@@ -362,7 +362,7 @@ void showPattern(void *parameter)
             for (;;)
             {
                 game.show();
-                yield();
+                vTaskDelay(1 / portTICK_PERIOD_MS);
             }
             break;
         }

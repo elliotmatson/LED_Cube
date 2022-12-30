@@ -4,27 +4,6 @@
 
 unsigned long frameCount = 0;
 
-struct Color{
-  uint8_t r, g, b;
-};
-
-Color transform_hue(Color * c, float angle){
-  float U = cos(angle*M_PI/180);
-  float W = sin(angle*M_PI/180);
-
-  Color ret;
-  ret.r = (.299+.701*U+.168*W)*c->r
-    + (.587-.587*U+.330*W)*c->g
-    + (.114-.114*U-.497*W)*c->b;
-  ret.g = (.299-.299*U-.328*W)*c->r
-    + (.587+.413*U+.035*W)*c->g
-    + (.114-.114*U+.292*W)*c->b;
-  ret.b = (.299-.3*U+1.25*W)*c->r
-    + (.587-.588*U-1.05*W)*c->g
-    + (.114+.886*U-.203*W)*c->b;
-  return ret;
-}
-
 SnakeGame::SnakeGame(MatrixPanel_I2S_DMA * display, uint8_t n_snakes = 10, uint8_t len = 10, uint16_t n_food = 100){
   this->display = display;
   this->len = len;
@@ -89,7 +68,14 @@ void SnakeGame::update(){
     }
     if(snakes[i].alive){
       n_alive++;
-      snakes[i].move(board);
+      if(snakes[i].type != SnakeType::SLOW){
+        snakes[i].move(board);
+      } else if(frameCount % snakes[i].slow == 0){
+          snakes[i].move(board);
+      }
+      if (snakes[i].type == SnakeType::FAST){
+        snakes[i].move(board);
+      }
     }
   }
   if(n_alive == 0){
@@ -101,7 +87,7 @@ void SnakeGame::draw(){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){ // If there is a snake part here
         Snake * s = &snakes[this->board[i][j].first];
-        uint8_t r = 0, g = 0, b = 0;
+        uint8_t r = s->r1, g = s->g1, b = s->b1;
         double c1_factor = (double)(this->board[i][j].second - 1) / (s->len - 1);
         double c2_factor = (double)((s->len-1) - (this->board[i][j].second - 1)) / (s->len - 1);
         
@@ -110,12 +96,8 @@ void SnakeGame::draw(){
           r = (c1_factor * s->r1 + c2_factor * s->r2) / 2;
           g = (c1_factor * s->g1 + c2_factor * s->g2) / 2;
           b = (c1_factor * s->b1 + c2_factor * s->b2) / 2;
-        } else if(s->type == SnakeType::REGULAR){
-          r = s->r1;
-          g = s->g1;
-          b = s->b1;
         } else if(s->type == SnakeType::ALTERNATING){
-          if(this->board[i][j].second / 4 % 2 == 0){
+          if(this->board[i][j].second / s->segment_len % 2 == 0){
             r = s->r1;
             g = s->g1;
             b = s->b1;
@@ -138,20 +120,40 @@ void SnakeGame::draw(){
             g = s->g1;
             b = s->b1;
           }
-        } else if(s->type == SnakeType::CHROMATIC){
-          Color c;
-          c.r = s->r1;
-          c.g = s->g1;
-          c.b = s->b1;
-          c = transform_hue(&c, frameCount % 360);
-          r = c.r;
-          g = c.g;
-          b = c.b;
         } else if(s->type == SnakeType::STROBE){
           // Actual color is set in update()
           r = s->r1;
           g = s->g1;
           b = s->b1;
+        } else if(s->type == SnakeType::STATIC_ALTERNATING){
+          if((i+j) / s->segment_len % 2 == 0){
+            r = s->r1;
+            g = s->g1;
+            b = s->b1;
+          } else {
+            r = s->r2;
+            g = s->g2;
+            b = s->b2;
+          }
+        } else if(s->type == SnakeType::FADE){
+          double brightness = 0;
+          brightness += max(0,((int)frameCount % 120) - 80) / 40.0; // Fade in
+          brightness += max(0,(40 - (int)frameCount % 120)) / 40.0;
+          r = s->r1 * brightness;
+          g = s->g1 * brightness;
+          b = s->b1 * brightness;
+        } else if(s->type == SnakeType::PULSING){
+          double brightness = 0;
+          brightness += max(0,((int)frameCount % 30) - 25) / 5.0; // Pulse in
+          brightness += max(0,(5 - (int)frameCount % 30)) / 5.0; // Pulse out
+          r = min(255, (int)(s->r1 * (1 + brightness)));
+          g = min(255, (int)(s->g1 * (1 + brightness)));
+          b = min(255, (int)(s->b1 * (1 + brightness))); 
+        } else if(s->type == SnakeType::TECHNICOLOR){
+          srand(s->id + board[i][j].second);
+          r = rand()%256;
+          g = rand()%256;
+          b = rand()%256;
         }
         if(s->alive){
           display->drawPixelRGB888(j, i, r, g, b);
@@ -183,36 +185,44 @@ void SnakeGame::spawn_snake(uint8_t i){
   snakes[i].g1 = random(255);
   snakes[i].b1 = random(255);
 
-  // Determines how the snake is colored
-  int typeGen = random(1000);
-  if(typeGen < 40){
-    snakes[i].type = SnakeType::GRADIENT;
-  } else if(typeGen < 80){
-    snakes[i].type = SnakeType::ALTERNATING;
-  } else if(typeGen < 81 ){
-    snakes[i].type = SnakeType::GHOST;
-  } else if(typeGen < 82){
-    snakes[i].type = SnakeType::SPARKLE;
-  } else if(typeGen < 83){
-    snakes[i].type = SnakeType::STROBE;
-  } 
-  else {
-    snakes[i].type = SnakeType::REGULAR;
-  }
-
-  // snakes[i].r1 = min(255, snakes[i].r2 + 50);
-  // snakes[i].g1 = min(255, snakes[i].g2 + 50);
-  // snakes[i].b1 = min(255, snakes[i].b2 + 50);
-
+  snakes[i].slow = 1;
   snakes[i].t = 0;
   snakes[i].dir = 0;
   snakes[i].len = this->len;
   snakes[i].id = i;
+  snakes[i].segment_len = 1;
+
+
+  // Determines the snake type
+  int sum = 0;
+  for(int j = 0; j < N_SNAKE_TYPES; j++){
+    sum += snake_type_to_rarity[j];
+  }
+  int typeGen = random(sum);
+  sum = 0;
+  for(int j = 0; j < N_SNAKE_TYPES; j++){
+    sum += snake_type_to_rarity[j];
+    if(typeGen < sum){
+      snakes[i].type = (SnakeType)j;
+      break;
+    }
+  }
+
+  // Special modification for slow snakes
+  if(snakes[i].type == SnakeType::SLOW){
+    snakes[i].slow = random(3) + 2;
+  } else if(snakes[i].type == SnakeType::ALTERNATING){
+    snakes[i].segment_len = random(6) + 2;
+  } else if(snakes[i].type == SnakeType::STATIC_ALTERNATING){
+    snakes[i].segment_len = random(6) + 2;
+  }
+
+  // Place the new snake and initialize the location
   do{
     snakes[i].col = random(PANEL_WIDTH * PANELS_NUMBER);
     snakes[i].row = random(PANEL_HEIGHT);
   } while(this->board[snakes[i].row][snakes[i].col].first != 0);
-  this->board[snakes[i].row][snakes[i].col].second = this->len;
+  this->board[snakes[i].row][snakes[i].col].second = this->len * snakes[i].slow;
   this->board[snakes[i].row][snakes[i].col].first = i;
 }
 
@@ -228,5 +238,6 @@ void SnakeGame::place_food(){
 void SnakeGame::show(){
   this->update();
   this->draw();
+
   frameCount++;
 }

@@ -300,7 +300,6 @@ void checkForUpdates(void *parameter)
     {
         HTTPClient http;
         WiFiClientSecure client;
-        client.setInsecure();
 
         String firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
         Serial.printf("%s\n", firmwareUrl.c_str());

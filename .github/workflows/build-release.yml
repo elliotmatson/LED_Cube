@@ -48,6 +48,12 @@ jobs:
       if: github.event_name	== 'workflow_dispatch'
     - name: Run PlatformIO
       run: pio run -e esp-wrover-kit
+    - name: Rename firmware
+      run: cp .pio/build/esp-wrover-kit/firmware.bin esp32.bin
+    - name: Archive Build
+      uses: actions/upload-artifact@v3
+      with:
+        path: 'esp32.bin'
   release:
     needs: build
     if: github.event_name == 'workflow_dispatch'
@@ -55,8 +61,9 @@ jobs:
     permissions:
       contents: write
     steps:
-    - name: Rename firmware
-      run: cp .pio/build/esp-wrover-kit/firmware.bin esp32.bin
+    - uses: actions/download-artifact@v2
+      with:
+        name: 'esp32.bin'
     - name: Development Release
       uses: ncipollo/release-action@v1
       if: inputs.release-type == 'development'
@@ -75,7 +82,3 @@ jobs:
         generateReleaseNotes: true
         tag: ${{ inputs.release-version }}
         token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Archive Build
-      uses: actions/upload-artifact@v3
-      with:
-        path: '*.bin'

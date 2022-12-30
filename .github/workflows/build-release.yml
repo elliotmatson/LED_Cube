@@ -5,7 +5,7 @@ on:
       release-version:
         type: string
         description: Firmware Version
-        default: 'v0.0.0'
+        default: 'vX.X.X'
         required: true
       release-type:
         type: choice
@@ -13,7 +13,7 @@ on:
         options: 
         - production
         - development
-        default: 'production'
+        default: 'development'
   pull_request:
     
 jobs:

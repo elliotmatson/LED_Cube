@@ -1,4 +1,3 @@
-#include "config.h"
 #include "cube.h"
 //#include "secrets.h"
 
@@ -9,6 +8,8 @@ void setup()
   cube.init();
 }
 
+
+// Just do nothing, eveything is done in tasks
 void loop()
 {
   yield();

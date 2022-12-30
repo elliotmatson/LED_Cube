@@ -1,5 +1,7 @@
 #include "cube.h"
 
+
+// Create a new Cube object with optional devMode
 Cube::Cube(bool devMode){
     this->devMode = devMode;
     this->serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
@@ -151,24 +153,32 @@ void Cube::initWifi()
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
     digitalWrite(WIFI_LED, 1);
+
+    this->server = new AsyncWebServer(80);
+    WebSerial.begin(server);
+    server->begin();
 }
 
+// set brightness of display
 void Cube::setBrightness(uint8_t brightness)
 {
     this->brightness = brightness;
     dma_display->setBrightness8(brightness);
 }
 
+// get brightness of display
 uint8_t Cube::getBrightness()
 {
     return this->brightness;
 }
 
+// set dev mode
 void Cube::setDevMode(bool devMode)
 {
     this->devMode = devMode;
 }
 
+// get dev mode
 bool Cube::getDevMode()
 {
     return this->devMode;
@@ -194,6 +204,7 @@ void Cube::showDebug()
                         ESP.getFreePsram());
 }
 
+// shows coordinates on display for debugging
 void Cube::showCoordinates() {
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setTextColor(RED);
@@ -327,6 +338,7 @@ void checkForUpdates(void *parameter)
     }
 }
 
+// Task to handle OTA updates
 void checkForOTA(void *parameter)
 {
     for (;;)
@@ -341,6 +353,7 @@ void Cube::printMem()
     Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n",ESP.getFreeHeap(), ESP.getHeapSize(),ESP.getPsramSize() - ESP.getFreePsram(),ESP.getPsramSize());
     Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
 }
+
 
 void showPattern(void *parameter)
 {

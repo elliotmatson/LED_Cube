@@ -8,11 +8,11 @@ SnakeGame::SnakeGame(MatrixPanel_I2S_DMA * display, uint8_t n_snakes = 10, uint8
   this->display = display;
   this->len = len;
   this->n_snakes = n_snakes;
-  this->board = (std::pair<uint8_t,uint8_t> **)malloc(PANEL_HEIGHT * sizeof(uint8_t *));
+  this->board = (std::pair<uint8_t, uint8_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
   for(int i = 0; i < PANEL_HEIGHT; i++){
-    this->board[i] = (std::pair<uint8_t,uint8_t> *)malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t,uint8_t>));
+    this->board[i] = (std::pair<uint8_t, uint8_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint8_t>), MALLOC_CAP_SPIRAM);
   }
-  this->snakes = (Snake *)malloc(n_snakes * sizeof(Snake));
+  this->snakes = (Snake *)heap_caps_malloc(n_snakes * sizeof(Snake), MALLOC_CAP_SPIRAM);
   this->n_food = n_food;
 }
 SnakeGame::~SnakeGame(){

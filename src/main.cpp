@@ -13,5 +13,6 @@ void setup()
 void loop()
 {
   yield();
-  vTaskDelay(100/portTICK_PERIOD_MS);
+  vTaskDelay(10000/portTICK_PERIOD_MS);
+  cube.printMem();
 }

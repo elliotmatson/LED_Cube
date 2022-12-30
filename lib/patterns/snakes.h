@@ -8,6 +8,7 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 255;
+const uint8_t N_SNAKE_TYPES = 12;
 
 inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
   // Check if the move is valid, and if so, return the new position
@@ -109,7 +110,7 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
-  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, len, id, respawn_delay, type;
+  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, len, id, respawn_delay, type, slow, segment_len;
   bool alive;
   void move(std::pair<uint8_t, uint8_t> ** board){
     bool valid_dirs[4] = {true, true, true, true};
@@ -125,7 +126,7 @@ struct Snake{
     // If the snake has no valid moves, the snake is dead :(
     if(n_dirs == 0){
       this->alive = false;
-      this->respawn_delay = this->len;
+      this->respawn_delay = this->len * this->slow;
       return;
     }
 
@@ -146,7 +147,7 @@ struct Snake{
     if(board[this->row][this->col].first == FOOD_ID){
       this->len+=2;
     }
-    board[this->row][this->col].second = this->len;
+    board[this->row][this->col].second = this->len * this->slow;
     board[this->row][this->col].first = this->id;
   }
 };
@@ -169,7 +170,34 @@ class SnakeGame: public Pattern{
 
         void place_food();
         void spawn_snake(uint8_t i);
-        enum SnakeType {REGULAR = 0, GRADIENT = 1, ALTERNATING = 2, GHOST = 3, SPARKLE = 4, CHROMATIC = 5, STROBE = 6};
+        enum SnakeType {
+          REGULAR = 0, 
+          GRADIENT = 1, 
+          ALTERNATING = 2, 
+          GHOST = 3, 
+          SPARKLE = 4, 
+          PULSING = 5, 
+          STROBE = 6, 
+          FADE = 7,
+          STATIC_ALTERNATING = 8,
+          SLOW = 9,
+          FAST = 10,
+          TECHNICOLOR = 11,
+        };
+        int snake_type_to_rarity[N_SNAKE_TYPES] = {
+          10000, // Regular
+          300, // Gradient
+          150, // Alternating
+          10, // Ghost
+          5, // Sparkle
+          10, // Pulsing
+          1, // Strobe
+          10, // Fade
+          150, // Static Alternating
+          50, // Slow
+          50, // Fast
+          10, // Technicolor
+        };
 };
 
 #endif

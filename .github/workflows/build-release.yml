@@ -13,7 +13,7 @@ on:
         options: 
         - production
         - development
-        default: production
+        default: 'production'
   pull_request:
     
 jobs:
@@ -59,9 +59,9 @@ jobs:
       run: cp .pio/build/esp-wrover-kit/firmware.bin esp32.bin
     - name: Development Release
       uses: ncipollo/release-action@v1
-      if: inputs.release-type == development
+      if: inputs.release-type == 'development'
       with:
-        artifacts: "*.bin"
+        artifacts: '*.bin'
         generateReleaseNotes: true
         tag: ${{ inputs.release-version }}
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -69,13 +69,13 @@ jobs:
         makeLatest: false
     - name: Production Release
       uses: ncipollo/release-action@v1
-      if: inputs.release-type == production
+      if: inputs.release-type == 'production'
       with:
-        artifacts: "*.bin"
+        artifacts: '*.bin'
         generateReleaseNotes: true
         tag: ${{ inputs.release-version }}
         token: ${{ secrets.GITHUB_TOKEN }}
     - name: Archive Build
       uses: actions/upload-artifact@v3
       with:
-        path: "*.bin"
+        path: '*.bin'

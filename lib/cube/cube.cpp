@@ -247,8 +247,8 @@ void Cube::setGHUpdate(bool github)
         httpUpdate.onEnd([&]()
         { 
             Serial.println("\nEnd"); 
-            for(uint8_t i = getBrightness(); i > 0; i--) {
-                setBrightness(i);
+            for(int i = getBrightness(); i > 0; i=i-3) {
+                dma_display->setBrightness8(max(i, 0));
             }
         });
         httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
@@ -466,7 +466,9 @@ void Cube::checkForUpdates()
 
         if (http.begin(client, firmwareUrl) && firmwareUrl != "") {
             int httpCode = http.sendRequest("HEAD");
-            if (httpCode < 300 || httpCode > 400 || http.getLocation().indexOf(String(FW_VERSION)) > 0)
+            Serial.printf("firmwareURL: %s\n", firmwareUrl.c_str());
+            Serial.printf("httpLocation: %s\n", http.getLocation().c_str());
+            if (httpCode < 300 || httpCode > 400 || (http.getLocation().indexOf(String(FW_VERSION)) > 0) || (firmwareUrl.indexOf(String(FW_VERSION)) > 0))
             {
                 Serial.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
                 http.end();

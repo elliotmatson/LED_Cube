@@ -5,8 +5,15 @@ on:
       release-version:
         type: string
         description: Firmware Version
-        default: 'v0.0.0'
+        default: 'vX.X.X'
         required: true
+      release-type:
+        type: choice
+        description: Production or Development?
+        options: 
+        - production
+        - development
+        default: 'development'
   pull_request:
     
 jobs:
@@ -43,15 +50,58 @@ jobs:
       run: pio run -e esp-wrover-kit
     - name: Rename firmware
       run: cp .pio/build/esp-wrover-kit/firmware.bin esp32.bin
-    - name: Release
-      uses: ncipollo/release-action@v1
+    - name: Cache Build
       if: github.event_name == 'workflow_dispatch'
+      uses: actions/cache@v3
       with:
-        artifacts: "*.bin"
-        generateReleaseNotes: true
-        tag: ${{ inputs.release-version }}
-        token: ${{ secrets.GITHUB_TOKEN }}
+        path: 'esp32.bin'
+        key: ${{ runner.os }}-${{ github.run_id }}
+
+  archive:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Get Cached Build
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/cache@v3
+      with:
+        path: 'esp32.bin'
+        key: ${{ runner.os }}-${{ github.run_id	 }}
     - name: Archive Build
       uses: actions/upload-artifact@v3
       with:
-        path: "*.bin"
+        path: 'esp32.bin'
+        
+  release:
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Get Cached Build
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/cache@v3
+      with:
+        path: 'esp32.bin'
+        key: ${{ runner.os }}-${{ github.run_id	 }}
+    - name: Development Release
+      uses: ncipollo/release-action@v1
+      if: inputs.release-type == 'development'
+      with:
+        artifacts: '*.bin'
+        generateReleaseNotes: true
+        tag: ${{ inputs.release-version }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        prerelease: true
+        makeLatest: false
+    - name: Production Release
+      uses: ncipollo/release-action@v1
+      if: inputs.release-type == 'production'
+      with:
+        artifacts: '*.bin'
+        generateReleaseNotes: true
+        tag: ${{ inputs.release-version }}
+        token: ${{ secrets.GITHUB_TOKEN }}

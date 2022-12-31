@@ -154,6 +154,16 @@ void SnakeGame::draw(){
           r = rand()%256;
           g = rand()%256;
           b = rand()%256;
+        } else if(s->type == SnakeType::DASHED){
+          if(this->board[i][j].second / s->segment_len % 2 == 0){
+            r = s->r1;
+            g = s->g1;
+            b = s->b1;
+          } else {
+            r = 0;
+            g = 0;
+            b = 0;
+          }
         }
         if(s->alive){
           display->drawPixelRGB888(j, i, r, g, b);
@@ -212,9 +222,11 @@ void SnakeGame::spawn_snake(uint8_t i){
   if(snakes[i].type == SnakeType::SLOW){
     snakes[i].slow = random(3) + 2;
   } else if(snakes[i].type == SnakeType::ALTERNATING){
-    snakes[i].segment_len = random(6) + 2;
+    snakes[i].segment_len = random(7) + 1;
   } else if(snakes[i].type == SnakeType::STATIC_ALTERNATING){
-    snakes[i].segment_len = random(6) + 2;
+    snakes[i].segment_len = random(7) + 1;
+  } else if(snakes[i].type == SnakeType::DASHED){
+    snakes[i].segment_len = random(7) + 1;
   }
 
   // Place the new snake and initialize the location

@@ -8,7 +8,7 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 255;
-const uint8_t N_SNAKE_TYPES = 12;
+const uint8_t N_SNAKE_TYPES = 13;
 
 inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
   // Check if the move is valid, and if so, return the new position
@@ -115,13 +115,16 @@ struct Snake{
   void move(std::pair<uint8_t, uint8_t> ** board){
     bool valid_dirs[4] = {true, true, true, true};
     uint8_t n_dirs = 4;
+    // valid_dirs[(this->dir + 2) % 4] = false;
     for(uint8_t i = 0 ; i < 4; i++){
       std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, i);
+      // if(new_pos.first == 255 || (board[new_pos.first][new_pos.second].second != 0 && board[new_pos.first][new_pos.second].first != this->id)){
       if(new_pos.first == 255 || board[new_pos.first][new_pos.second].second != 0){
         valid_dirs[i] = false;
         n_dirs--;
       }
     }
+    
     
     // If the snake has no valid moves, the snake is dead :(
     if(n_dirs == 0){
@@ -183,6 +186,7 @@ class SnakeGame: public Pattern{
           SLOW = 9,
           FAST = 10,
           TECHNICOLOR = 11,
+          DASHED = 12,
         };
         int snake_type_to_rarity[N_SNAKE_TYPES] = {
           10000, // Regular
@@ -197,6 +201,7 @@ class SnakeGame: public Pattern{
           50, // Slow
           50, // Fast
           10, // Technicolor
+          20 // Dashed
         };
 };
 

@@ -2,7 +2,7 @@
 
 
 // Create a new Cube object with optional devMode
-Cube::Cube(bool ota, bool github, bool development)
+Cube::Cube()
 {
     this->serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
     this->server = new AsyncWebServer(80);
@@ -23,10 +23,10 @@ void Cube::init()
     initWifi();
     initUpdates();
     xTaskCreate(
-        showPattern,         // Function that should be called
+        [](void* o){ static_cast<Cube*>(o)->showPattern(); },     // This is disgusting, but it works
         "Show Pattern",      // Name of the task (for debugging)
         6000,                // Stack size (bytes)
-        (void *) dma_display, // Parameter to pass
+        this, // Parameter to pass
         3,                   // Task priority
         &showPatternTask // Task handle
     );
@@ -121,15 +121,14 @@ void Cube::initWifi()
             this->GHUpdateToggle->update(value);
             this->dashboard->sendUpdates(); 
         });
+    brightnessSlider->attachCallback([&](int value)
+                                     {
+            this->setBrightness(value);
+            this->brightnessSlider->update(value);
+            this->dashboard->sendUpdates(); });
     this->otaToggle->update(this->cubePrefs->ota);
     this->developmentToggle->update(this->cubePrefs->development);
     this->GHUpdateToggle->update(this->cubePrefs->github);
-    brightnessSlider->attachCallback([&](int value)
-        {
-            this->setBrightness(value);
-            this->brightnessSlider->update(value);
-            this->dashboard->sendUpdates(); 
-        });
     this->brightnessSlider->update(this->cubePrefs->brightness);
     dashboard->sendUpdates();
 }
@@ -220,7 +219,7 @@ void Cube::setOTA(bool ota)
             [](void* o){ static_cast<Cube*>(o)->checkForOTA(); }, // This is disgusting, but it works
             "Check For OTA", // Name of the task (for debugging)
             6000,            // Stack size (bytes)
-            NULL,            // Parameter to pass
+            this,            // Parameter to pass
             0,               // Task priority
             &checkForOTATask // Task handle
         );
@@ -516,14 +515,12 @@ void Cube::printMem()
     WebSerial.println("test Log");
 }
 
-
-void showPattern(void *parameter)
+void Cube::showPattern()
 {
-    MatrixPanel_I2S_DMA display = *(MatrixPanel_I2S_DMA *) parameter;
     patterns pattern = snake;
     switch (pattern) {
         case snake: {
-            SnakeGame game(&display, 30, 3, 200);
+            SnakeGame game(this->dma_display, 30, 3, 200);
             game.init();
             for (;;)
             {
@@ -533,7 +530,7 @@ void showPattern(void *parameter)
             break;
         }
         case plasma: {
-            Plasma plasma(&display);
+            Plasma plasma(this->dma_display);
             plasma.init();
             for (;;)
             {

@@ -4,9 +4,6 @@
 // Create a new Cube object with optional devMode
 Cube::Cube(bool ota, bool github, bool development)
 {
-    this->otaEnabled = ota;
-    this->GHUpdateEnabled = github;
-    this->developmentBranch = development;
     this->serial = String(ESP.getEfuseMac() % 0x1000000, HEX);
     this->server = new AsyncWebServer(80);
     this->dashboard = new ESPDash(this->server);
@@ -14,6 +11,8 @@ Cube::Cube(bool ota, bool github, bool development)
     this->GHUpdateToggle = new Card(this->dashboard, BUTTON_CARD, "Github Update Enabled");
     this->developmentToggle = new Card(this->dashboard, BUTTON_CARD, "Use Development Builds");
     this->fwVersion = new Statistic(this->dashboard, "Firmware Version", FW_VERSION);
+    this->brightnessSlider = new Card(this->dashboard, SLIDER_CARD, "Brightness:", "", 0, 255);
+    this->cubePrefs = new CubePrefs;
 }
 
 void Cube::init()
@@ -37,16 +36,34 @@ void Cube::init()
 void Cube::initPrefs()
 {
     prefs.begin("cube");
+
+    if (!prefs.isKey("cubePrefs")) {
+        Serial.printf("No preferences found, creating new\n");
+        this->cubePrefs->brightness = 255;
+        this->cubePrefs->development = false;
+        this->cubePrefs->ota = false;
+        this->cubePrefs->github = true;
+        prefs.putBytes("cubePrefs", this->cubePrefs, sizeof(CubePrefs));
+    }
+
+    size_t schLen = prefs.getBytesLength("cubePrefs");
+    if (schLen == sizeof(CubePrefs))
+    {
+        prefs.getBytes("cubePrefs", this->cubePrefs, schLen);
+        Serial.printf("Loaded preferences\nBright: %d\nDev: %d\nOTA: %d\nGH: %d\n", cubePrefs->brightness, cubePrefs->development, cubePrefs->ota, cubePrefs->github);
+    } else {
+        log_e("Data is not correct size!");
+    }
 }
 
 // Initialize update methods, setup check tasks
 void Cube::initUpdates()
 {
-    if (this->otaEnabled)
+    if (this->cubePrefs->ota)
     {
         this->setOTA(true);
     }
-    if (this->GHUpdateEnabled)
+    if (this->cubePrefs->github)
     {
         this->setGHUpdate(true);
     }
@@ -61,7 +78,7 @@ void Cube::initDisplay()
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
     mxconfig.clkphase = false;
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-    setBrightness(255);
+    setBrightness(this->cubePrefs->brightness);
     dma_display->setLatBlanking(2);
 
     // Allocate memory and start DMA display
@@ -104,30 +121,38 @@ void Cube::initWifi()
             this->GHUpdateToggle->update(value);
             this->dashboard->sendUpdates(); 
         });
-    this->otaToggle->update(this->otaEnabled);
-    this->developmentToggle->update(this->developmentBranch);
-    this->GHUpdateToggle->update(this->GHUpdateEnabled);
+    this->otaToggle->update(this->cubePrefs->ota);
+    this->developmentToggle->update(this->cubePrefs->development);
+    this->GHUpdateToggle->update(this->cubePrefs->github);
+    brightnessSlider->attachCallback([&](int value)
+        {
+            this->setBrightness(value);
+            this->brightnessSlider->update(value);
+            this->dashboard->sendUpdates(); 
+        });
+    this->brightnessSlider->update(this->cubePrefs->brightness);
     dashboard->sendUpdates();
-
 }
 
 // set brightness of display
 void Cube::setBrightness(uint8_t brightness)
 {
-    this->brightness = brightness;
+    cubePrefs->brightness = brightness;
+    this->updatePrefs();
     dma_display->setBrightness8(brightness);
 }
 
 // get brightness of display
 uint8_t Cube::getBrightness()
 {
-    return this->brightness;
+    return this->cubePrefs->brightness;
 }
 
 // set OTA enabled/disabled
 void Cube::setOTA(bool ota)
 {
-    this->otaEnabled = ota;
+    cubePrefs->ota = ota;
+    this->updatePrefs();
     if(ota) {
         Serial.printf("Starting OTA\n");
         ArduinoOTA.setHostname("cube");
@@ -143,13 +168,12 @@ void Cube::setOTA(bool ota)
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
                     Serial.println("Start updating " + type);
                     vTaskDelete(showPatternTask);
-                    setBrightness(100);
                     dma_display->fillScreenRGB888(0, 0, 0); })
             .onEnd([&]()
                    { 
                     Serial.println("\nEnd"); 
-                    for(uint8_t i = getBrightness(); i > 0; i--) {
-                        setBrightness(i);
+                    for(int i = getBrightness(); i > 0; i=i-3) {
+                        dma_display->setBrightness8(max(i, 0));
                     } })
             .onProgress([&](unsigned int progress, unsigned int total)
                         { 
@@ -210,7 +234,8 @@ void Cube::setOTA(bool ota)
 // set Github Update enabled/disabled
 void Cube::setGHUpdate(bool github)
 {
-    this->GHUpdateEnabled = github;
+    cubePrefs->github=github;
+    this->updatePrefs();
     if(github) {
         Serial.printf("Github Update enabled...\n");
         httpUpdate.onStart([&]()
@@ -274,8 +299,16 @@ void Cube::setGHUpdate(bool github)
 
 // get dev mode
 void Cube::setDevelopment(bool development)
+{ 
+    cubePrefs->development = development;
+    this->updatePrefs();
+}
+
+// update preferences stored in NVS
+void Cube::updatePrefs()
 {
-    this->developmentBranch = development;
+    Serial.printf("Updating preferences\nBright: %d\nDev: %d\nOTA: %d\nGH: %d\n", cubePrefs->brightness, cubePrefs->development, cubePrefs->ota, cubePrefs->github);
+    prefs.putBytes("cubePrefs", cubePrefs, sizeof(CubePrefs));
 }
 
 // shows debug info on display
@@ -394,8 +427,8 @@ void Cube::checkForUpdates()
         client.setCACertBundle(rootca_crt_bundle_start);
 
         String firmwareUrl = "";
-        Serial.printf("Branch = %s\n", this->developmentBranch ? "development" : "master");
-        if(this->developmentBranch) {
+        Serial.printf("Branch = %s\n", this->cubePrefs->development ? "development" : "master");
+        if(this->cubePrefs->development) {
             // https://api.github.com/repos/elliotmatson/LED_Cube/releases
             String jsonUrl = String("https://api.github.com/repos/") + REPO_URL + String("/releases");
             Serial.printf("%s\n", jsonUrl.c_str());

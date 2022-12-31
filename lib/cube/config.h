@@ -1,9 +1,6 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Uncomment to switch from DEV mode to GHA updates
-//#define FW_VERSION "v0.0.0"
-
 // SW Version (Github Actions automatically sets this)
 #ifndef FW_VERSION
   #define FW_VERSION "DEV"

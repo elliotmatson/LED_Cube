@@ -47,6 +47,13 @@ struct SpiRamAllocator
 };
 using SpiRamJsonDocument = BasicJsonDocument<SpiRamAllocator>;
 
+typedef struct 
+{
+    uint8_t brightness;
+    bool development;
+    bool ota;
+    bool github;
+} CubePrefs;
 
 class Cube {
     public:
@@ -68,17 +75,15 @@ class Cube {
         TaskHandle_t checkForOTATask;
         TaskHandle_t showPatternTask;
         Preferences prefs;
-        uint8_t brightness;
+        CubePrefs *cubePrefs;
         String serial;
-        bool developmentBranch;
-        bool otaEnabled;
-        bool GHUpdateEnabled;
         void initPrefs();
         void initUpdates();
         void initDisplay();
         void initWifi();
         void checkForUpdates();
         void checkForOTA();
+        void updatePrefs();
 
         patterns currentPattern;
         AsyncWebServer *server;
@@ -87,6 +92,7 @@ class Cube {
         Card *GHUpdateToggle;
         Card *developmentToggle;
         Statistic *fwVersion;
+        Card *brightnessSlider;
 };
 
 void showPattern(void *parameter);

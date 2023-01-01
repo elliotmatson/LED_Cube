@@ -1,5 +1,5 @@
-#include "cube.h"
 //#include "secrets.h"
+#include "cube.h"
 
 Cube cube;
 
@@ -12,8 +12,5 @@ void setup()
 // Just do nothing, eveything is done in tasks
 void loop()
 {
-  yield();
-  vTaskDelay(10000/portTICK_PERIOD_MS);
-  cube.printMem();
-  WebSerial.print("loop");
+  vTaskDelete(NULL); // Delete Loop task, we don't need it
 }

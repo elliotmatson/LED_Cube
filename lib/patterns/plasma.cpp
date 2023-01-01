@@ -1,10 +1,9 @@
 #include "plasma.h"
 
-unsigned long frameCount = 25500;
-
 Plasma::Plasma(MatrixPanel_I2S_DMA *display)
 {
   this->display = display;
+  frameCount = 25500;
 }
 
 Plasma::~Plasma() {}

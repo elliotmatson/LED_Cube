@@ -164,6 +164,7 @@ class SnakeGame: public Pattern{
         void show();
         ~SnakeGame();
     private:
+        unsigned long frameCount;
         uint8_t len; // Starting length of all snakes
         Snake * snakes; // Array of all snakes in the game
         std::pair<uint8_t,uint8_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake

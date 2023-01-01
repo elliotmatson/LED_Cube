@@ -2,8 +2,6 @@
 #include <utility>
 #include <algorithm>
 
-unsigned long frameCount = 0;
-
 SnakeGame::SnakeGame(MatrixPanel_I2S_DMA * display, uint8_t n_snakes = 10, uint8_t len = 10, uint16_t n_food = 100){
   this->display = display;
   this->len = len;

@@ -14,6 +14,12 @@
 // Github polling interval
 #define CHECK_FOR_UPDATES_INTERVAL 60 // Seconds
 
+// Signature for cube firmware
+#define CUBE_MAGIC_COOKIE "LED_CUBE_FW"
+
+// Cube Hostname
+#define HOSTNAME "cube"
+
 // Panel Settings
 #define PANEL_WIDTH 64
 #define PANEL_HEIGHT 64
@@ -34,10 +40,8 @@
 #define LAT_PIN 27
 #define OE_PIN 26
 #define CLK_PIN 25
-
 #define WIFI_LED 13
 #define USR_LED 2
-
 #define CONTROL_BUTTON 0
 
 #endif

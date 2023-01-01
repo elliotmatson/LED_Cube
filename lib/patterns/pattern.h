@@ -25,12 +25,13 @@ class Pattern
     public:
         virtual void show() = 0;
         virtual void init() = 0;
+    protected:
+        static const uint8_t cos_wave[256];
         inline uint8_t fast_cos(uint16_t x)
         {
             return cos_wave[x % 256];
         };
-    private:
-        static const uint8_t cos_wave[256];
+        unsigned long frameCount{0};
 };
 
 #endif

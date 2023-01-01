@@ -15,7 +15,8 @@
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
-
+#include <esp_ota_ops.h>
+#include <ESPmDNS.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ESPDash.h>
@@ -25,7 +26,9 @@
 #include "pattern.h"
 #include "all_patterns.h"
 
+// get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
+
 
 // for ArduinoJson with SPI RAM
 struct SpiRamAllocator
@@ -47,12 +50,24 @@ struct SpiRamAllocator
 };
 using SpiRamJsonDocument = BasicJsonDocument<SpiRamAllocator>;
 
+// Preferences struct for storing and loading in nvs
 struct CubePrefs
 {
-    uint8_t brightness;
-    bool development;
-    bool ota;
-    bool github;
+    uint8_t brightness = 255;
+    bool development = 0;
+    bool ota = 0;
+    bool github = 1;
+    bool signedFWOnly = 1;
+    void print(String prefix) {
+        Serial.printf("%s\nBrightness: %d\nDevelopment: %d\nOTA: %d\nGithub: %d\nSigned FW Only: %d\n", prefix.c_str(), brightness, development, ota, github, signedFWOnly);
+    }
+};
+
+// Partition struct for verifying firmware is intended for cube
+struct CubePartition
+{
+    char cookie[32];
+    char reserved[224]; // Reserved for future use, total of 256 bytes
 };
 
 class Cube {
@@ -66,30 +81,36 @@ class Cube {
         void showTestSequence();
         void setBrightness(uint8_t brightness);
         uint8_t getBrightness();
-        void setDevelopment(bool development);
-        void setOTA(bool ota);
-        void setGHUpdate(bool github);
+        void printf(const char *format, ...);
 
     private:
+        CubePrefs cubePrefs;
+        String serial;
+        patterns currentPattern;
+        bool wifiReady;
+        AsyncWebServer server;
+        ESPDash dashboard;
+        Card otaToggle;
+        Card GHUpdateToggle;
+        Card developmentToggle;
+        Card signedFWOnlyToggle;
+        Statistic fwVersion;
+        Card brightnessSlider;
         TaskHandle_t checkForUpdatesTask;
         TaskHandle_t checkForOTATask;
         TaskHandle_t showPatternTask;
         Preferences prefs;
-        CubePrefs *cubePrefs;
-        String serial;
-        patterns currentPattern;
-        AsyncWebServer *server;
-        ESPDash *dashboard;
-        Card *otaToggle;
-        Card *GHUpdateToggle;
-        Card *developmentToggle;
-        Statistic *fwVersion;
-        Card *brightnessSlider;
+        Preferences patternPrefs;
 
+        void setDevelopment(bool development);
+        void setOTA(bool ota);
+        void setGHUpdate(bool github);
+        void setSignedFWOnly(bool signedFWOnly);
         void initPrefs();
         void initUpdates();
         void initDisplay();
         void initWifi();
+        void initUI();
         void checkForUpdates();
         void checkForOTA();
         void showPattern();

@@ -58,6 +58,8 @@ struct CubePrefs
     bool ota = 0;
     bool github = 1;
     bool signedFWOnly = 1;
+    uint8_t latchBlanking = 2;
+    bool use20MHz = 0;
     void print(String prefix) {
         Serial.printf("%s\nBrightness: %d\nDevelopment: %d\nOTA: %d\nGithub: %d\nSigned FW Only: %d\n", prefix.c_str(), brightness, development, ota, github, signedFWOnly);
     }
@@ -84,6 +86,7 @@ class Cube {
         void printf(const char *format, ...);
 
     private:
+        WiFiManager wifiManager;
         CubePrefs cubePrefs;
         String serial;
         patterns currentPattern;
@@ -96,6 +99,10 @@ class Cube {
         Card signedFWOnlyToggle;
         Statistic fwVersion;
         Card brightnessSlider;
+        Card latchSlider;
+        Card use20MHzToggle;
+        Card rebootButton;
+        Card resetWifiButton;
         TaskHandle_t checkForUpdatesTask;
         TaskHandle_t checkForOTATask;
         TaskHandle_t showPatternTask;

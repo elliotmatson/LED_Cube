@@ -4,18 +4,21 @@
 const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartition = {CUBE_MAGIC_COOKIE};
 
 // Create a new Cube object with optional devMode
-Cube::Cube() : serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
-               currentPattern(patterns::snake),
-               wifiReady(false),
-               server(80),
-               dashboard(&server),
-               otaToggle(&dashboard, BUTTON_CARD, "OTA Update Enabled"),
-               GHUpdateToggle(&dashboard, BUTTON_CARD, "Github Update Enabled"),
-               developmentToggle(&dashboard, BUTTON_CARD, "Use Development Builds"),
-               signedFWOnlyToggle(&dashboard, BUTTON_CARD, "Signed FW only"),
-               fwVersion(&dashboard, "Firmware Version", FW_VERSION),
-               brightnessSlider(&dashboard, SLIDER_CARD, "Brightness:", "", 0, 255)
-
+Cube::Cube() :  serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
+                currentPattern(patterns::snake),
+                wifiReady(false),
+                server(80),
+                dashboard(&server),
+                otaToggle(&dashboard, BUTTON_CARD, "OTA Update Enabled"),
+                GHUpdateToggle(&dashboard, BUTTON_CARD, "Github Update Enabled"),
+                developmentToggle(&dashboard, BUTTON_CARD, "Use Development Builds"),
+                signedFWOnlyToggle(&dashboard, BUTTON_CARD, "Signed FW only"),
+                fwVersion(&dashboard, "Firmware Version", FW_VERSION),
+                brightnessSlider(&dashboard, SLIDER_CARD, "Brightness:", "", 0, 255),
+                latchSlider(&dashboard, SLIDER_CARD, "Latch Blanking:", "", 1, 4),
+                use20MHzToggle(&dashboard, BUTTON_CARD, "Use 20MHz Clock"),
+                rebootButton(&dashboard, BUTTON_CARD, "Reboot Cube"),
+                resetWifiButton(&dashboard, BUTTON_CARD, "Reset Wifi")
 {
 }
 
@@ -67,11 +70,15 @@ void Cube::initDisplay()
     this->printf("Configuring HUB_75\n");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
-    mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
+    if(cubePrefs.use20MHz) {
+        mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_20M;
+    } else {
+        mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
+    }
     mxconfig.clkphase = false;
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
     setBrightness(this->cubePrefs.brightness);
-    dma_display->setLatBlanking(2);
+    dma_display->setLatBlanking(cubePrefs.latchBlanking);
 
     // Allocate memory and start DMA display
     if (not dma_display->begin())
@@ -84,7 +91,6 @@ void Cube::initWifi()
     pinMode(WIFI_LED, OUTPUT);
     digitalWrite(WIFI_LED, 0);
     this->printf("Connecting to WiFi...\n");
-    WiFiManager wifiManager;
     wifiManager.setHostname("cube");
     wifiManager.setClass("invert");
     wifiManager.autoConnect("Cube");
@@ -131,11 +137,40 @@ void Cube::initUI()
             this->setBrightness(value);
             this->brightnessSlider.update(value);
             this->dashboard.sendUpdates(); });
+    latchSlider.attachCallback([&](int value)
+                                     {
+            this->dma_display->setLatBlanking(value);
+            this->cubePrefs.latchBlanking = value;
+            this->updatePrefs();
+            this->latchSlider.update(value);
+            this->dashboard.sendUpdates(); });
+    use20MHzToggle.attachCallback([&](bool value)
+                                     {
+            this->cubePrefs.use20MHz = value;
+            this->updatePrefs();
+            this->use20MHzToggle.update(value);
+            this->dashboard.sendUpdates(); });
+    rebootButton.attachCallback([&](bool value)
+                                     {
+            this->printf("Rebooting...");
+            ESP.restart();
+            this->dashboard.sendUpdates(); });
+    resetWifiButton.attachCallback([&](bool value)
+                                     {
+            this->printf("Resetting WiFi...");
+            wifiManager.resetSettings();
+            ESP.restart();
+            this->dashboard.sendUpdates(); });
     this->otaToggle.update(this->cubePrefs.ota);
     this->developmentToggle.update(this->cubePrefs.development);
     this->GHUpdateToggle.update(this->cubePrefs.github);
     this->brightnessSlider.update(this->cubePrefs.brightness);
     this->signedFWOnlyToggle.update(this->cubePrefs.signedFWOnly);
+    this->latchSlider.update(this->cubePrefs.latchBlanking);
+    this->use20MHzToggle.update(this->cubePrefs.use20MHz);
+    this->rebootButton.update(true);
+    this->resetWifiButton.update(true);
+
     dashboard.sendUpdates();
 }
 

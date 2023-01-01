@@ -51,6 +51,8 @@ jobs:
     - name: Set version var
       run: echo "PLATFORMIO_BUILD_FLAGS=-DFW_VERSION='\"${{ inputs.release-version }}\"' -DREPO_PATH='\"$GITHUB_REPOSITORY\"'" >> $GITHUB_ENV
       if: github.event_name	== 'workflow_dispatch'
+    - name: Setup git for private libraries
+    - run: gh auth setup-git 
     - name: Setup upterm session
       uses: lhotari/action-upterm@v1
     - name: Run PlatformIO

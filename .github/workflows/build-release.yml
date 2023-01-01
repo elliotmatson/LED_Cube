@@ -52,7 +52,7 @@ jobs:
       run: echo "PLATFORMIO_BUILD_FLAGS=-DFW_VERSION='\"${{ inputs.release-version }}\"' -DREPO_PATH='\"$GITHUB_REPOSITORY\"'" >> $GITHUB_ENV
       if: github.event_name	== 'workflow_dispatch'
     - name: Setup git for private libraries
-    - run: gh auth setup-git 
+      run: gh auth setup-git 
     - name: Run PlatformIO
       run: pio run -e esp-wrover-kit
     - name: Rename firmware

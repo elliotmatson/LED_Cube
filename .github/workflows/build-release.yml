@@ -79,6 +79,7 @@ jobs:
     - name: Archive Build
       uses: actions/upload-artifact@v3
       with:
+        name: 'build'
         path: 'esp32.bin'
         
   release:

@@ -11,9 +11,9 @@ on:
         type: choice
         description: Production or Development?
         options: 
-        - production
-        - development
-        - buildOnly
+        - 'production'
+        - 'development'
+        - 'build only'
         default: 'development'
   pull_request:
     
@@ -77,7 +77,7 @@ jobs:
         
   release:
     needs: build
-    if: (github.event_name == 'workflow_dispatch' && inputs.release-type != buildOnly)
+    if: (github.event_name == 'workflow_dispatch' && inputs.release-type != 'build only')
     runs-on: ubuntu-latest
     permissions:
       contents: write

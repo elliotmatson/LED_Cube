@@ -19,7 +19,7 @@
 #include <ESPmDNS.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <ESPDash.h>
+#include <ESPDashPro.h>
 #include <WebSerial.h>
 
 #include "config.h"

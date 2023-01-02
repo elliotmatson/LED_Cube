@@ -109,26 +109,26 @@ void Cube::initWifi()
 // initialize Cube UI Elements
 void Cube::initUI()
 {
-    this->otaToggle.attachCallback([&](bool value)
+    this->otaToggle.attachCallback([&](int value)
         {
             this->setOTA(value);
             this->otaToggle.update(value);
             this->dashboard.sendUpdates(); 
         });
-    this->developmentToggle.attachCallback([&](bool value)
+    this->developmentToggle.attachCallback([&](int value)
         {
             this->setDevelopment(value);
             this->developmentToggle.update(value);
             this->dashboard.sendUpdates(); 
         });
-    this->GHUpdateToggle.attachCallback([&](bool value)
+    this->GHUpdateToggle.attachCallback([&](int value)
         {
             this->setGHUpdate(value);
             this->GHUpdateToggle.update(value);
             this->dashboard.sendUpdates(); 
         });
-    this->signedFWOnlyToggle.attachCallback([&](bool value)
-                                             {
+    this->signedFWOnlyToggle.attachCallback([&](int value)
+                                            {
             this->setSignedFWOnly(value);
             this->signedFWOnlyToggle.update(value);
             this->dashboard.sendUpdates(); });
@@ -144,18 +144,18 @@ void Cube::initUI()
             this->updatePrefs();
             this->latchSlider.update(value);
             this->dashboard.sendUpdates(); });
-    use20MHzToggle.attachCallback([&](bool value)
-                                     {
+    use20MHzToggle.attachCallback([&](int value)
+                                  {
             this->cubePrefs.use20MHz = value;
             this->updatePrefs();
             this->use20MHzToggle.update(value);
             this->dashboard.sendUpdates(); });
-    rebootButton.attachCallback([&](bool value)
-                                     {
+    rebootButton.attachCallback([&](int value)
+                                {
             this->printf("Rebooting...");
             ESP.restart();
             this->dashboard.sendUpdates(); });
-    resetWifiButton.attachCallback([&](bool value)
+    resetWifiButton.attachCallback([&](int value)
                                      {
             this->printf("Resetting WiFi...");
             wifiManager.resetSettings();

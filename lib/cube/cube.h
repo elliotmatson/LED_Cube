@@ -1,6 +1,8 @@
 #ifndef CUBE_H
 #define CUBE_H
 
+
+#include <sdkconfig.h>
 #include <stdio.h>
 #include <Arduino.h>
 #include <HTTPClient.h>

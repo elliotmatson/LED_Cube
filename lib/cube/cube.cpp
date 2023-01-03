@@ -93,6 +93,14 @@ void Cube::initWifi()
     this->printf("Connecting to WiFi...\n");
     wifiManager.setHostname("cube");
     wifiManager.setClass("invert");
+    wifiManager.setAPCallback([&](WiFiManager *myWiFiManager)
+        {
+            dma_display->fillScreen(BLACK);
+            dma_display->setTextColor(WHITE);
+            dma_display->setCursor(0, 0);
+            dma_display->printf("\n\nConnect to\n   WiFi\n\nSSID: %s", myWiFiManager->getConfigPortalSSID().c_str());
+        });
+
     wifiManager.autoConnect("Cube");
 
     this->server.begin();
@@ -109,6 +117,8 @@ void Cube::initWifi()
 // initialize Cube UI Elements
 void Cube::initUI()
 {
+    dashboard.setTitle("cube");
+
     this->otaToggle.attachCallback([&](int value)
         {
             this->setOTA(value);
@@ -198,7 +208,7 @@ void Cube::setOTA(bool ota)
         ArduinoOTA.setHostname(HOSTNAME);
         ArduinoOTA
             .onStart([&]()
-                {
+                     {
                     String type;
                     if (ArduinoOTA.getCommand() == U_FLASH)
                         type = "sketch";
@@ -208,17 +218,20 @@ void Cube::setOTA(bool ota)
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
                     this->printf("Start updating %s", type);
                     vTaskDelete(showPatternTask);
-                    dma_display->fillScreenRGB888(0, 0, 0); 
-                })
+                    dma_display->fillScreenRGB888(0, 0, 0);
+                    dma_display->setCursor(6, 21);
+                    dma_display->setTextColor(0xFFFF);
+                    dma_display->setTextSize(3);
+                    dma_display->print("OTA"); })
             .onEnd([&]()
-                { 
+                   {
                     this->printf("\nEnd\n"); 
                     for(int i = getBrightness(); i > 0; i=i-3) {
                         dma_display->setBrightness8(max(i, 0));
-                    } 
-                })
+                    } })
             .onProgress([&](unsigned int progress, unsigned int total)
-                { 
+                        { 
+                    this->dashboard.sendUpdates();
                     this->printf("Progress: %u%%\r", (progress / (total / 100)));
 
                     if (this->cubePrefs.signedFWOnly && progress == total)
@@ -231,47 +244,30 @@ void Cube::setOTA(bool ota)
                     }
 
                     int i = map(progress, 0, total, 0, 512);
-                    if (i < 64) {
-                        dma_display->drawPixelRGB888(128+i, 0, 255, 255, 255);
-                    } else if (i < 128) {
-                        dma_display->drawPixelRGB888(191, i-64, 255, 255, 255);
-                    }
-                    else if (i < 192)
-                    {
-                        dma_display->drawPixelRGB888(0, 63-(i-128), 255, 255, 255);
-                    }
-                    else if (i < 256)
-                    {
-                        dma_display->drawPixelRGB888((i-192), 0, 255, 255, 255);
-                    } else if (i < 320) {
-                        dma_display->drawPixelRGB888(64, 63 - (i - 256), 255, 255, 255);
-                    }
-                    else if (i < 384)
-                    {
-                        dma_display->drawPixelRGB888(64 + (i - 320), 0, 255, 255, 255);
-                    }
-                    else if (i < 448)
-                    {
-                        dma_display->drawPixelRGB888(127, (i - 384), 255, 255, 255);
-                        dma_display->drawPixelRGB888(128, (i - 384), 255, 255, 255);
-                    }
-                    else if (i < 512)
-                    {
-                        dma_display->drawPixelRGB888(127 - (i - 448), 63, 255, 255, 255);
-                        dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
-                        dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
-                        dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
-                    } 
-                })
+                    dma_display->drawFastHLine(128, 0, std::clamp(i, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(191, 0, std::clamp(i - 64, 0, 64), 0xFFFF);
+
+                    dma_display->drawFastVLine(0, 64 - std::clamp(i - 128, 0, 63), std::clamp(i - 128, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(0, 0, std::clamp(i - 192, 0, 64), 0xFFFF);
+
+                    dma_display->drawFastVLine(64, 64 - std::clamp(i - 256, 0, 63), std::clamp(i - 256, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(64, 0, std::clamp(i - 320, 0, 64), 0xFFFF);
+
+                    dma_display->drawFastVLine(127, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(128, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
+
+                    dma_display->drawFastHLine(128 - std::clamp(i - 448, 0, 63), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(128, 63, std::clamp(i - 448, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(64 - std::clamp(i - 448, 0, 64), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(63, 64 - std::clamp(i - 448, 0, 64), std::clamp(i - 448, 0, 64), 0xFFFF); })
             .onError([&](ota_error_t error)
-                {
+                     {
                     this->printf("Error[%u]: ", error);
                     if (error == OTA_AUTH_ERROR) this->printf("Auth Failed\n");
                     else if (error == OTA_BEGIN_ERROR) this->printf("Begin Failed\n");
                     else if (error == OTA_CONNECT_ERROR) this->printf("Connect Failed\n");
                     else if (error == OTA_RECEIVE_ERROR) this->printf("Receive Failed\n");
-                    else if (error == OTA_END_ERROR) this->printf("End Failed\n"); 
-                });
+                    else if (error == OTA_END_ERROR) this->printf("End Failed\n"); });
 
         ArduinoOTA.begin();
 
@@ -283,12 +279,13 @@ void Cube::setOTA(bool ota)
             5,               // Task priority
             &checkForOTATask // Task handle
         );
-    } else {
-        this->printf("Stopping OTA\n");
+    } else
+    {
+        this->printf("OTA Disabled\n");
+        ArduinoOTA.end();
         if(checkForOTATask){
             vTaskDelete(checkForOTATask);
         }
-        ArduinoOTA.end();
     }
 }
 
@@ -300,12 +297,14 @@ void Cube::setGHUpdate(bool github)
     if(github) {
         this->printf("Github Update enabled...\n");
         httpUpdate.onStart([&]()
-        {
+                           {
             this->printf("Start updating\n");
             vTaskDelete(showPatternTask);
-            setBrightness(100);
             dma_display->fillScreenRGB888(0, 0, 0);
-        });
+            dma_display->setCursor(6, 21);
+            dma_display->setTextColor(0xFFFF);
+            dma_display->setTextSize(3);
+            dma_display->print("GHA"); });
         httpUpdate.onEnd([&]()
         { 
             this->printf("\nEnd\n"); 
@@ -314,7 +313,7 @@ void Cube::setGHUpdate(bool github)
             }
         });
         httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
-        { 
+                              { 
             this->printf("Progress: %u%%\r", (progress / (total / 100)));
 
             if (this->cubePrefs.signedFWOnly && progress == total)
@@ -325,34 +324,24 @@ void Cube::setGHUpdate(bool github)
                 if (strcmp(newCubePartition.cookie, cubePartition.cookie))
                     Update.abort();
             }
-                    
+
             int i = map(progress, 0, total, 0, 512);
-            if (i < 64) {
-                dma_display->drawPixelRGB888(128+i, 0, 255, 255, 255);
-            } else if (i < 128) {
-                dma_display->drawPixelRGB888(191, i-64, 255, 255, 255);
-            }
-            else if (i < 192)
-            {
-                dma_display->drawPixelRGB888(0, 63-(i-128), 255, 255, 255);
-            } else if (i < 256) {
-                dma_display->drawPixelRGB888((i-192), 0, 255, 255, 255);
-            } else if (i < 320) {
-                dma_display->drawPixelRGB888(64, 63 - (i - 256), 255, 255, 255);
-            }
-            else if (i < 384)
-            {
-                dma_display->drawPixelRGB888(64 + (i - 320), 0, 255, 255, 255);
-            } else if (i < 448) {
-                dma_display->drawPixelRGB888(127, (i - 384), 255, 255, 255);
-                dma_display->drawPixelRGB888(128, (i - 384), 255, 255, 255);
-            } else if (i < 512){
-                dma_display->drawPixelRGB888(127 - (i - 448), 63, 255, 255, 255);
-                dma_display->drawPixelRGB888(128 + (i - 448), 63, 255, 255, 255);
-                dma_display->drawPixelRGB888(63 - (i - 448), 63, 255, 255, 255);
-                dma_display->drawPixelRGB888(63, 63 - (i - 448), 255, 255, 255);
-            } 
-        });
+            dma_display->drawFastHLine(128, 0, std::clamp(i, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(191, 0, std::clamp(i - 64, 0, 64), 0xFFFF);
+
+            dma_display->drawFastVLine(0, 64 - std::clamp(i - 128, 0, 63), std::clamp(i - 128, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(0, 0, std::clamp(i - 192, 0, 64), 0xFFFF);
+
+            dma_display->drawFastVLine(64, 64 - std::clamp(i - 256, 0, 63), std::clamp(i - 256, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(64, 0, std::clamp(i - 320, 0, 64), 0xFFFF);
+
+            dma_display->drawFastVLine(127, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(128, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
+
+            dma_display->drawFastHLine(128 - std::clamp(i - 448, 0, 63), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(128, 63, std::clamp(i - 448, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(64 - std::clamp(i - 448, 0, 64), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(63, 64 - std::clamp(i - 448, 0, 64), std::clamp(i - 448, 0, 64), 0xFFFF); });
         xTaskCreate(
             [](void* o){ static_cast<Cube*>(o)->checkForUpdates(); },     // This is disgusting, but it works
             "Check For Updates",    // Name of the task (for debugging)
@@ -362,7 +351,7 @@ void Cube::setGHUpdate(bool github)
             &checkForUpdatesTask    // Task handle
         );
     } else {
-        this->printf("Stopping Github Update\n");
+        this->printf("Github Updates Disabled\n");
         if(checkForUpdatesTask) {
             vTaskDelete(checkForUpdatesTask);
         }

@@ -1,4 +1,4 @@
-name: build-release
+name: build-release-on-prem
 
 env:
   GH_TOKEN:  ${{ secrets.GH_PAT }}

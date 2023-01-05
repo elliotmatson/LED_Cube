@@ -25,32 +25,11 @@
 #include <WebSerial.h>
 
 #include "config.h"
-#include "pattern.h"
+#include "cube_utils.h"
 #include "all_patterns.h"
 
 // get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
-
-
-// for ArduinoJson with SPI RAM
-struct SpiRamAllocator
-{
-    void *allocate(size_t size)
-    {
-        return heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
-    }
-
-    void deallocate(void *pointer)
-    {
-        heap_caps_free(pointer);
-    }
-
-    void *reallocate(void *ptr, size_t new_size)
-    {
-        return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM);
-    }
-};
-using SpiRamJsonDocument = BasicJsonDocument<SpiRamAllocator>;
 
 // Preferences struct for storing and loading in nvs
 struct CubePrefs
@@ -86,6 +65,7 @@ class Cube {
         void setBrightness(uint8_t brightness);
         uint8_t getBrightness();
         void printf(const char *format, ...);
+        AsyncWebServer server;
 
     private:
         WiFiManager wifiManager;
@@ -93,7 +73,6 @@ class Cube {
         String serial;
         patterns currentPattern;
         bool wifiReady;
-        AsyncWebServer server;
         ESPDash dashboard;
         Card otaToggle;
         Card GHUpdateToggle;
@@ -105,9 +84,14 @@ class Cube {
         Card use20MHzToggle;
         Card rebootButton;
         Card resetWifiButton;
+        Card crashMe;
+        Tab systemTab;
+        Tab displayTab;
+        Tab developerTab;
         TaskHandle_t checkForUpdatesTask;
         TaskHandle_t checkForOTATask;
         TaskHandle_t showPatternTask;
+        TaskHandle_t printMemTask;
         Preferences prefs;
         Preferences patternPrefs;
 

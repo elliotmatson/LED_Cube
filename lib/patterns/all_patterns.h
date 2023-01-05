@@ -10,7 +10,8 @@
 enum patterns
 {
     snake,
-    plasma
+    plasma,
+    spotify
 };
 
 #endif

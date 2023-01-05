@@ -3,8 +3,7 @@
 
 #include <Arduino.h>
 #include <utility>
-#include "config.h"
-#include "pattern.h"
+#include "cube_utils.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 255;

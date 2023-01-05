@@ -1,10 +1,33 @@
 #include "spotify.h"
-/*
-void spotifyInit(){
+
+char scope[] = "user-read-playback-state%20user-modify-playback-state";
+char callbackURI[] = "http%3A%2F%2Fcube.local%2Fcallback%2F";
+const char *webpageTemplate =
+    R"(
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta http-equiv="X-UA-Compatible" content="IE=edge">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        </head>
+        <body>
+          <div>
+          <a href="https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=%s">spotify Auth</a>
+          </div>
+        </body>
+      </html>
+      )";
+
+Spotify::Spotify(MatrixPanel_I2S_DMA *display) : spotify(this->client)
+{
+  this->display = display;
+}
+
+void Spotify::init(){
     prefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
     prefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
     spotify.lateInit(spotifyID, spotifySecret, prefs.getString("SPOTIFY_TOKEN").c_str());
-    client.setCACert(spotify_server_cert);
     server.on("/", handleRoot);
     server.on("/callback/", handleCallback);
     server.onNotFound(handleNotFound);
@@ -40,7 +63,8 @@ void spotifyInit(){
     }
 }
 
-void spotifyLoop(){
+void Spotify::show()
+{
     server.handleClient();
     if (millis() > requestDueTime)
     {
@@ -67,7 +91,7 @@ void spotifyLoop(){
     }
 }
 
-void handleRoot()
+void Spotify::handleRoot()
 {
     char webpage[800];
     sprintf(webpage, webpageTemplate, prefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope);
@@ -75,7 +99,7 @@ void handleRoot()
     Serial.printf("got root request");
 }
 
-void handleCallback()
+void Spotify::handleCallback()
 {
     String code = "";
     const char *refreshToken = NULL;
@@ -101,7 +125,7 @@ void handleCallback()
     }
 }
 
-void handleNotFound()
+void Spotify::handleNotFound()
 {
     String message = "File Not Found\n\n";
     message += "URI: ";
@@ -123,7 +147,7 @@ void handleNotFound()
     Serial.printf(message.c_str());
 }
 
-bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
+bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
 {
     // Stop further decoding as image is running off bottom of screen
     if (y >= dma_display->height())
@@ -135,7 +159,7 @@ bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitma
     return 1;
 }
 
-int displayImage(char *albumArtUrl)
+int Spotify::displayImage(char *albumArtUrl)
 {
 
     uint8_t *imageFile; // pointer that the library will store the image at (uses malloc)
@@ -156,7 +180,7 @@ int displayImage(char *albumArtUrl)
     }
 }
 
-void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
+void Spotify::printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
 {
     if (currentlyPlaying.isPlaying) // was: if (!currentlyPlaying.error) which causes a compiler error 'struct CurrentlyPlaying' has no member named 'error'
     {
@@ -255,4 +279,3 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
         Serial.println("------------------------");
     }
 }
-*/

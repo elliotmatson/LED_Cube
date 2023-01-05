@@ -5,8 +5,8 @@ const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartitio
 
 // Create a new Cube object with optional devMode
 Cube::Cube() : server(80),
-               serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
                currentPattern(patterns::snake),
+               serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
                wifiReady(false),
                dashboard(&server),
                otaToggle(&dashboard, BUTTON_CARD, "OTA Update Enabled"),
@@ -23,8 +23,7 @@ Cube::Cube() : server(80),
                systemTab(&dashboard, "System"),
                displayTab(&dashboard, "Display"),
                developerTab(&dashboard, "Development")
-{
-}
+{}
 
 // initialize all cube tasks and functions
 void Cube::init()
@@ -60,7 +59,6 @@ void Cube::init()
 void Cube::initPrefs()
 {
     prefs.begin("cube");
-    patternPrefs.begin("patterns");
 
     if ((!prefs.isKey("cubePrefs")) || (prefs.getBytesLength("cubePrefs") != sizeof(CubePrefs))) {
         this->cubePrefs.print("No valid preferences found, creating new");
@@ -80,7 +78,7 @@ void Cube::initUpdates()
 // Initialize display driver
 void Cube::initDisplay()
 {
-    this->printf("Configuring HUB_75\n");
+    utils.printf("Configuring HUB_75\n");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
     if(cubePrefs.use20MHz) {
@@ -95,7 +93,7 @@ void Cube::initDisplay()
 
     // Allocate memory and start DMA display
     if (not dma_display->begin())
-         this->printf("****** !KABOOM! I2S memory allocation failed ***********");
+         utils.printf("****** !KABOOM! I2S memory allocation failed ***********");
 }
 
 // Initialize wifi and prompt for connection if needed
@@ -103,7 +101,7 @@ void Cube::initWifi()
 {
     pinMode(WIFI_LED, OUTPUT);
     digitalWrite(WIFI_LED, 0);
-    this->printf("Connecting to WiFi...\n");
+    utils.printf("Connecting to WiFi...\n");
     wifiManager.setHostname("cube");
     wifiManager.setClass("invert");
     wifiManager.setAPCallback([&](WiFiManager *myWiFiManager)
@@ -121,8 +119,8 @@ void Cube::initWifi()
 
     this->wifiReady = true;
 
-    this->printf("IP address: ");
-    this->printf(WiFi.localIP().toString().c_str());
+    utils.printf("IP address: ");
+    utils.printf(WiFi.localIP().toString().c_str());
     digitalWrite(WIFI_LED, 1);
     MDNS.begin(HOSTNAME);
 }
@@ -175,18 +173,18 @@ void Cube::initUI()
             this->dashboard.sendUpdates(); });
     rebootButton.attachCallback([&](int value)
                                 {
-            this->printf("Rebooting...");
+            utils.printf("Rebooting...");
             ESP.restart();
             this->dashboard.sendUpdates(); });
     resetWifiButton.attachCallback([&](int value)
                                      {
-            this->printf("Resetting WiFi...");
+            utils.printf("Resetting WiFi...");
             wifiManager.resetSettings();
             ESP.restart();
             this->dashboard.sendUpdates(); });
     crashMe.attachCallback([&](int value)
                                      {
-            this->printf("Crashing...");
+            utils.printf("Crashing...");
             int *p = NULL;
             *p = 80;
             this->dashboard.sendUpdates(); });
@@ -233,7 +231,7 @@ void Cube::setOTA(bool ota)
     cubePrefs.ota = ota;
     this->updatePrefs();
     if(ota) {
-        this->printf("Starting OTA\n");
+        utils.printf("Starting OTA\n");
         ArduinoOTA.setHostname(HOSTNAME);
         ArduinoOTA
             .onStart([&]()
@@ -245,7 +243,7 @@ void Cube::setOTA(bool ota)
                         type = "filesystem";
 
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-                    this->printf("Start updating %s", type);
+                    utils.printf("Start updating %s", type);
                     vTaskDelete(showPatternTask);
                     dma_display->fillScreenRGB888(0, 0, 0);
                     dma_display->setCursor(6, 21);
@@ -254,20 +252,20 @@ void Cube::setOTA(bool ota)
                     dma_display->print("OTA"); })
             .onEnd([&]()
                    {
-                    this->printf("\nEnd\n"); 
+                    utils.printf("\nEnd\n"); 
                     for(int i = getBrightness(); i > 0; i=i-3) {
                         dma_display->setBrightness8(max(i, 0));
                     } })
             .onProgress([&](unsigned int progress, unsigned int total)
                         { 
                     this->dashboard.sendUpdates();
-                    this->printf("Progress: %u%%\r", (progress / (total / 100)));
+                    utils.printf("Progress: %u%%\r", (progress / (total / 100)));
 
                     if (this->cubePrefs.signedFWOnly && progress == total)
                     {
                         CubePartition newCubePartition;
                         esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
-                        this->printf("Checking for Cube FW Signature: \nNew:%s\nold:%s\n", newCubePartition.cookie, cubePartition.cookie);
+                        utils.printf("Checking for Cube FW Signature: \nNew:%s\nold:%s\n", newCubePartition.cookie, cubePartition.cookie);
                         if (strcmp(newCubePartition.cookie, cubePartition.cookie))
                             Update.abort();
                     }
@@ -291,12 +289,12 @@ void Cube::setOTA(bool ota)
                     dma_display->drawFastVLine(63, 64 - std::clamp(i - 448, 0, 64), std::clamp(i - 448, 0, 64), 0xFFFF); })
             .onError([&](ota_error_t error)
                      {
-                    this->printf("Error[%u]: ", error);
-                    if (error == OTA_AUTH_ERROR) this->printf("Auth Failed\n");
-                    else if (error == OTA_BEGIN_ERROR) this->printf("Begin Failed\n");
-                    else if (error == OTA_CONNECT_ERROR) this->printf("Connect Failed\n");
-                    else if (error == OTA_RECEIVE_ERROR) this->printf("Receive Failed\n");
-                    else if (error == OTA_END_ERROR) this->printf("End Failed\n"); });
+                    utils.printf("Error[%u]: ", error);
+                    if (error == OTA_AUTH_ERROR) utils.printf("Auth Failed\n");
+                    else if (error == OTA_BEGIN_ERROR) utils.printf("Begin Failed\n");
+                    else if (error == OTA_CONNECT_ERROR) utils.printf("Connect Failed\n");
+                    else if (error == OTA_RECEIVE_ERROR) utils.printf("Receive Failed\n");
+                    else if (error == OTA_END_ERROR) utils.printf("End Failed\n"); });
 
         ArduinoOTA.begin();
 
@@ -310,7 +308,7 @@ void Cube::setOTA(bool ota)
         );
     } else
     {
-        this->printf("OTA Disabled\n");
+        utils.printf("OTA Disabled\n");
         ArduinoOTA.end();
         if(checkForOTATask){
             vTaskDelete(checkForOTATask);
@@ -324,10 +322,10 @@ void Cube::setGHUpdate(bool github)
     cubePrefs.github=github;
     this->updatePrefs();
     if(github) {
-        this->printf("Github Update enabled...\n");
+        utils.printf("Github Update enabled...\n");
         httpUpdate.onStart([&]()
                            {
-            this->printf("Start updating\n");
+            utils.printf("Start updating\n");
             vTaskDelete(showPatternTask);
             dma_display->fillScreenRGB888(0, 0, 0);
             dma_display->setCursor(6, 21);
@@ -336,20 +334,20 @@ void Cube::setGHUpdate(bool github)
             dma_display->print("GHA"); });
         httpUpdate.onEnd([&]()
         { 
-            this->printf("\nEnd\n"); 
+            utils.printf("\nEnd\n"); 
             for(int i = getBrightness(); i > 0; i=i-3) {
                 dma_display->setBrightness8(max(i, 0));
             }
         });
         httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
                               { 
-            this->printf("Progress: %u%%\r", (progress / (total / 100)));
+            utils.printf("Progress: %u%%\r", (progress / (total / 100)));
 
             if (this->cubePrefs.signedFWOnly && progress == total)
             {
                 CubePartition newCubePartition;
                 esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
-                this->printf("Checking for Cube FW Signature: \nNew:%s\nold:%s\n", newCubePartition.cookie, cubePartition.cookie);
+                utils.printf("Checking for Cube FW Signature: \nNew:%s\nold:%s\n", newCubePartition.cookie, cubePartition.cookie);
                 if (strcmp(newCubePartition.cookie, cubePartition.cookie))
                     Update.abort();
             }
@@ -380,7 +378,7 @@ void Cube::setGHUpdate(bool github)
             &checkForUpdatesTask    // Task handle
         );
     } else {
-        this->printf("Github Updates Disabled\n");
+        utils.printf("Github Updates Disabled\n");
         if(checkForUpdatesTask) {
             vTaskDelete(checkForUpdatesTask);
         }
@@ -408,24 +406,11 @@ void Cube::updatePrefs()
     prefs.putBytes("cubePrefs", &cubePrefs, sizeof(CubePrefs));
 }
 
-void Cube::printf(const char *format, ...)
-{
-    char buffer[256];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    Serial.print(buffer);
-    if(this->wifiReady){
-        WebSerial.print(buffer);
-    }
-}
-
 // shows debug info on display
 void Cube::showDebug()
 {
-    this->printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
-    this->printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
+    utils.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
+    utils.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
@@ -535,11 +520,11 @@ void Cube::checkForUpdates()
         client.setCACertBundle(rootca_crt_bundle_start);
 
         String firmwareUrl = "";
-        this->printf("Branch = %s\n", this->cubePrefs.development ? "development" : "master");
+        utils.printf("Branch = %s\n", this->cubePrefs.development ? "development" : "master");
         if(this->cubePrefs.development) {
             // https://api.github.com/repos/elliotmatson/LED_Cube/releases
             String jsonUrl = String("https://api.github.com/repos/") + REPO_URL + String("/releases");
-            this->printf("%s\n", jsonUrl.c_str());
+            utils.printf("%s\n", jsonUrl.c_str());
             http.useHTTP10(true);
             if (http.begin(client, jsonUrl)) {
                 SpiRamJsonDocument filter(200);
@@ -563,7 +548,7 @@ void Cube::checkForUpdates()
                     }
                 }
                 JsonObject newestPrerelease = releases[newestPrereleaseIndex].as<JsonObject>();
-                this->printf("Newest Prerelease: %s  date:%s\n", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
+                utils.printf("Newest Prerelease: %s  date:%s\n", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
                 // https://github.com/elliotmatson/LED_Cube/releases/download/v0.2.3/esp32.bin
                 firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/download/") + newestPrerelease["name"].as<String>() + String("/esp32.bin");
                 http.end();
@@ -571,18 +556,18 @@ void Cube::checkForUpdates()
         } else {
             firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
         }
-        this->printf("%s\n", firmwareUrl.c_str());
+        utils.printf("%s\n", firmwareUrl.c_str());
 
         if (http.begin(client, firmwareUrl) && firmwareUrl != "") {
             int httpCode = http.sendRequest("HEAD");
             if (httpCode < 300 || httpCode > 400 || (http.getLocation().indexOf(String(FW_VERSION)) > 0) || (firmwareUrl.indexOf(String(FW_VERSION)) > 0))
             {
-                this->printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+                utils.printf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
                 http.end();
             }
             else
             {
-                this->printf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+                utils.printf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
 
                 httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
                 t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
@@ -590,15 +575,15 @@ void Cube::checkForUpdates()
                 switch (ret)
                 {
                 case HTTP_UPDATE_FAILED:
-                    this->printf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+                    utils.printf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
                     break;
 
                 case HTTP_UPDATE_NO_UPDATES:
-                    this->printf("No Update!\n");
+                    utils.printf("No Update!\n");
                     break;
 
                 case HTTP_UPDATE_OK:
-                    this->printf("Update OK!\n");
+                    utils.printf("Update OK!\n");
                     break;
                 }
             }

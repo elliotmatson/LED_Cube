@@ -12,7 +12,18 @@ const uint8_t cos_wave[] =
      119, 116, 113, 109, 106, 103, 100, 97, 94, 91, 88, 85, 82, 79, 76, 73, 71, 68, 65, 62, 60, 57, 54, 52, 49, 47, 45,
      42, 40, 38, 35, 33, 31, 29, 27, 25, 23, 22, 20, 18, 17, 15, 14, 12, 11, 10, 9, 8, 6, 6, 5, 4, 3, 2, 2, 1, 1, 1, 0, 0, 0, 0};
 
-inline uint8_t fast_cos(uint16_t x)
+uint8_t UtilitiesClass::fast_cos(uint16_t x)
 {
     return cos_wave[x % 256];
 };
+
+void UtilitiesClass::printf(const char *format, ...)
+{
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    Serial.print(buffer);
+    WebSerial.print(buffer);
+}

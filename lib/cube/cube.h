@@ -57,22 +57,20 @@ class Cube {
     public:
         Cube();
         void init();
-        MatrixPanel_I2S_DMA *dma_display;
-        void printMem();
-        void showDebug();
-        void showCoordinates();
-        void showTestSequence();
-        void setBrightness(uint8_t brightness);
-        uint8_t getBrightness();
-        void printf(const char *format, ...);
-        AsyncWebServer server;
 
     private:
+        // Objects
+        MatrixPanel_I2S_DMA *dma_display;
+        AsyncWebServer server;
         WiFiManager wifiManager;
         CubePrefs cubePrefs;
-        String serial;
         patterns currentPattern;
+
+        // Variables
+        String serial;
         bool wifiReady;
+
+        // UI Components
         ESPDash dashboard;
         Card otaToggle;
         Card GHUpdateToggle;
@@ -88,13 +86,20 @@ class Cube {
         Tab systemTab;
         Tab displayTab;
         Tab developerTab;
+
+        // FreeRTOS Tasks
         TaskHandle_t checkForUpdatesTask;
         TaskHandle_t checkForOTATask;
         TaskHandle_t showPatternTask;
         TaskHandle_t printMemTask;
         Preferences prefs;
-        Preferences patternPrefs;
 
+        // Functions
+        void showDebug();
+        void showCoordinates();
+        void showTestSequence();
+        void setBrightness(uint8_t brightness);
+        uint8_t getBrightness();
         void setDevelopment(bool development);
         void setOTA(bool ota);
         void setGHUpdate(bool github);
@@ -108,6 +113,7 @@ class Cube {
         void checkForOTA();
         void showPattern();
         void updatePrefs();
+        void printMem();
 };
 
 #endif

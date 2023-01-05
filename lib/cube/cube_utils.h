@@ -2,6 +2,11 @@
 #define CUBE_UTILS_H
 
 #include <stdio.h>
+#include <Arduino.h>
+
+#include <WebSerial.h>
+#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+
 #include "config.h"
 
 // MACROS
@@ -50,8 +55,15 @@ class Pattern
         virtual void init() = 0;
     protected:
         unsigned long frameCount{0};
+    private:
+        MatrixPanel_I2S_DMA *display;
 };
 
-uint8_t fast_cos(uint16_t x);
+class UtilitiesClass {
+    public:
+        uint8_t fast_cos(uint16_t x);
+        void printf(const char *format, ...);
+};
+extern UtilitiesClass utils;
 
 #endif

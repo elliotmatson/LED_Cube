@@ -11,9 +11,6 @@ class Plasma: public Pattern{
         void init();
         void show();
         ~Plasma();
-
-    private:
-        MatrixPanel_I2S_DMA *display;
 };
 
 #endif

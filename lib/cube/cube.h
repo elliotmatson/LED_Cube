@@ -16,7 +16,6 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
-#include <ArduinoJson.h>
 #include <esp_ota_ops.h>
 #include <ESPmDNS.h>
 #include <AsyncTCP.h>
@@ -25,32 +24,11 @@
 #include <WebSerial.h>
 
 #include "config.h"
-#include "pattern.h"
+#include "cube_utils.h"
 #include "all_patterns.h"
 
 // get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
-
-
-// for ArduinoJson with SPI RAM
-struct SpiRamAllocator
-{
-    void *allocate(size_t size)
-    {
-        return heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
-    }
-
-    void deallocate(void *pointer)
-    {
-        heap_caps_free(pointer);
-    }
-
-    void *reallocate(void *ptr, size_t new_size)
-    {
-        return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM);
-    }
-};
-using SpiRamJsonDocument = BasicJsonDocument<SpiRamAllocator>;
 
 // Preferences struct for storing and loading in nvs
 struct CubePrefs
@@ -78,22 +56,20 @@ class Cube {
     public:
         Cube();
         void init();
-        MatrixPanel_I2S_DMA *dma_display;
-        void printMem();
-        void showDebug();
-        void showCoordinates();
-        void showTestSequence();
-        void setBrightness(uint8_t brightness);
-        uint8_t getBrightness();
-        void printf(const char *format, ...);
 
     private:
+        // Objects
+        MatrixPanel_I2S_DMA *dma_display;
+        AsyncWebServer server;
         WiFiManager wifiManager;
         CubePrefs cubePrefs;
-        String serial;
         patterns currentPattern;
+
+        // Variables
+        String serial;
         bool wifiReady;
-        AsyncWebServer server;
+
+        // UI Components
         ESPDash dashboard;
         Card otaToggle;
         Card GHUpdateToggle;
@@ -105,12 +81,24 @@ class Cube {
         Card use20MHzToggle;
         Card rebootButton;
         Card resetWifiButton;
+        Card crashMe;
+        Tab systemTab;
+        Tab displayTab;
+        Tab developerTab;
+
+        // FreeRTOS Tasks
         TaskHandle_t checkForUpdatesTask;
         TaskHandle_t checkForOTATask;
         TaskHandle_t showPatternTask;
+        TaskHandle_t printMemTask;
         Preferences prefs;
-        Preferences patternPrefs;
 
+        // Functions
+        void showDebug();
+        void showCoordinates();
+        void showTestSequence();
+        void setBrightness(uint8_t brightness);
+        uint8_t getBrightness();
         void setDevelopment(bool development);
         void setOTA(bool ota);
         void setGHUpdate(bool github);
@@ -124,6 +112,7 @@ class Cube {
         void checkForOTA();
         void showPattern();
         void updatePrefs();
+        void printMem();
 };
 
 #endif

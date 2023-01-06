@@ -3,8 +3,7 @@
 
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
-#include "config.h"
-#include "pattern.h"
+#include "cube_utils.h"
 
 class Plasma: public Pattern{
     public:
@@ -12,9 +11,6 @@ class Plasma: public Pattern{
         void init();
         void show();
         ~Plasma();
-
-    private:
-        MatrixPanel_I2S_DMA *display;
 };
 
 #endif

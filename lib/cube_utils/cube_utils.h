@@ -1,7 +1,15 @@
-#ifndef PATTERN_H
-#define PATTERN_H
+#ifndef CUBE_UTILS_H
+#define CUBE_UTILS_H
 
 #include <stdio.h>
+#include <Arduino.h>
+
+#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+#include <WebSerial.h>
+
+#include "virtual_displays.h"
+#include "config.h"
+
 
 // MACROS
 // Calculates precise projected X values of a pixel
@@ -11,6 +19,7 @@
 // Calculates precise projected Y values of a pixel
 #define PROJ_CALC_Y(x, y) ((x < 64) ? ((130 - x - y) >> 1) : ((x < 128) ? (y - (x >> 1)) : ((x >> 1) + y - 128)))
 
+// RGB 565 COLORS
 #define BLACK 0x0000
 #define BLUE 0x001F
 #define RED 0xF800
@@ -20,18 +29,19 @@
 #define YELLOW 0xFFE0
 #define WHITE 0xFFFF
 
+
+// Pattern interface
 class Pattern
 {
     public:
         virtual void show() = 0;
         virtual void init() = 0;
     protected:
-        static const uint8_t cos_wave[256];
-        inline uint8_t fast_cos(uint16_t x)
-        {
-            return cos_wave[x % 256];
-        };
         unsigned long frameCount{0};
+        MatrixPanel_I2S_DMA *display;
 };
+
+uint8_t fast_cos(uint16_t x);
+void cubePrintf(const char *format, ...);
 
 #endif

@@ -3,8 +3,7 @@
 
 #include <Arduino.h>
 #include <utility>
-#include "config.h"
-#include "pattern.h"
+#include "cube_utils.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 255;
@@ -170,7 +169,6 @@ class SnakeGame: public Pattern{
         std::pair<uint8_t,uint8_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
         uint8_t n_snakes;
         uint16_t n_food;
-        MatrixPanel_I2S_DMA *display;
 
         void place_food();
         void spawn_snake(uint8_t i);

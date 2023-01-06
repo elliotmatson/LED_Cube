@@ -197,8 +197,6 @@ void Spotify::printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
 
         Serial.print("Track: ");
         Serial.println(currentlyPlaying.trackName);
-        Serial.print("Track URI: ");
-        Serial.println(currentlyPlaying.trackUri);
         Serial.println();
 
         Serial.println("Artists: ");
@@ -206,15 +204,11 @@ void Spotify::printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
         {
             Serial.print("Name: ");
             Serial.println(currentlyPlaying.artists[i].artistName);
-            Serial.print("Artist URI: ");
-            Serial.println(currentlyPlaying.artists[i].artistUri);
             Serial.println();
         }
 
         Serial.print("Album: ");
         Serial.println(currentlyPlaying.albumName);
-        Serial.print("Album URI: ");
-        Serial.println(currentlyPlaying.albumUri);
         Serial.println();
 
         long progress = currentlyPlaying.progressMs; // duration passed in the song
@@ -241,21 +235,5 @@ void Spotify::printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
         }
         Serial.println(">");
         Serial.println();
-
-        // will be in order of widest to narrowest
-        // currentlyPlaying.numImages is the number of images that
-        // are stored
-        for (int i = 0; i < currentlyPlaying.numImages; i++)
-        {
-            Serial.println("------------------------");
-            Serial.print("Album Image: ");
-            Serial.println(currentlyPlaying.albumImages[i].url);
-            Serial.print("Dimensions: ");
-            Serial.print(currentlyPlaying.albumImages[i].width);
-            Serial.print(" x ");
-            Serial.print(currentlyPlaying.albumImages[i].height);
-            Serial.println();
-        }
-        Serial.println("------------------------");
     }
 }

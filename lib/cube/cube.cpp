@@ -646,7 +646,7 @@ void Cube::showPattern()
             for (;;)
             {
                 spotify.show();
-                vTaskDelay(20000 / portTICK_PERIOD_MS);
+                vTaskDelay(300 / portTICK_PERIOD_MS);
                 yield();
             }
             break;

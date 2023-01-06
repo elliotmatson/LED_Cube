@@ -28,10 +28,11 @@ public:
 
 private:
   void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying);
-  bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);
+  bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap);
   int displayImage(char *albumArtUrl);
 
   MatrixPanel_I2S_DMA *display;
+  SinglePanel panel0;
   WiFiClientSecure client;
   AsyncWebServer *server;
   SpotifyArduino spotify;

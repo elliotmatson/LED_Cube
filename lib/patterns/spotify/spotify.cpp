@@ -19,7 +19,8 @@ const char *webpageTemplate =
       </html>
       )";
 
-Spotify::Spotify(MatrixPanel_I2S_DMA *display, AsyncWebServer *server) : spotify(this->client)
+Spotify::Spotify(MatrixPanel_I2S_DMA *display, AsyncWebServer *server) :    panel0(*display, 2, 2),
+                                                                            spotify(this->client)
 {
   this->display = display;
   this->server = server;
@@ -92,7 +93,7 @@ void Spotify::init(){
     TJpgDec.setJpgScale(1);
 
     // The decoder must be given the exact name of the rendering function above
-    TJpgDec.setCallback([&](int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
+    TJpgDec.setCallback([&](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
                         {
                             return this->displayOutput(x, y, w, h, bitmap);
                         });
@@ -119,6 +120,7 @@ void Spotify::show()
     else if (status == 204)
     {
         Serial.println("Doesn't seem to be anything playing");
+        panel0.fillScreen(0);
     }
     else
     {
@@ -127,13 +129,35 @@ void Spotify::show()
     }
 }
 
-bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
+bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
 {
     // Stop further decoding as image is running off bottom of screen
-    if (y >= display->height())
+    if (y >= panel0.height()){
+        Serial.printf("Invalid display parameters: x=%d, y=%d, w=%d, h=%d", x, y, w, h);
         return 0;
+    }
 
-    display->drawRGBBitmap(128 + x, y, bitmap, w, h);
+    for (int16_t j = 0; j < h; j++, y++)
+    {
+        for (int16_t i = 0; i < w; i++)
+        {
+            panel0.drawPixelRGB888(x + i, y, pgm_read_byte(&bitmap[((j * w + i) * 3)]), pgm_read_byte(&bitmap[((j * w + i) * 3)+1]), pgm_read_byte(&bitmap[((j * w + i) * 3)+2]));
+        }
+    }
+
+    //panel0.drawRGBBitmap(x, y, bitmap, w, h);
+    /*
+void Adafruit_GFX::drawRGBBitmap(int16_t x, int16_t y, const uint16_t bitmap[],
+                                 int16_t w, int16_t h) {
+  startWrite();
+  for (int16_t j = 0; j < h; j++, y++) {
+    for (int16_t i = 0; i < w; i++) {
+      writePixel(x + i, y, pgm_read_word(&bitmap[j * w + i]));
+    }
+  }
+  endWrite();
+}
+*/
 
     // Return 1 to decode next block
     return 1;
@@ -148,7 +172,6 @@ int Spotify::displayImage(char *albumArtUrl)
 
     if (gotImage)
     {
-        Serial.print("Got Image");
         delay(1);
         int jpegStatus = TJpgDec.drawJpg(0, 0, imageFile, imageSize);
         free(imageFile); // Make sure to free the memory!

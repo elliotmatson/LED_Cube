@@ -124,24 +124,12 @@ inline void SinglePanel::drawPixel(int16_t x, int16_t y, uint16_t color)
 
 inline void SinglePanel::fillScreen(uint16_t color)
 { // adafruit virtual void override
-    for (int i = 0; i < virtualResX; i++)
-    {
-        for (int j = 0; j < virtualResY; j++)
-        {
-            this->display->drawPixel((_panel * virtualResX) + i, j, color);
-        }
-    }
+    this->display->fillRect((_panel * virtualResX), 0, this->virtualResX, this->virtualResY, color);
 }
 
 inline void SinglePanel::fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b)
 {
-    for (int i = 0; i < virtualResX; i++)
-    {
-        for (int j = 0; j < virtualResY; j++)
-        {
-            this->display->drawPixelRGB888((_panel * virtualResX) + i, j, r, g, b);
-        }
-    }
+    this->display->fillRect((_panel * virtualResX), 0, this->virtualResX, this->virtualResY, this->display->color565(r, g, b));
 }
 
 inline void SinglePanel::drawPixelRGB888(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b)

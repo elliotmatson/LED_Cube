@@ -4,10 +4,11 @@
 #include <stdio.h>
 #include <Arduino.h>
 
-#include <WebSerial.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+#include <WebSerial.h>
 
 #include "config.h"
+
 
 // MACROS
 // Calculates precise projected X values of a pixel
@@ -27,25 +28,6 @@
 #define YELLOW 0xFFE0
 #define WHITE 0xFFFF
 
-// for ArduinoJson with SPI RAM
-struct SpiRamAllocator
-{
-    void *allocate(size_t size)
-    {
-        return heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
-    }
-
-    void deallocate(void *pointer)
-    {
-        heap_caps_free(pointer);
-    }
-
-    void *reallocate(void *ptr, size_t new_size)
-    {
-        return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM);
-    }
-};
-using SpiRamJsonDocument = BasicJsonDocument<SpiRamAllocator>;
 
 // Pattern interface
 class Pattern
@@ -55,15 +37,10 @@ class Pattern
         virtual void init() = 0;
     protected:
         unsigned long frameCount{0};
-    private:
         MatrixPanel_I2S_DMA *display;
 };
 
-class UtilitiesClass {
-    public:
-        uint8_t fast_cos(uint16_t x);
-        void printf(const char *format, ...);
-};
-extern UtilitiesClass utils;
+uint8_t fast_cos(uint16_t x);
+void cubePrintf(const char *format, ...);
 
 #endif

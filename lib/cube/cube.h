@@ -16,7 +16,6 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
-#include <ArduinoJson.h>
 #include <esp_ota_ops.h>
 #include <ESPmDNS.h>
 #include <AsyncTCP.h>

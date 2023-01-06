@@ -1,4 +1,5 @@
 #include "spotify.h"
+#include "../../src/secrets.h"
 
 char scope[] = "user-read-playback-state%20user-modify-playback-state";
 char callbackURI[] = "http%3A%2F%2Fcube.local%2Fcallback%2F";
@@ -19,61 +20,104 @@ const char *webpageTemplate =
       </html>
       )";
 
-Spotify::Spotify(MatrixPanel_I2S_DMA *display) : spotify(this->client)
+Spotify::Spotify(MatrixPanel_I2S_DMA *display, AsyncWebServer *server) : spotify(this->client)
 {
   this->display = display;
+  this->server = server;
 }
 
 void Spotify::init(){
-    prefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
-    prefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
-    spotify.lateInit(spotifyID, spotifySecret, prefs.getString("SPOTIFY_TOKEN").c_str());
-    server.on("/", handleRoot);
-    server.on("/callback/", handleCallback);
-    server.onNotFound(handleNotFound);
-    server.begin();
+    spotifyPrefs.begin("spotify");
+    delay(500);
+    spotifyPrefs.putString("SPOTIFY_ID", SPOTIFY_CLIENT_ID);
+    spotifyPrefs.putString("SPOTIFY_SECRET", SPOTIFY_CLIENT_SECRET);
+    delay(500);
+    spotifyPrefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
+    spotifyPrefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
+    Serial.println("Setting up Spotify Library");
+    spotify.lateInit(spotifyID, spotifySecret, spotifyPrefs.getString("SPOTIFY_TOKEN").c_str());
+
+    client.setCACertBundle(rootca_crt_bundle_start);
+
+    Serial.println("Setting up callbacks");
+    server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
+               {    
+                    char webpage[800];
+                    sprintf(webpage, webpageTemplate, spotifyPrefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope);
+                    request->send(200, "text/html", webpage);
+                    Serial.printf("got root request"); });
+    server->on("/callback/", HTTP_GET, [&](AsyncWebServerRequest *request)
+               {    
+                    String code = "";
+                    const char *refreshToken = NULL;
+                    for (uint8_t i = 0; i < request->args(); i++)
+                    {
+                        if (request->argName(i) == "code")
+                        {
+                            code = request->arg(i);
+                            refreshToken = spotify.requestAccessTokens(code.c_str(), callbackURI);
+                        }
+                    }
+
+                    if (refreshToken != NULL)
+                    {
+                        spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
+                        request->send(200, "text/plain", refreshToken);
+                        Serial.printf("got token: %s", refreshToken);
+                    }
+                    else
+                    {
+                        request->send(404, "text/plain", "Failed to load token, check serial monitor");
+                        Serial.printf("Failed to load token, check serial monitor");
+                    } });
+    server->onNotFound([&](AsyncWebServerRequest *request)
+                    {
+                        String message = "File Not Found\n\n";
+                        message += "URI: ";
+                        message += request->url();
+                        message += "\nMethod: ";
+                        message += (request->method() == HTTP_GET) ? "GET" : "POST";
+                        message += "\nArguments: ";
+                        message += request->args();
+                        message += "\n";
+
+                        for (uint8_t i = 0; i < request->args(); i++)
+                        {
+                            message += " " + request->argName(i) + ": " + request->arg(i) + "\n";
+                        }
+
+                        Serial.print(message);
+                        request->send(404, "text/plain", message);
+
+                        Serial.printf(message.c_str());
+                    });
     Serial.println("HTTP server started");
     TJpgDec.setJpgScale(1);
-    Serial.printf("After Spotify Setup:\n");
-    printMem();
 
     // The decoder must be given the exact name of the rendering function above
-    TJpgDec.setCallback(displayOutput);
+    TJpgDec.setCallback([&](int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
+                        {
+                            return this->displayOutput(x, y, w, h, bitmap);
+                        });
 
     Serial.println("Refreshing Access Tokens");
     if (!spotify.refreshAccessToken())
     {
         Serial.println("Failed to get access tokens");
     }
-    Serial.println("getting currently playing song:");
-    // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
-    int status = spotify.getCurrentlyPlaying(printCurrentlyPlayingToSerial, "US");
-    if (status == 200)
-    {
-        Serial.println("Successfully got currently playing");
-    }
-    else if (status == 204)
-    {
-        Serial.println("Doesn't seem to be anything playing");
-    }
-    else
-    {
-        Serial.print("Error: ");
-        Serial.println(status);
-    }
 }
 
 void Spotify::show()
 {
-    server.handleClient();
     if (millis() > requestDueTime)
     {
 
-        Serial.printf("Loop:\n");
-        printMem();
-
         // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
-        int status = spotify.getCurrentlyPlaying(printCurrentlyPlayingToSerial, "US");
+        int status = spotify.getCurrentlyPlaying([&](CurrentlyPlaying current)
+                                                {
+                                                    this->printCurrentlyPlayingToSerial(current);
+                                                },
+                                                "US");
         if (status == 200)
         {
             Serial.println("Successfully got currently playing");
@@ -91,69 +135,13 @@ void Spotify::show()
     }
 }
 
-void Spotify::handleRoot()
-{
-    char webpage[800];
-    sprintf(webpage, webpageTemplate, prefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope);
-    server.send(200, "text/html", webpage);
-    Serial.printf("got root request");
-}
-
-void Spotify::handleCallback()
-{
-    String code = "";
-    const char *refreshToken = NULL;
-    for (uint8_t i = 0; i < server.args(); i++)
-    {
-        if (server.argName(i) == "code")
-        {
-            code = server.arg(i);
-            refreshToken = spotify.requestAccessTokens(code.c_str(), callbackURI);
-        }
-    }
-
-    if (refreshToken != NULL)
-    {
-        prefs.putString("SPOTIFY_TOKEN", refreshToken);
-        server.send(200, "text/plain", refreshToken);
-        Serial.printf("got token: %s", refreshToken);
-    }
-    else
-    {
-        server.send(404, "text/plain", "Failed to load token, check serial monitor");
-        Serial.printf("Failed to load token, check serial monitor");
-    }
-}
-
-void Spotify::handleNotFound()
-{
-    String message = "File Not Found\n\n";
-    message += "URI: ";
-    message += server.uri();
-    message += "\nMethod: ";
-    message += (server.method() == HTTP_GET) ? "GET" : "POST";
-    message += "\nArguments: ";
-    message += server.args();
-    message += "\n";
-
-    for (uint8_t i = 0; i < server.args(); i++)
-    {
-        message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-    }
-
-    Serial.print(message);
-    server.send(404, "text/plain", message);
-
-    Serial.printf(message.c_str());
-}
-
 bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
 {
     // Stop further decoding as image is running off bottom of screen
-    if (y >= dma_display->height())
+    if (y >= display->height())
         return 0;
 
-    dma_display->drawRGBBitmap(x, y, bitmap, w, h);
+    display->drawRGBBitmap(x, y, bitmap, w, h);
 
     // Return 1 to decode next block
     return 1;

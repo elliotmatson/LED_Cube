@@ -1,5 +1,4 @@
 #include "spotify.h"
-#include "../../src/secrets.h"
 
 char scope[] = "user-read-playback-state%20user-modify-playback-state";
 char callbackURI[] = "http%3A%2F%2Fcube.local%2Fcallback%2F";
@@ -28,16 +27,14 @@ Spotify::Spotify(MatrixPanel_I2S_DMA *display, AsyncWebServer *server) : spotify
 
 void Spotify::init(){
     spotifyPrefs.begin("spotify");
-    delay(500);
-    spotifyPrefs.putString("SPOTIFY_ID", SPOTIFY_CLIENT_ID);
-    spotifyPrefs.putString("SPOTIFY_SECRET", SPOTIFY_CLIENT_SECRET);
-    delay(500);
+
     spotifyPrefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
     spotifyPrefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
+
     Serial.println("Setting up Spotify Library");
+    client.setCACertBundle(rootca_crt_bundle_start);
     spotify.lateInit(spotifyID, spotifySecret, spotifyPrefs.getString("SPOTIFY_TOKEN").c_str());
 
-    client.setCACertBundle(rootca_crt_bundle_start);
 
     Serial.println("Setting up callbacks");
     server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
@@ -136,7 +133,7 @@ bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16
     if (y >= display->height())
         return 0;
 
-    display->drawRGBBitmap(x, y, bitmap, w, h);
+    display->drawRGBBitmap(128 + x, y, bitmap, w, h);
 
     // Return 1 to decode next block
     return 1;

@@ -48,7 +48,7 @@ void Cube::init()
     xTaskCreate(
         [](void* o){ static_cast<Cube*>(o)->showPattern(); },     // This is disgusting, but it works
         "Show Pattern",      // Name of the task (for debugging)
-        6000,                // Stack size (bytes)
+        10000,                // Stack size (bytes)
         this, // Parameter to pass
         6,                   // Task priority
         &showPatternTask // Task handle

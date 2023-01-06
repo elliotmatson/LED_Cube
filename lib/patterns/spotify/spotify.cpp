@@ -109,29 +109,24 @@ void Spotify::init(){
 
 void Spotify::show()
 {
-    if (millis() > requestDueTime)
+    // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
+    int status = spotify.getCurrentlyPlaying([&](CurrentlyPlaying current)
+                                            {
+                                                this->printCurrentlyPlayingToSerial(current);
+                                            },
+                                            "US");
+    if (status == 200)
     {
-
-        // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
-        int status = spotify.getCurrentlyPlaying([&](CurrentlyPlaying current)
-                                                {
-                                                    this->printCurrentlyPlayingToSerial(current);
-                                                },
-                                                "US");
-        if (status == 200)
-        {
-            Serial.println("Successfully got currently playing");
-        }
-        else if (status == 204)
-        {
-            Serial.println("Doesn't seem to be anything playing");
-        }
-        else
-        {
-            Serial.print("Error: ");
-            Serial.println(status);
-        }
-        requestDueTime = millis() + delayBetweenRequests;
+        Serial.println("Successfully got currently playing");
+    }
+    else if (status == 204)
+    {
+        Serial.println("Doesn't seem to be anything playing");
+    }
+    else
+    {
+        Serial.print("Error: ");
+        Serial.println(status);
     }
 }
 

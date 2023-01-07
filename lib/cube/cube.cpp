@@ -36,14 +36,14 @@ void Cube::init()
     initUpdates();
 
     // Start the task to show the selected pattern
-    /*xTaskCreate(
+    xTaskCreate(
         [](void* o){ static_cast<Cube*>(o)->printMem(); },     // This is disgusting, but it works
         "Memory Printer",      // Name of the task (for debugging)
         2000,                // Stack size (bytes)
         this, // Parameter to pass
         1,                   // Task priority
         &printMemTask // Task handle
-    );*/
+    );
     // Start the task to show the selected pattern
     xTaskCreate(
         [](void* o){ static_cast<Cube*>(o)->showPattern(); },     // This is disgusting, but it works
@@ -246,6 +246,7 @@ void Cube::setOTA(bool ota)
                     cubePrintf("Start updating %s", type);
                     vTaskDelete(showPatternTask);
                     dma_display->fillScreenRGB888(0, 0, 0);
+                    dma_display->setFont(NULL);
                     dma_display->setCursor(6, 21);
                     dma_display->setTextColor(0xFFFF);
                     dma_display->setTextSize(3);
@@ -328,6 +329,7 @@ void Cube::setGHUpdate(bool github)
             cubePrintf("Start updating\n");
             vTaskDelete(showPatternTask);
             dma_display->fillScreenRGB888(0, 0, 0);
+            dma_display->setFont(NULL);
             dma_display->setCursor(6, 21);
             dma_display->setTextColor(0xFFFF);
             dma_display->setTextSize(3);

@@ -13,6 +13,8 @@
 
 #include "config.h"
 #include "cube_utils.h"
+#include "spotify_sprites.h"
+#include "LEMONMILK_Medium7pt7b.h"
 
 // get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
@@ -30,15 +32,20 @@ private:
   void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying);
   bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap);
   int displayImage(char *albumArtUrl);
+  void displayInfo(CurrentlyPlaying currentlyPlaying);
+  void displayPlayback(PlayerDetails playerDetails);
 
   MatrixPanel_I2S_DMA *display;
   SinglePanel panel0;
+  SinglePanel panel1;
+  SinglePanel panel2;
   WiFiClientSecure client;
   AsyncWebServer *server;
   SpotifyArduino spotify;
   Preferences spotifyPrefs;
 
-  String lastAlbumArtUrl;
+  String previousTrack;
+  String previousAlbum;
 
   char spotifyID[33];
   char spotifySecret[33];

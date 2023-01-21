@@ -5,7 +5,7 @@ const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartitio
 
 // Create a new Cube object with optional devMode
 Cube::Cube() : server(80),
-               currentPattern(patterns::spotify),
+               currentPattern(patterns::snake),
                serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
                wifiReady(false),
                dashboard(&server),
@@ -609,8 +609,12 @@ void Cube::printMem()
     for (;;) {
         Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n",ESP.getFreeHeap(), ESP.getHeapSize(),ESP.getPsramSize() - ESP.getFreePsram(),ESP.getPsramSize());
         Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
-        char* buf = new char[2048];
+        char *buf = new char[2048];
         vTaskGetRunTimeStats(buf);
+        Serial.println(buf);
+        delete[] buf;
+        buf = new char[2048];
+        vTaskList(buf);
         Serial.println(buf);
         delete[] buf;
         vTaskDelay(10000 / portTICK_PERIOD_MS);
@@ -648,7 +652,7 @@ void Cube::showPattern()
             for (;;)
             {
                 spotify.show();
-                vTaskDelay(300 / portTICK_PERIOD_MS);
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
                 yield();
             }
             break;

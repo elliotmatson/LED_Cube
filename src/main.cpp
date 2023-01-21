@@ -5,6 +5,9 @@ Cube cube;
 
 void setup()
 {
+  // Immediately pulls display enable pin low to keep panels from flickering on boot
+  pinMode(OE_PIN, OUTPUT);
+  digitalWrite(OE_PIN, LOW);
   cube.init();
 }
 

@@ -41,6 +41,14 @@ class Pattern
         MatrixPanel_I2S_DMA *display;
 };
 
+/*struct CubeServices
+{
+    MatrixPanel_I2S_DMA *display;
+    AsyncWebServer *server;
+
+        WebSerial *webSerial;
+};*/
+
 uint8_t fast_cos(uint16_t x);
 void cubePrintf(const char *format, ...);
 

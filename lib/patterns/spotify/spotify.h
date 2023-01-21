@@ -29,10 +29,10 @@ public:
   ~Spotify();
 
 private:
-  void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying);
   bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap);
-  int displayImage(char *albumArtUrl);
+  int displayImage(CurrentlyPlaying currentlyPlaying);
   void displayInfo(CurrentlyPlaying currentlyPlaying);
+  void displayProgress();
   void displayPlayback(PlayerDetails playerDetails);
 
   MatrixPanel_I2S_DMA *display;
@@ -44,14 +44,17 @@ private:
   SpotifyArduino spotify;
   Preferences spotifyPrefs;
 
+  TaskHandle_t progressTask;
+
   String previousTrack;
   String previousAlbum;
+  long lastUpdate;
+  long lastProgress;
+  long duration;
+  bool isPlaying;
 
   char spotifyID[33];
   char spotifySecret[33];
-
-  unsigned long delayBetweenRequests = 30000; // Time between requests (1 minute)
-  unsigned long requestDueTime;               // time when request due
 };
 
 #endif

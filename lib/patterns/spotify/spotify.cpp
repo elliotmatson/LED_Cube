@@ -105,13 +105,44 @@ void Spotify::init(){
     {
         Serial.println("Failed to get access tokens");
     }
+
+    xTaskCreate(
+        [](void *o)
+        { static_cast<Spotify *>(o)->displayProgress(); }, // This is disgusting, but it works
+        "Spotify - Display Progress",                        // Name of the task (for debugging)
+        2000,                                    // Stack size (bytes)
+        this,                                    // Parameter to pass
+        1,                                       // Task priority
+        &progressTask                            // Task handle
+    );
 }
 
 void Spotify::show()
 {
     // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
-    int status = spotify.getCurrentlyPlaying([&](CurrentlyPlaying current)
-                                             { this->printCurrentlyPlayingToSerial(current); },
+    int status = spotify.getCurrentlyPlaying([&](CurrentlyPlaying currentlyPlaying)
+                                             { 
+                isPlaying = currentlyPlaying.isPlaying;
+                lastUpdate = millis();
+                lastProgress = currentlyPlaying.progressMs;
+                duration = currentlyPlaying.durationMs;
+                if (currentlyPlaying.isPlaying)
+                {
+                    String currentTrack = String(currentlyPlaying.trackUri);
+                    if (currentTrack.compareTo(previousTrack) != 0)
+                    {
+                        String currentAlbum = String(currentlyPlaying.albumUri);
+                        Serial.printf("New Track - Updating Text (%s -> %s)\n", previousTrack.c_str(), currentlyPlaying.trackUri);
+                        displayInfo(currentlyPlaying);
+                        if (currentAlbum.compareTo(previousAlbum) != 0)
+                        {
+                            Serial.printf("New Album - Updating Art (%s -> %s)\n", previousAlbum.c_str(), currentlyPlaying.albumUri);
+                            displayImage(currentlyPlaying);
+                        }
+                    }
+                    previousTrack = currentlyPlaying.trackUri;
+                    previousAlbum = currentlyPlaying.albumUri;
+                } },
                                              "US");
     if (status > 300)
     {
@@ -147,8 +178,12 @@ bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_
     return 1;
 }
 
-int Spotify::displayImage(char *albumArtUrl)
+int Spotify::displayImage(CurrentlyPlaying currentlyPlaying)
 {
+    SpotifyImage smallestImage = currentlyPlaying.albumImages[currentlyPlaying.numImages - 1];
+    String newAlbum = String(smallestImage.url);
+
+    char *albumArtUrl = const_cast<char *>(smallestImage.url);
 
     uint8_t *imageFile; // pointer that the library will store the image at (uses malloc)
     int imageSize;      // library will update the size of the image
@@ -156,7 +191,6 @@ int Spotify::displayImage(char *albumArtUrl)
 
     if (gotImage)
     {
-        delay(1);
         int jpegStatus = TJpgDec.drawJpg(0, 0, imageFile, imageSize);
         free(imageFile); // Make sure to free the memory!
         return jpegStatus;
@@ -169,13 +203,7 @@ int Spotify::displayImage(char *albumArtUrl)
 
 void Spotify::displayInfo(CurrentlyPlaying currentlyPlaying)
 {
-    for (int i = 0; i < 64; i++)
-    {
-        for (int j = 0; j < 40; j++)
-        {
-            panel1.drawPixel(i, j, 0x0000);
-        }
-    }
+    panel1.fillRect(0, 0, 64, 38, 0x0000);
     panel1.setTextColor(0xFFFF);
     panel1.setCursor(0, 0);
     panel1.setTextSize(1);
@@ -198,8 +226,32 @@ void Spotify::displayInfo(CurrentlyPlaying currentlyPlaying)
     panel1.setTextColor(panel1.color565(160, 160, 160));
     panel1.setCursor(1, 27);
     panel1.println(currentlyPlaying.albumName);
-    panel1.drawLine(0, 39, 63, 39, panel1.color565(127, 127, 127));
-    panel2.setRotation(0);
+}
+
+void Spotify::displayProgress()
+{
+    while (true)
+    {
+        long progress = lastProgress + (millis() - lastUpdate);
+        if (!isPlaying)
+        {
+            progress = lastProgress;
+        }
+        if (progress > duration)
+        {
+            progress = duration;
+        }
+        if (duration > 0)
+        {
+            panel1.drawLine(0, 39, 63, 39, panel1.color565(50, 50, 50));
+            int barLength = (progress * 63) / (duration);
+            long rem = (progress * 63) % (duration);
+            int bright = (rem * 205 / duration) + 50;
+            panel1.drawLine(0, 39, barLength, 39, panel1.color565(255, 255, 255));
+            panel1.drawPixelRGB888(barLength + 1, 39, bright, bright, bright);
+        }
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
 }
 
 void Spotify::displayPlayback(PlayerDetails playerDetails)
@@ -224,78 +276,5 @@ void Spotify::displayPlayback(PlayerDetails playerDetails)
     } else if(playerDetails.repeatState == repeat_track)
     {
         panel1.drawSprite16(spotify_loop_track, 46, 47, 15, 16, 50,120,50,true);
-    }
-}
-
-void Spotify::printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
-{
-    if (currentlyPlaying.isPlaying) // was: if (!currentlyPlaying.error) which causes a compiler error 'struct CurrentlyPlaying' has no member named 'error'
-    {
-        String currentTrack = String(currentlyPlaying.trackUri);
-        if (currentTrack.compareTo(previousTrack) != 0)
-        {
-            String currentAlbum = String(currentlyPlaying.albumUri);
-            Serial.printf("New Track - Updating Text (%s -> %s)\n", previousTrack.c_str(), currentlyPlaying.trackUri);
-            displayInfo(currentlyPlaying);
-            if (currentAlbum.compareTo(previousAlbum) != 0)
-            {
-                Serial.printf("New Album - Updating Art (%s -> %s)\n", previousAlbum.c_str(), currentlyPlaying.albumUri);
-
-                SpotifyImage smallestImage = currentlyPlaying.albumImages[currentlyPlaying.numImages - 1];
-                String newAlbum = String(smallestImage.url);
-
-                char *my_url = const_cast<char *>(smallestImage.url);
-                int displayImageResult = displayImage(my_url);
-                if (displayImageResult != 0)
-                {
-                    Serial.print("failed to display image: ");
-                    Serial.println(displayImageResult);
-                }
-            }
-            Serial.println("--------- Currently Playing ---------");
-
-            Serial.print("Track: ");
-            Serial.println(currentlyPlaying.trackName);
-            Serial.println();
-
-            Serial.println("Artists: ");
-            for (int i = 0; i < currentlyPlaying.numArtists; i++)
-            {
-                Serial.print("Name: ");
-                Serial.println(currentlyPlaying.artists[i].artistName);
-                Serial.println();
-            }
-
-            Serial.print("Album: ");
-            Serial.println(currentlyPlaying.albumName);
-            Serial.println();
-        }
-        long progress = currentlyPlaying.progressMs; // duration passed in the song
-        long duration = currentlyPlaying.durationMs; // Length of Song
-        /*
-        Serial.print("Elapsed time of song (ms): ");
-        Serial.print(progress);
-        Serial.print(" of ");
-        Serial.println(duration);
-        Serial.println();
-        */
-
-        float percentage = ((float)progress / (float)duration) * 100;
-        int clampedPercentage = (int)percentage;
-        Serial.print("<");
-        for (int j = 0; j < 50; j++)
-        {
-            if (clampedPercentage >= (j * 2))
-            {
-                Serial.print("=");
-            }
-            else
-            {
-                Serial.print("-");
-            }
-        }
-        Serial.printf(">\r");
-        previousTrack = currentlyPlaying.trackUri;
-        previousAlbum = currentlyPlaying.albumUri;
     }
 }

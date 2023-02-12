@@ -522,7 +522,12 @@ void Cube::checkForUpdates()
         client.setCACertBundle(rootca_crt_bundle_start);
 
         String firmwareUrl = "";
-        cubePrintf("Branch = %s\n", this->cubePrefs.development ? "development" : "master");
+        cubePrintf("Branch = %s\n", this->cubePrefs.development ? "development" : "main");
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+        String boardFile = "/esp32s3.bin";
+#else
+        String boardFile = "/esp32.bin";
+#endif
         if(this->cubePrefs.development) {
             // https://api.github.com/repos/elliotmatson/LED_Cube/releases
             String jsonUrl = String("https://api.github.com/repos/") + REPO_URL + String("/releases");
@@ -552,11 +557,11 @@ void Cube::checkForUpdates()
                 JsonObject newestPrerelease = releases[newestPrereleaseIndex].as<JsonObject>();
                 cubePrintf("Newest Prerelease: %s  date:%s\n", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
                 // https://github.com/elliotmatson/LED_Cube/releases/download/v0.2.3/esp32.bin
-                firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/download/") + newestPrerelease["name"].as<String>() + String("/esp32.bin");
+                firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/download/") + newestPrerelease["name"].as<String>() + boardFile;
                 http.end();
             }
         } else {
-            firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/esp32.bin");
+            firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/") + boardFile;
         }
         cubePrintf("%s\n", firmwareUrl.c_str());
 

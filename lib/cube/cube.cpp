@@ -4,34 +4,47 @@
 const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartition = {CUBE_MAGIC_COOKIE};
 
 // Create a new Cube object with optional devMode
-Cube::Cube() : server(80),
-               currentPattern(patterns::snake),
-               serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
-               wifiReady(false),
-               dashboard(&server),
-               otaToggle(&dashboard, BUTTON_CARD, "OTA Update Enabled"),
-               GHUpdateToggle(&dashboard, BUTTON_CARD, "Github Update Enabled"),
-               developmentToggle(&dashboard, BUTTON_CARD, "Use Development Builds"),
-               signedFWOnlyToggle(&dashboard, BUTTON_CARD, "Signed FW only"),
-               fwVersion(&dashboard, "Firmware Version", FW_VERSION),
-               brightnessSlider(&dashboard, SLIDER_CARD, "Brightness:", "", 0, 255),
-               latchSlider(&dashboard, SLIDER_CARD, "Latch Blanking:", "", 1, 4),
-               use20MHzToggle(&dashboard, BUTTON_CARD, "Use 20MHz Clock"),
-               rebootButton(&dashboard, BUTTON_CARD, "Reboot Cube"),
-               resetWifiButton(&dashboard, BUTTON_CARD, "Reset Wifi"),
-               crashMe(&dashboard, BUTTON_CARD, "Crash Cube"),
-               systemTab(&dashboard, "System"),
-               displayTab(&dashboard, "Display"),
-               developerTab(&dashboard, "Development")
+Cube::Cube() : 
+    leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
+    server(80),
+    currentPattern(patterns::snake),
+    serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
+    wifiReady(false),
+    dashboard(&server),
+    otaToggle(&dashboard, BUTTON_CARD, "OTA Update Enabled"),
+    GHUpdateToggle(&dashboard, BUTTON_CARD, "Github Update Enabled"),
+    developmentToggle(&dashboard, BUTTON_CARD, "Use Development Builds"),
+    signedFWOnlyToggle(&dashboard, BUTTON_CARD, "Signed FW only"),
+    fwVersion(&dashboard, "Firmware Version", FW_VERSION),
+    brightnessSlider(&dashboard, SLIDER_CARD, "Brightness:", "", 0, 255),
+    latchSlider(&dashboard, SLIDER_CARD, "Latch Blanking:", "", 1, 4),
+    use20MHzToggle(&dashboard, BUTTON_CARD, "Use 20MHz Clock"),
+    rebootButton(&dashboard, BUTTON_CARD, "Reboot Cube"),
+    resetWifiButton(&dashboard, BUTTON_CARD, "Reset Wifi"),
+    crashMe(&dashboard, BUTTON_CARD, "Crash Cube"),
+    systemTab(&dashboard, "System"),
+    displayTab(&dashboard, "Display"),
+    developerTab(&dashboard, "Development")
 {}
 
 // initialize all cube tasks and functions
 void Cube::init()
 {
+    leds.begin();
+    leds.setBrightness(100);
+    leds.show(); // Initialize all pixels to 'off'
     Serial.begin(115200);
+    leds.setPixelColor(0, 0, 255, 0);
+    leds.show(); // Initialize all pixels to 'off'
     initPrefs();
+    leds.setPixelColor(1, 0, 255, 0);
+    leds.show(); // Initialize all pixels to 'off'
     initDisplay();
+    leds.setPixelColor(2, 0, 255, 0);
+    leds.show(); // Initialize all pixels to 'off'
     initWifi();
+    leds.setPixelColor(3, 0, 255, 0);
+    leds.show(); // Initialize all pixels to 'off'
     initUI();
     initUpdates();
 
@@ -614,14 +627,14 @@ void Cube::printMem()
     for (;;) {
         Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n",ESP.getFreeHeap(), ESP.getHeapSize(),ESP.getPsramSize() - ESP.getFreePsram(),ESP.getPsramSize());
         Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
-        char *buf = new char[2048];
+        /*char *buf = new char[2048];
         vTaskGetRunTimeStats(buf);
         Serial.println(buf);
         delete[] buf;
         buf = new char[2048];
         vTaskList(buf);
         Serial.println(buf);
-        delete[] buf;
+        delete[] buf;*/
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }

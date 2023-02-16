@@ -22,6 +22,7 @@
 #include <ESPAsyncWebServer.h>
 #include <ESPDashPro.h>
 #include <WebSerial.h>
+#include <Adafruit_NeoPixel.h>
 
 #include "config.h"
 #include "cube_utils.h"
@@ -60,6 +61,7 @@ class Cube {
     private:
         // Objects
         MatrixPanel_I2S_DMA *dma_display;
+        Adafruit_NeoPixel leds;
         AsyncWebServer server;
         WiFiManager wifiManager;
         CubePrefs cubePrefs;

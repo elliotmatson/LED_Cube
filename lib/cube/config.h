@@ -45,18 +45,18 @@
   #define USR_LED 2
   #define CONTROL_BUTTON 0
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-  #define R1_PIN 19
-  #define G1_PIN 20
-  #define B1_PIN 21
-  #define R2_PIN 22
-  #define G2_PIN 23
-  #define B2_PIN 24
+  #define R1_PIN 11
+  #define G1_PIN 12
+  #define B1_PIN 13
+  #define R2_PIN 14
+  #define G2_PIN 21
+  #define B2_PIN 47
   #define A_PIN 38
   #define B_PIN 39
   #define C_PIN 40
   #define D_PIN 41
-  #define E_PIN 25
-  #define LAT_PIN 2
+  #define E_PIN 48
+  #define LAT_PIN 2 //
   #define OE_PIN 1
   #define CLK_PIN 42
   #define WIFI_LED 6 //unused pin

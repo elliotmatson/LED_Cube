@@ -31,7 +31,7 @@ Cube::Cube() :
 void Cube::init()
 {
     leds.begin();
-    leds.setBrightness(100);
+    leds.setBrightness(20);
     leds.show(); // Initialize all pixels to 'off'
     Serial.begin(115200);
     leds.setPixelColor(0, 0, 255, 0);
@@ -52,7 +52,7 @@ void Cube::init()
     xTaskCreate(
         [](void* o){ static_cast<Cube*>(o)->printMem(); },     // This is disgusting, but it works
         "Memory Printer",      // Name of the task (for debugging)
-        2000,                // Stack size (bytes)
+        3000,                // Stack size (bytes)
         this, // Parameter to pass
         1,                   // Task priority
         &printMemTask // Task handle
@@ -91,7 +91,7 @@ void Cube::initUpdates()
 // Initialize display driver
 void Cube::initDisplay()
 {
-    cubePrintf("Configuring HUB_75\n");
+    ESP_LOGI(__func__,"Configuring HUB_75");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
     if(cubePrefs.use20MHz) {
@@ -106,15 +106,13 @@ void Cube::initDisplay()
 
     // Allocate memory and start DMA display
     if (not dma_display->begin())
-         cubePrintf("****** !KABOOM! I2S memory allocation failed ***********");
+         ESP_LOGE(__func__,"****** !KABOOM! I2S memory allocation failed ***********");
 }
 
 // Initialize wifi and prompt for connection if needed
 void Cube::initWifi()
 {
-    pinMode(WIFI_LED, OUTPUT);
-    digitalWrite(WIFI_LED, 0);
-    cubePrintf("Connecting to WiFi...\n");
+    ESP_LOGI(__func__,"Connecting to WiFi...");
     wifiManager.setHostname("cube");
     wifiManager.setClass("invert");
     wifiManager.setAPCallback([&](WiFiManager *myWiFiManager)
@@ -132,9 +130,8 @@ void Cube::initWifi()
 
     this->wifiReady = true;
 
-    cubePrintf("IP address: ");
-    cubePrintf(WiFi.localIP().toString().c_str());
-    digitalWrite(WIFI_LED, 1);
+    ESP_LOGI(__func__,"IP address: ");
+    ESP_LOGI(__func__,"%s",WiFi.localIP().toString().c_str());
     MDNS.begin(HOSTNAME);
 }
 
@@ -186,18 +183,18 @@ void Cube::initUI()
             this->dashboard.sendUpdates(); });
     rebootButton.attachCallback([&](int value)
                                 {
-            cubePrintf("Rebooting...");
+            ESP_LOGI(__func__,"Rebooting...");
             ESP.restart();
             this->dashboard.sendUpdates(); });
     resetWifiButton.attachCallback([&](int value)
                                      {
-            cubePrintf("Resetting WiFi...");
+            ESP_LOGI(__func__,"Resetting WiFi...");
             wifiManager.resetSettings();
             ESP.restart();
             this->dashboard.sendUpdates(); });
     crashMe.attachCallback([&](int value)
                                      {
-            cubePrintf("Crashing...");
+            ESP_LOGI(__func__,"Crashing...");
             int *p = NULL;
             *p = 80;
             this->dashboard.sendUpdates(); });
@@ -244,7 +241,7 @@ void Cube::setOTA(bool ota)
     cubePrefs.ota = ota;
     this->updatePrefs();
     if(ota) {
-        cubePrintf("Starting OTA\n");
+        ESP_LOGI(__func__,"Starting OTA");
         ArduinoOTA.setHostname(HOSTNAME);
         ArduinoOTA
             .onStart([&]()
@@ -256,7 +253,7 @@ void Cube::setOTA(bool ota)
                         type = "filesystem";
 
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-                    cubePrintf("Start updating %s", type);
+                    ESP_LOGI(__func__,"Start updating %s", type.c_str());
                     vTaskDelete(showPatternTask);
                     dma_display->fillScreenRGB888(0, 0, 0);
                     dma_display->setFont(NULL);
@@ -266,20 +263,20 @@ void Cube::setOTA(bool ota)
                     dma_display->print("OTA"); })
             .onEnd([&]()
                    {
-                    cubePrintf("\nEnd\n"); 
+                    ESP_LOGI(__func__,"End"); 
                     for(int i = getBrightness(); i > 0; i=i-3) {
                         dma_display->setBrightness8(max(i, 0));
                     } })
             .onProgress([&](unsigned int progress, unsigned int total)
                         { 
                     this->dashboard.sendUpdates();
-                    cubePrintf("Progress: %u%%\r", (progress / (total / 100)));
+                    ESP_LOGI(__func__,"Progress: %u%%\r", (progress / (total / 100)));
 
                     if (this->cubePrefs.signedFWOnly && progress == total)
                     {
                         CubePartition newCubePartition;
                         esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
-                        cubePrintf("Checking for Cube FW Signature: \nNew:%s\nold:%s\n", newCubePartition.cookie, cubePartition.cookie);
+                        ESP_LOGI(__func__,"Checking for Cube FW Signature: \nNew:%s\nold:%s", newCubePartition.cookie, cubePartition.cookie);
                         if (strcmp(newCubePartition.cookie, cubePartition.cookie))
                             Update.abort();
                     }
@@ -303,12 +300,12 @@ void Cube::setOTA(bool ota)
                     dma_display->drawFastVLine(63, 64 - std::clamp(i - 448, 0, 64), std::clamp(i - 448, 0, 64), 0xFFFF); })
             .onError([&](ota_error_t error)
                      {
-                    cubePrintf("Error[%u]: ", error);
-                    if (error == OTA_AUTH_ERROR) cubePrintf("Auth Failed\n");
-                    else if (error == OTA_BEGIN_ERROR) cubePrintf("Begin Failed\n");
-                    else if (error == OTA_CONNECT_ERROR) cubePrintf("Connect Failed\n");
-                    else if (error == OTA_RECEIVE_ERROR) cubePrintf("Receive Failed\n");
-                    else if (error == OTA_END_ERROR) cubePrintf("End Failed\n"); });
+                    ESP_LOGE(__func__,"Error[%u]: ", error);
+                    if (error == OTA_AUTH_ERROR) ESP_LOGE(__func__,"Auth Failed");
+                    else if (error == OTA_BEGIN_ERROR) ESP_LOGE(__func__,"Begin Failed");
+                    else if (error == OTA_CONNECT_ERROR) ESP_LOGE(__func__,"Connect Failed");
+                    else if (error == OTA_RECEIVE_ERROR) ESP_LOGE(__func__,"Receive Failed");
+                    else if (error == OTA_END_ERROR) ESP_LOGE(__func__,"End Failed"); });
 
         ArduinoOTA.begin();
 
@@ -322,7 +319,7 @@ void Cube::setOTA(bool ota)
         );
     } else
     {
-        cubePrintf("OTA Disabled\n");
+        ESP_LOGI(__func__,"OTA Disabled");
         ArduinoOTA.end();
         if(checkForOTATask){
             vTaskDelete(checkForOTATask);
@@ -336,10 +333,10 @@ void Cube::setGHUpdate(bool github)
     cubePrefs.github=github;
     this->updatePrefs();
     if(github) {
-        cubePrintf("Github Update enabled...\n");
+        ESP_LOGI(__func__,"Github Update enabled...");
         httpUpdate.onStart([&]()
                            {
-            cubePrintf("Start updating\n");
+            ESP_LOGI(__func__,"Start updating");
             vTaskDelete(showPatternTask);
             dma_display->fillScreenRGB888(0, 0, 0);
             dma_display->setFont(NULL);
@@ -349,20 +346,20 @@ void Cube::setGHUpdate(bool github)
             dma_display->print("GHA"); });
         httpUpdate.onEnd([&]()
         { 
-            cubePrintf("\nEnd\n"); 
+            ESP_LOGI(__func__,"End"); 
             for(int i = getBrightness(); i > 0; i=i-3) {
                 dma_display->setBrightness8(max(i, 0));
             }
         });
         httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
                               { 
-            cubePrintf("Progress: %u%%\r", (progress / (total / 100)));
+            ESP_LOGI(__func__,"Progress: %u%%\r", (progress / (total / 100)));
 
             if (this->cubePrefs.signedFWOnly && progress == total)
             {
                 CubePartition newCubePartition;
                 esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
-                cubePrintf("Checking for Cube FW Signature: \nNew:%s\nold:%s\n", newCubePartition.cookie, cubePartition.cookie);
+                ESP_LOGI(__func__,"Checking for Cube FW Signature: \nNew:%s\nold:%s", newCubePartition.cookie, cubePartition.cookie);
                 if (strcmp(newCubePartition.cookie, cubePartition.cookie))
                     Update.abort();
             }
@@ -393,7 +390,7 @@ void Cube::setGHUpdate(bool github)
             &checkForUpdatesTask    // Task handle
         );
     } else {
-        cubePrintf("Github Updates Disabled\n");
+        ESP_LOGI(__func__,"Github Updates Disabled");
         if(checkForUpdatesTask) {
             vTaskDelete(checkForUpdatesTask);
         }
@@ -424,8 +421,8 @@ void Cube::updatePrefs()
 // shows debug info on display
 void Cube::showDebug()
 {
-    cubePrintf("Free Heap: %d / %d, Used PSRAM: %d / %d\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
-    cubePrintf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
+    ESP_LOGI(__func__,"Free Heap: %d / %d, Used PSRAM: %d / %d", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
+    ESP_LOGI(__func__,"'%s' stack remaining: %d", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);
@@ -535,7 +532,7 @@ void Cube::checkForUpdates()
         client.setCACertBundle(rootca_crt_bundle_start);
 
         String firmwareUrl = "";
-        cubePrintf("Branch = %s\n", this->cubePrefs.development ? "development" : "main");
+        ESP_LOGI(__func__,"Branch = %s", this->cubePrefs.development ? "development" : "main");
 #ifdef CONFIG_IDF_TARGET_ESP32S3
         String boardFile = "/esp32s3.bin";
 #else
@@ -544,7 +541,7 @@ void Cube::checkForUpdates()
         if(this->cubePrefs.development) {
             // https://api.github.com/repos/elliotmatson/LED_Cube/releases
             String jsonUrl = String("https://api.github.com/repos/") + REPO_URL + String("/releases");
-            cubePrintf("%s\n", jsonUrl.c_str());
+            ESP_LOGI(__func__,"%s", jsonUrl.c_str());
             http.useHTTP10(true);
             if (http.begin(client, jsonUrl)) {
                 SpiRamJsonDocument filter(200);
@@ -568,7 +565,7 @@ void Cube::checkForUpdates()
                     }
                 }
                 JsonObject newestPrerelease = releases[newestPrereleaseIndex].as<JsonObject>();
-                cubePrintf("Newest Prerelease: %s  date:%s\n", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
+                ESP_LOGI(__func__,"Newest Prerelease: %s  date:%s", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
                 // https://github.com/elliotmatson/LED_Cube/releases/download/v0.2.3/esp32.bin
                 firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/download/") + newestPrerelease["name"].as<String>() + boardFile;
                 http.end();
@@ -576,18 +573,18 @@ void Cube::checkForUpdates()
         } else {
             firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/") + boardFile;
         }
-        cubePrintf("%s\n", firmwareUrl.c_str());
+        ESP_LOGI(__func__,"%s", firmwareUrl.c_str());
 
         if (http.begin(client, firmwareUrl) && firmwareUrl != "") {
             int httpCode = http.sendRequest("HEAD");
             if (httpCode < 300 || httpCode > 400 || (http.getLocation().indexOf(String(FW_VERSION)) > 0) || (firmwareUrl.indexOf(String(FW_VERSION)) > 0))
             {
-                cubePrintf("Not updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+                ESP_LOGI(__func__,"Not updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
                 http.end();
             }
             else
             {
-                cubePrintf("Updating from (sc=%d): %s\n", httpCode, http.getLocation().c_str());
+                ESP_LOGI(__func__,"Updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
 
                 httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
                 t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
@@ -595,15 +592,15 @@ void Cube::checkForUpdates()
                 switch (ret)
                 {
                 case HTTP_UPDATE_FAILED:
-                    cubePrintf("Http Update Failed (Error=%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+                    ESP_LOGE(__func__,"Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
                     break;
 
                 case HTTP_UPDATE_NO_UPDATES:
-                    cubePrintf("No Update!\n");
+                    ESP_LOGI(__func__,"No Update!");
                     break;
 
                 case HTTP_UPDATE_OK:
-                    cubePrintf("Update OK!\n");
+                    ESP_LOGI(__func__,"Update OK!");
                     break;
                 }
             }
@@ -625,8 +622,7 @@ void Cube::checkForOTA()
 void Cube::printMem()
 {
     for (;;) {
-        Serial.printf("Free Heap: %d / %d, Used PSRAM: %d / %d\n",ESP.getFreeHeap(), ESP.getHeapSize(),ESP.getPsramSize() - ESP.getFreePsram(),ESP.getPsramSize());
-        Serial.printf("'%s' stack remaining: %d\n", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
+        ESP_LOGI(__func__, "Free Heap: %d / %d, Used PSRAM: %d / %d", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getPsramSize() - ESP.getFreePsram(), ESP.getPsramSize());
         /*char *buf = new char[2048];
         vTaskGetRunTimeStats(buf);
         Serial.println(buf);

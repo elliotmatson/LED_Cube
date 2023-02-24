@@ -34,18 +34,18 @@ void Spotify::init(){
     spotifyPrefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
     spotifyPrefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
 
-    Serial.println("Setting up Spotify Library");
+    ESP_LOGI(__func__,"Setting up Spotify Library");
     client.setCACertBundle(rootca_crt_bundle_start);
     spotify.lateInit(spotifyID, spotifySecret, spotifyPrefs.getString("SPOTIFY_TOKEN").c_str());
 
 
-    Serial.println("Setting up callbacks");
+    ESP_LOGI(__func__,"Setting up callbacks");
     server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
                {    
                     char webpage[800];
                     sprintf(webpage, webpageTemplate, spotifyPrefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope);
                     request->send(200, "text/html", webpage);
-                    Serial.printf("got root request"); });
+                    ESP_LOGI(__func__,"got root request"); });
     server->on("/callback/", HTTP_GET, [&](AsyncWebServerRequest *request)
                {    
                     String code = "";
@@ -63,12 +63,12 @@ void Spotify::init(){
                     {
                         spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
                         request->send(200, "text/plain", refreshToken);
-                        Serial.printf("got token: %s", refreshToken);
+                        ESP_LOGI(__func__,"got token: %s", refreshToken);
                     }
                     else
                     {
                         request->send(404, "text/plain", "Failed to load token, check serial monitor");
-                        Serial.printf("Failed to load token, check serial monitor");
+                        ESP_LOGI(__func__,"Failed to load token, check serial monitor");
                     } });
     server->onNotFound([&](AsyncWebServerRequest *request)
                     {
@@ -86,12 +86,11 @@ void Spotify::init(){
                             message += " " + request->argName(i) + ": " + request->arg(i) + "\n";
                         }
 
-                        Serial.print(message);
                         request->send(404, "text/plain", message);
 
-                        Serial.printf(message.c_str());
+                        ESP_LOGI(__func__,"%s", message.c_str());
                     });
-    Serial.println("HTTP server started");
+    ESP_LOGI(__func__,"HTTP server started");
     TJpgDec.setJpgScale(1);
 
     // The decoder must be given the exact name of the rendering function above
@@ -100,10 +99,10 @@ void Spotify::init(){
                             return this->displayOutput(x, y, w, h, bitmap);
                         });
 
-    Serial.println("Refreshing Access Tokens");
+    ESP_LOGI(__func__,"Refreshing Access Tokens");
     if (!spotify.refreshAccessToken())
     {
-        Serial.println("Failed to get access tokens");
+        ESP_LOGI(__func__,"Failed to get access tokens");
     }
 
     xTaskCreate(
@@ -132,11 +131,11 @@ void Spotify::show()
                     if (currentTrack.compareTo(previousTrack) != 0)
                     {
                         String currentAlbum = String(currentlyPlaying.albumUri);
-                        Serial.printf("New Track - Updating Text (%s -> %s)\n", previousTrack.c_str(), currentlyPlaying.trackUri);
+                        ESP_LOGI(__func__,"New Track - Updating Text (%s -> %s)\n", previousTrack.c_str(), currentlyPlaying.trackUri);
                         displayInfo(currentlyPlaying);
                         if (currentAlbum.compareTo(previousAlbum) != 0)
                         {
-                            Serial.printf("New Album - Updating Art (%s -> %s)\n", previousAlbum.c_str(), currentlyPlaying.albumUri);
+                            ESP_LOGI(__func__,"New Album - Updating Art (%s -> %s)\n", previousAlbum.c_str(), currentlyPlaying.albumUri);
                             displayImage(currentlyPlaying);
                         }
                     }
@@ -146,16 +145,14 @@ void Spotify::show()
                                              "US");
     if (status > 300)
     {
-        Serial.print("Error: ");
-        Serial.println(status);
+        ESP_LOGI(__func__,"Error: %d", status);
     }
     status = spotify.getPlayerDetails([&](PlayerDetails current)
                                              { this->displayPlayback(current); },
                                              "US");
     if (status > 300)
     {
-        Serial.print("Error: ");
-        Serial.println(status);
+        ESP_LOGI(__func__,"Error: %d", status);
     }
 }
 
@@ -163,7 +160,7 @@ bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_
 {
     // Stop further decoding as image is running off bottom of screen
     if (y >= panel0.height()){
-        Serial.printf("Invalid display parameters: x=%d, y=%d, w=%d, h=%d", x, y, w, h);
+        ESP_LOGI(__func__,"Invalid display parameters: x=%d, y=%d, w=%d, h=%d", x, y, w, h);
         return 0;
     }
 

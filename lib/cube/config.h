@@ -41,7 +41,6 @@
   #define LAT_PIN 27
   #define OE_PIN 26
   #define CLK_PIN 25
-  #define WIFI_LED 13
   #define USR_LED 2
   #define CONTROL_BUTTON 0
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
@@ -59,7 +58,6 @@
   #define LAT_PIN 2 //
   #define OE_PIN 1
   #define CLK_PIN 42
-  #define WIFI_LED 6 //unused pin
   #define USR_LED 10
   #define CONTROL_BUTTON 0
 #endif

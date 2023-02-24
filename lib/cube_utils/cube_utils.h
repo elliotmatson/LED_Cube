@@ -50,6 +50,5 @@ class Pattern
 };*/
 
 uint8_t fast_cos(uint16_t x);
-void cubePrintf(const char *format, ...);
 
 #endif

@@ -42,7 +42,7 @@ struct CubePrefs
     uint8_t latchBlanking = 2;
     bool use20MHz = 0;
     void print(String prefix) {
-        Serial.printf("%s\nBrightness: %d\nDevelopment: %d\nOTA: %d\nGithub: %d\nSigned FW Only: %d\n", prefix.c_str(), brightness, development, ota, github, signedFWOnly);
+        ESP_LOGI(__func__, "%s\nBrightness: %d\nDevelopment: %d\nOTA: %d\nGithub: %d\nSigned FW Only: %d\n", prefix.c_str(), brightness, development, ota, github, signedFWOnly);
     }
 };
 

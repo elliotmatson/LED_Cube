@@ -4,3 +4,4 @@ src/secrets.h
 .DS_Store
 build
 sdkconfig.*.old
+managed_components

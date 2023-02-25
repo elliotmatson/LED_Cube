@@ -26,7 +26,7 @@ public:
   Spotify(MatrixPanel_I2S_DMA *display, AsyncWebServer *server);
   void init();
   void show();
-  ~Spotify();
+//  ~Spotify();
 
 private:
   bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap);

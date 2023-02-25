@@ -282,22 +282,22 @@ void Cube::setOTA(bool ota)
                     }
 
                     int i = map(progress, 0, total, 0, 512);
-                    dma_display->drawFastHLine(128, 0, std::clamp(i, 0, 64), 0xFFFF);
-                    dma_display->drawFastVLine(191, 0, std::clamp(i - 64, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(128, 0, constrain(i, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(191, 0, constrain(i - 64, 0, 64), 0xFFFF);
 
-                    dma_display->drawFastVLine(0, 64 - std::clamp(i - 128, 0, 63), std::clamp(i - 128, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(0, 0, std::clamp(i - 192, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(0, 0, constrain(i - 192, 0, 64), 0xFFFF);
 
-                    dma_display->drawFastVLine(64, 64 - std::clamp(i - 256, 0, 63), std::clamp(i - 256, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(64, 0, std::clamp(i - 320, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(64, 0, constrain(i - 320, 0, 64), 0xFFFF);
 
-                    dma_display->drawFastVLine(127, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
-                    dma_display->drawFastVLine(128, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(127, 0, constrain(i - 384, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(128, 0, constrain(i - 384, 0, 64), 0xFFFF);
 
-                    dma_display->drawFastHLine(128 - std::clamp(i - 448, 0, 63), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(128, 63, std::clamp(i - 448, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(64 - std::clamp(i - 448, 0, 64), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
-                    dma_display->drawFastVLine(63, 64 - std::clamp(i - 448, 0, 64), std::clamp(i - 448, 0, 64), 0xFFFF); })
+                    dma_display->drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(128, 63, constrain(i - 448, 0, 64), 0xFFFF);
+                    dma_display->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
+                    dma_display->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF); })
             .onError([&](ota_error_t error)
                      {
                     ESP_LOGE(__func__,"Error[%u]: ", error);
@@ -365,22 +365,22 @@ void Cube::setGHUpdate(bool github)
             }
 
             int i = map(progress, 0, total, 0, 512);
-            dma_display->drawFastHLine(128, 0, std::clamp(i, 0, 64), 0xFFFF);
-            dma_display->drawFastVLine(191, 0, std::clamp(i - 64, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(128, 0, constrain(i, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(191, 0, constrain(i - 64, 0, 64), 0xFFFF);
 
-            dma_display->drawFastVLine(0, 64 - std::clamp(i - 128, 0, 63), std::clamp(i - 128, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(0, 0, std::clamp(i - 192, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(0, 0, constrain(i - 192, 0, 64), 0xFFFF);
 
-            dma_display->drawFastVLine(64, 64 - std::clamp(i - 256, 0, 63), std::clamp(i - 256, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(64, 0, std::clamp(i - 320, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(64, 0, constrain(i - 320, 0, 64), 0xFFFF);
 
-            dma_display->drawFastVLine(127, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
-            dma_display->drawFastVLine(128, 0, std::clamp(i - 384, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(127, 0, constrain(i - 384, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(128, 0, constrain(i - 384, 0, 64), 0xFFFF);
 
-            dma_display->drawFastHLine(128 - std::clamp(i - 448, 0, 63), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(128, 63, std::clamp(i - 448, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(64 - std::clamp(i - 448, 0, 64), 63, std::clamp(i - 448, 0, 64), 0xFFFF);
-            dma_display->drawFastVLine(63, 64 - std::clamp(i - 448, 0, 64), std::clamp(i - 448, 0, 64), 0xFFFF); });
+            dma_display->drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(128, 63, constrain(i - 448, 0, 64), 0xFFFF);
+            dma_display->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
+            dma_display->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF); });
         xTaskCreate(
             [](void* o){ static_cast<Cube*>(o)->checkForUpdates(); },     // This is disgusting, but it works
             "Check For Updates",    // Name of the task (for debugging)

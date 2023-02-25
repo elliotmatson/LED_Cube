@@ -1,6 +1,7 @@
 #ifndef CUBE_H
 #define CUBE_H
 
+#include <qrcode.h>
 
 #include <sdkconfig.h>
 #include <stdio.h>

@@ -1,0 +1,51 @@
+dependencies:
+  esp_insights:
+    component_hash: null
+    source:
+      path: /Users/elliotmatson/VScode/LED_Cube/components/esp_insights
+      type: local
+    version: '*'
+  esp_rainmaker:
+    component_hash: null
+    source:
+      path: /Users/elliotmatson/VScode/LED_Cube/components/esp_rainmaker
+      type: local
+    version: '*'
+  espressif/jsmn:
+    component_hash: d80350c41bbaa827c98a25b6072df00884e72f54885996fab4a4f0aebce6b6c3
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.1.0
+  espressif/json_generator:
+    component_hash: 41da0ab732877184092676c50b5f3f3bf37ad783de2f9c27e441944e01b7d51b
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.1.1
+  espressif/json_parser:
+    component_hash: 1cf22ee8b94a8e92a94144d4339936b25478309b1a09071c6de9de39e8339504
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.0.2
+  espressif/qrcode:
+    component_hash: e07c05f9129250d79c62957c02e2f67d3485e917e6953cbc6637324b3a47ea7f
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 0.1.0
+  espressif/rmaker_common:
+    component_hash: 297f4040d28475a5dfdd5c6f3280eb0a654aab1308845aa8dc6ad502b9ce3841
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.2.0
+  idf:
+    component_hash: null
+    source:
+      type: idf
+    version: 4.4.3
+manifest_hash: b5696b2cb03b5a59df2556d39c73ad6e89b7d2822dea6ec3d6602a525919250c
+target: esp32s3
+version: 1.0.0

@@ -1,16 +1,16 @@
-#ifndef PLASMA_H
-#define PLASMA_H
+#ifndef CLOCK_H
+#define CLOCK_H
 
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "cube_utils.h"
 
-class Plasma: public Pattern{
+class Clock: public Pattern{
     public:
-        Plasma(PatternServices *pattern);
+        Clock(PatternServices *pattern);
         void init();
         void show();
-        ~Plasma();
+        ~Clock();
 };
 
 #endif

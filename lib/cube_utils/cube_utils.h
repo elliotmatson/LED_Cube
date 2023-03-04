@@ -29,6 +29,11 @@
 #define YELLOW 0xFFE0
 #define WHITE 0xFFFF
 
+struct PatternServices
+{
+    MatrixPanel_I2S_DMA *display;
+    AsyncWebServer *server;
+};
 
 // Pattern interface
 class Pattern
@@ -38,13 +43,7 @@ class Pattern
         virtual void init() = 0;
     protected:
         unsigned long frameCount{0};
-        MatrixPanel_I2S_DMA *display;
-};
-
-struct PatternServices
-{
-    MatrixPanel_I2S_DMA *display;
-    AsyncWebServer *server;
+        PatternServices *pattern;
 };
 
 uint8_t fast_cos(uint16_t x);

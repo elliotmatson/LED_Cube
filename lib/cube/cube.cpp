@@ -25,28 +25,37 @@ Cube::Cube() :
     systemTab(&dashboard, "System"),
     displayTab(&dashboard, "Display"),
     developerTab(&dashboard, "Development")
-{}
+{
+}
 
 // initialize all cube tasks and functions
 void Cube::init()
 {
     leds.begin();
     leds.setBrightness(20);
+    leds.fill(leds.Color(255,0,0), 0, 0);
     leds.show(); // Initialize all pixels to 'off'
     Serial.begin(115200);
-    leds.setPixelColor(0, 0, 255, 0);
-    leds.show(); // Initialize all pixels to 'off'
-    initPrefs();
-    leds.setPixelColor(1, 0, 255, 0);
-    leds.show(); // Initialize all pixels to 'off'
-    initDisplay();
-    leds.setPixelColor(2, 0, 255, 0);
-    leds.show(); // Initialize all pixels to 'off'
-    initWifi();
-    leds.setPixelColor(3, 0, 255, 0);
-    leds.show(); // Initialize all pixels to 'off'
+    if(initPrefs()) {
+        leds.setPixelColor(0, 0, 255, 0);
+        leds.show();
+    }
+    if(initDisplay()) {
+        leds.setPixelColor(1, 0, 255, 0);
+        leds.show();
+    }
+    if(initWifi()) {
+        leds.setPixelColor(2, 0, 255, 0);
+        leds.show();
+    }
     initUI();
     initUpdates();
+    leds.setPixelColor(3, 0, 255, 0);
+    leds.show();
+
+    // Set up pattern services
+    patternServices.display = dma_display;
+    patternServices.server = &server;
 
     // Start the task to show the selected pattern
     xTaskCreate(
@@ -69,9 +78,9 @@ void Cube::init()
 }
 
 // Initialize Preferences Library
-void Cube::initPrefs()
+bool Cube::initPrefs()
 {
-    prefs.begin("cube");
+    bool status = prefs.begin("cube");
 
     if ((!prefs.isKey("cubePrefs")) || (prefs.getBytesLength("cubePrefs") != sizeof(CubePrefs))) {
         this->cubePrefs.print("No valid preferences found, creating new");
@@ -79,6 +88,7 @@ void Cube::initPrefs()
     }
     prefs.getBytes("cubePrefs", &cubePrefs, sizeof(CubePrefs));
     this->cubePrefs.print("Loaded Preferences");
+    return status;
 }
 
 // Initialize update methods, setup check tasks
@@ -89,8 +99,9 @@ void Cube::initUpdates()
 }
 
 // Initialize display driver
-void Cube::initDisplay()
+bool Cube::initDisplay()
 {
+    bool status = false;
     ESP_LOGI(__func__,"Configuring HUB_75");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
@@ -105,12 +116,16 @@ void Cube::initDisplay()
     dma_display->setLatBlanking(cubePrefs.latchBlanking);
 
     // Allocate memory and start DMA display
-    if (not dma_display->begin())
-         ESP_LOGE(__func__,"****** !KABOOM! I2S memory allocation failed ***********");
+    if (dma_display->begin()) {
+        status = true;
+    } else {
+        ESP_LOGE(__func__, "****** !KABOOM! I2S memory allocation failed ***********");
+    }
+    return status;
 }
 
 // Initialize wifi and prompt for connection if needed
-void Cube::initWifi()
+bool Cube::initWifi()
 {
     ESP_LOGI(__func__,"Connecting to WiFi...");
     wifiManager.setHostname("cube");
@@ -121,9 +136,11 @@ void Cube::initWifi()
             dma_display->setTextColor(WHITE);
             dma_display->setCursor(0, 0);
             dma_display->printf("\n\nConnect to\n   WiFi\n\nSSID: %s", myWiFiManager->getConfigPortalSSID().c_str());
+            leds.setPixelColor(2, 0, 0, 255);
+            leds.show();
         });
 
-    wifiManager.autoConnect("Cube");
+    bool status = wifiManager.autoConnect("Cube");
 
     this->server.begin();
     WebSerial.begin(&this->server, "/log");
@@ -133,6 +150,7 @@ void Cube::initWifi()
     ESP_LOGI(__func__,"IP address: ");
     ESP_LOGI(__func__,"%s",WiFi.localIP().toString().c_str());
     MDNS.begin(HOSTNAME);
+    return status;
 }
 
 // initialize Cube UI Elements
@@ -639,7 +657,7 @@ void Cube::showPattern()
 {
     switch (this->currentPattern) {
         case snake: {
-            SnakeGame game(this->dma_display, 30, 3, 200);
+            SnakeGame game(&patternServices);
             game.init();
             for (;;)
             {
@@ -650,7 +668,7 @@ void Cube::showPattern()
         }
         case plasma:
         {
-            Plasma plasma(this->dma_display);
+            Plasma plasma(&patternServices);
             plasma.init();
             for (;;)
             {
@@ -661,7 +679,7 @@ void Cube::showPattern()
         }
         case spotify:
         {
-            Spotify spotify(this->dma_display, &server);
+            Spotify spotify(&patternServices);
             spotify.init();
             for (;;)
             {

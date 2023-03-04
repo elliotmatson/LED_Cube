@@ -19,13 +19,12 @@ const char *webpageTemplate =
       </html>
       )";
 
-Spotify::Spotify(MatrixPanel_I2S_DMA *display, AsyncWebServer *server) : panel0(*display, 2, 2),
-                                                                         panel1(*display, 1, 2),
-                                                                         panel2(*display, 0, 0),
-                                                                         spotify(this->client)
+Spotify::Spotify(PatternServices *pattern) : panel0(*pattern->display, 2, 2),
+                                            panel1(*pattern->display, 1, 2),
+                                            panel2(*pattern->display, 0, 0),
+                                            spotify(this->client)
 {
-  this->display = display;
-  this->server = server;
+  this->pattern = pattern;
 }
 
 void Spotify::init(){
@@ -40,14 +39,14 @@ void Spotify::init(){
 
 
     ESP_LOGI(__func__,"Setting up callbacks");
-    server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
+    pattern->server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
                {    
                     char webpage[800];
                     sprintf(webpage, webpageTemplate, spotifyPrefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope);
                     request->send(200, "text/html", webpage);
                     ESP_LOGI(__func__,"got root request"); });
-    server->on("/callback/", HTTP_GET, [&](AsyncWebServerRequest *request)
-               {    
+    pattern->server->on("/callback/", HTTP_GET, [&](AsyncWebServerRequest *request)
+                        {    
                     String code = "";
                     const char *refreshToken = NULL;
                     for (uint8_t i = 0; i < request->args(); i++)
@@ -70,8 +69,8 @@ void Spotify::init(){
                         request->send(404, "text/plain", "Failed to load token, check serial monitor");
                         ESP_LOGI(__func__,"Failed to load token, check serial monitor");
                     } });
-    server->onNotFound([&](AsyncWebServerRequest *request)
-                    {
+    pattern->server->onNotFound([&](AsyncWebServerRequest *request)
+                                {
                         String message = "File Not Found\n\n";
                         message += "URI: ";
                         message += request->url();
@@ -88,8 +87,7 @@ void Spotify::init(){
 
                         request->send(404, "text/plain", message);
 
-                        ESP_LOGI(__func__,"%s", message.c_str());
-                    });
+                        ESP_LOGI(__func__,"%s", message.c_str()); });
     ESP_LOGI(__func__,"HTTP server started");
     TJpgDec.setJpgScale(1);
 

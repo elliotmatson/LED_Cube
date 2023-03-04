@@ -1,8 +1,8 @@
 #include "clock.h"
 
-Clock::Clock(MatrixPanel_I2S_DMA *display)
+Clock::Clock(PatternServices *pattern)
 {
-  this->display = display;
+  this->pattern = pattern;
   frameCount = 25500;
 }
 
@@ -28,7 +28,7 @@ void Clock::show()
       uint8_t g = fast_cos(((y << 3) + t + fast_cos(((t3 >> 2) + (x << 3)))) >> 2);
       uint8_t b = fast_cos(((y << 3) + t2 + fast_cos((t + x + (g >> 2)))) >> 2);
 
-      display->drawPixelRGB888(i, j, r, g, b);
+      pattern->display->drawPixelRGB888(i, j, r, g, b);
     }
   }
 }

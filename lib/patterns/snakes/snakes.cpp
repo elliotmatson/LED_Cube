@@ -2,16 +2,17 @@
 #include <utility>
 #include <algorithm>
 
-SnakeGame::SnakeGame(MatrixPanel_I2S_DMA * display, uint8_t n_snakes = 10, uint8_t len = 10, uint16_t n_food = 100){
-  this->display = display;
-  this->len = len;
-  this->n_snakes = n_snakes;
+SnakeGame::SnakeGame(PatternServices *pattern)
+{
+  this->pattern = pattern;
+  this->len = 3;
+  this->n_snakes = 30;
+  this->n_food = 200;
   this->board = (std::pair<uint8_t, uint8_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
   for(int i = 0; i < PANEL_HEIGHT; i++){
     this->board[i] = (std::pair<uint8_t, uint8_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint8_t>), MALLOC_CAP_SPIRAM);
   }
   this->snakes = (Snake *)heap_caps_malloc(n_snakes * sizeof(Snake), MALLOC_CAP_SPIRAM);
-  this->n_food = n_food;
 }
 SnakeGame::~SnakeGame(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
@@ -164,10 +165,10 @@ void SnakeGame::draw(){
           }
         }
         if(s->alive){
-          display->drawPixelRGB888(j, i, r, g, b);
+          pattern->display->drawPixelRGB888(j, i, r, g, b);
         } else {
           double brightness = s->respawn_delay / (double)s->len; 
-          display->drawPixelRGB888(j, i, 
+          pattern->display->drawPixelRGB888(j, i, 
             min(255, (int)(r * brightness * 4)),
             min(255, (int)(g * brightness * 4)),
             min(255, (int)(b * brightness * 4))
@@ -175,9 +176,9 @@ void SnakeGame::draw(){
         }
 
       } else if (this->board[i][j].first == FOOD_ID){
-        display->drawPixelRGB888(j, i, 100, 100, 100);
+        pattern->display->drawPixelRGB888(j, i, 100, 100, 100);
       } else {
-        display->drawPixelRGB888(j, i, 0, 0 , 0);
+        pattern->display->drawPixelRGB888(j, i, 0, 0 , 0);
       }
     }
   }

@@ -66,6 +66,7 @@ class Cube {
         WiFiManager wifiManager;
         CubePrefs cubePrefs;
         patterns currentPattern;
+        PatternServices patternServices;
 
         // Variables
         String serial;
@@ -105,10 +106,10 @@ class Cube {
         void setOTA(bool ota);
         void setGHUpdate(bool github);
         void setSignedFWOnly(bool signedFWOnly);
-        void initPrefs();
+        bool initPrefs();
         void initUpdates();
-        void initDisplay();
-        void initWifi();
+        bool initDisplay();
+        bool initWifi();
         void initUI();
         void checkForUpdates();
         void checkForOTA();

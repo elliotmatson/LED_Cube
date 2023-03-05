@@ -1,17 +1,21 @@
 #ifndef ALL_PATTERNS_H
 #define ALL_PATTERNS_H
 
+#include "cube_utils.h"
+
 // Convenience include file. All patterns get included here
 #include "snakes/snakes.h"
 #include "plasma/plasma.h"
 #include "spotify/spotify.h"
+#include "clock/clock.h"
 
 // Enum for all patterns
 enum patterns
 {
     snake,
     plasma,
-    spotify
+    spotify,
+    dateTime
 };
 
 #endif

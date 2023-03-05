@@ -25,6 +25,9 @@
 #define PANEL_HEIGHT 64
 #define PANELS_NUMBER 3
 
+// NTP server
+#define NTP_SERVER "pool.ntp.org"
+
 // PCB pinouts
 #ifdef CONFIG_IDF_TARGET_ESP32
   #define R1_PIN 4

@@ -7,7 +7,7 @@ const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartitio
 Cube::Cube() : 
     leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
     server(80),
-    currentPattern(patterns::snake),
+    currentPattern(patterns::dateTime),
     serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
     wifiReady(false),
     dashboard(&server),
@@ -142,7 +142,38 @@ bool Cube::initWifi()
 
     bool status = wifiManager.autoConnect("Cube");
 
+    // Set up NTP
+    long gmtOffset_sec = 0;
+    int daylightOffset_sec = 0;
+
+    // get GMT offset from public API
+    WiFiClient client;
+    HTTPClient http;
+    http.begin(client, "http://worldtimeapi.org/api/ip");
+    int httpCode = http.GET();
+    if (httpCode > 0) {
+        if (httpCode == HTTP_CODE_OK) {
+            String payload = http.getString();
+            DynamicJsonDocument doc(1024);
+            deserializeJson(doc, payload);
+            gmtOffset_sec = doc["raw_offset"].as<int>();
+            daylightOffset_sec = doc["dst_offset"].as<int>();
+        }
+    }
+    http.end();
+
+    // Set time via NTP
+    configTime(gmtOffset_sec, daylightOffset_sec, NTP_SERVER);
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        ESP_LOGE(__func__, "Failed to obtain time");
+    }
+    ESP_LOGI(__func__,"Time set: %s", asctime(&timeinfo));
+
+    // Set up web server
     this->server.begin();
+
+    // Set up WebSerial
     WebSerial.begin(&this->server, "/log");
 
     this->wifiReady = true;
@@ -633,7 +664,7 @@ void Cube::checkForOTA()
     for (;;)
     {
         ArduinoOTA.handle();
-        vTaskDelay(300 / portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
 
@@ -684,6 +715,18 @@ void Cube::showPattern()
             for (;;)
             {
                 spotify.show();
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+                yield();
+            }
+            break;
+        }
+        case dateTime:
+        {
+            Clock clock(&patternServices);
+            clock.init();
+            for (;;)
+            {
+                clock.show();
                 vTaskDelay(1000 / portTICK_PERIOD_MS);
                 yield();
             }

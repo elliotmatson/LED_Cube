@@ -11,6 +11,9 @@ class Clock: public Pattern{
         void init();
         void show();
         ~Clock();
+
+    private:
+        struct tm timeinfo;
 };
 
 #endif

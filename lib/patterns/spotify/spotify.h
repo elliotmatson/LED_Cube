@@ -16,6 +16,10 @@
 #include "spotify_sprites.h"
 #include "LEMONMILK_Medium7pt7b.h"
 
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+
 // get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
 

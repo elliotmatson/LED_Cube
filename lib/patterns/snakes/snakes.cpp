@@ -282,9 +282,11 @@ void SnakeGame::place_food(){
 }
 
 void SnakeGame::show(){
-  this->update();
-  this->draw();
+  while(true){
+    this->update();
+    this->draw();
 
-  frameCount++;
-  vTaskDelay(1 / portTICK_PERIOD_MS);
+    frameCount++;
+    vTaskDelay(1 / portTICK_PERIOD_MS);
+  }
 }

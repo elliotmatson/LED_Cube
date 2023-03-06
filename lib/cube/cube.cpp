@@ -57,10 +57,21 @@ void Cube::init()
 
     // make unordered map of patterns from the patterns list array
     for (Pattern *pattern : patternList) {
-        ESP_LOGI("Cube", "setting pattern %s: %p", pattern->getName().c_str(), (void *)pattern);
-        ESP_LOGI("Cube", "test %s: %p", patternList[0]->getName().c_str(), (void *)currentPattern);
+        const std::string name = pattern->getName();
+        Card* card = new Card(&dashboard, BUTTON_CARD, pattern->getName().append(" Pattern").c_str());
+        card->attachCallback([&, name, card](int value)
+                            {
+                                ESP_LOGI("Cube", "Pattern: %s", name.c_str());
+                                currentPattern->stop();
+                                currentPattern = patterns[name];
+                                currentPattern->init(&patternServices);
+                                currentPattern->start();
+                                card->update(0);
+                                dashboard.sendUpdates();
+                            });
         patterns[pattern->getName()] = pattern;
     }
+    dashboard.sendUpdates();
 
     currentPattern = patterns["Clock"];
 
@@ -79,15 +90,6 @@ void Cube::init()
     ESP_LOGI("Cube", "currentPattern: %p", (void *)currentPattern);
     currentPattern->init(&patternServices);
     currentPattern->start();
-
-    /*xTaskCreate(
-        [](void* o){ static_cast<Cube*>(o)->showPattern(); },     // This is disgusting, but it works
-        "Show Pattern",      // Name of the task (for debugging)
-        10000,                // Stack size (bytes)
-        this, // Parameter to pass
-        6,                   // Task priority
-        &showPatternTask // Task handle
-    );*/
 }
 
 // Initialize Preferences Library

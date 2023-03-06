@@ -1,6 +1,8 @@
 .pio
 .vscode
 src/secrets.h
+lib/cube/secrets.h
+include/secrets.h
 .DS_Store
 build
 sdkconfig.*.old

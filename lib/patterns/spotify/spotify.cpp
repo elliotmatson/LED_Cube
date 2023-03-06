@@ -38,6 +38,15 @@ void Spotify::init(PatternServices *pattern)
     spotify = new SpotifyArduino(this->client);
   spotifyPrefs.begin("spotify");
 
+//#ifdef SPOTIFY_CLIENT_ID
+  spotifyPrefs.putString("SPOTIFY_ID", SPOTIFY_CLIENT_ID);
+  ESP_LOGI(__func__, "SPOTIFY_CLIENT_ID: %s", SPOTIFY_CLIENT_ID);
+//#endif
+//#ifdef SPOTIFY_CLIENT_SECRET
+  spotifyPrefs.putString("SPOTIFY_SECRET", SPOTIFY_CLIENT_SECRET);
+  ESP_LOGI(__func__, "SPOTIFY_CLIENT_SECRET: %s", SPOTIFY_CLIENT_SECRET);
+//#endif
+
   spotifyPrefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
   spotifyPrefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
 
@@ -144,41 +153,44 @@ void Spotify::stop()
 
 void Spotify::show()
 {
-    // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
-  int status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currentlyPlaying)
-                                            { 
-                isPlaying = currentlyPlaying.isPlaying;
-                lastUpdate = millis();
-                lastProgress = currentlyPlaying.progressMs;
-                duration = currentlyPlaying.durationMs;
-                if (currentlyPlaying.isPlaying)
-                {
-                    String currentTrack = String(currentlyPlaying.trackUri);
-                    if (currentTrack.compareTo(previousTrack) != 0)
-                    {
-                        String currentAlbum = String(currentlyPlaying.albumUri);
-                        ESP_LOGI(__func__,"New Track - Updating Text (%s -> %s)\n", previousTrack.c_str(), currentlyPlaying.trackUri);
-                        displayInfo(currentlyPlaying);
-                        if (currentAlbum.compareTo(previousAlbum) != 0)
-                        {
-                            ESP_LOGI(__func__,"New Album - Updating Art (%s -> %s)\n", previousAlbum.c_str(), currentlyPlaying.albumUri);
-                            displayImage(currentlyPlaying);
-                        }
-                    }
-                    previousTrack = currentlyPlaying.trackUri;
-                    previousAlbum = currentlyPlaying.albumUri;
-                } },
-                                            "US");
-  if (status > 300)
-  {
-      ESP_LOGI(__func__, "Error: %d", status);
-    }
-    status = spotify->getPlayerDetails([&](PlayerDetails current)
-                                       { this->displayPlayback(current); },
-                                       "US");
-    if (status > 300)
+    while (true)
     {
-        ESP_LOGI(__func__,"Error: %d", status);
+            // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
+        int status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currentlyPlaying)
+                                                    { 
+                        isPlaying = currentlyPlaying.isPlaying;
+                        lastUpdate = millis();
+                        lastProgress = currentlyPlaying.progressMs;
+                        duration = currentlyPlaying.durationMs;
+                        if (currentlyPlaying.isPlaying)
+                        {
+                            String currentTrack = String(currentlyPlaying.trackUri);
+                            if (currentTrack.compareTo(previousTrack) != 0)
+                            {
+                                String currentAlbum = String(currentlyPlaying.albumUri);
+                                ESP_LOGI(__func__,"New Track - Updating Text (%s -> %s)\n", previousTrack.c_str(), currentlyPlaying.trackUri);
+                                displayInfo(currentlyPlaying);
+                                if (currentAlbum.compareTo(previousAlbum) != 0)
+                                {
+                                    ESP_LOGI(__func__,"New Album - Updating Art (%s -> %s)\n", previousAlbum.c_str(), currentlyPlaying.albumUri);
+                                    displayImage(currentlyPlaying);
+                                }
+                            }
+                            previousTrack = currentlyPlaying.trackUri;
+                            previousAlbum = currentlyPlaying.albumUri;
+                        } },
+                                                    "US");
+        if (status > 300)
+        {
+            ESP_LOGI(__func__, "Error: %d", status);
+            }
+            status = spotify->getPlayerDetails([&](PlayerDetails current)
+                                            { this->displayPlayback(current); },
+                                            "US");
+            if (status > 300)
+            {
+                ESP_LOGI(__func__,"Error: %d", status);
+            }
     }
 }
 

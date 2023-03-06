@@ -97,7 +97,6 @@ class Cube {
         // FreeRTOS Tasks
         TaskHandle_t checkForUpdatesTask;
         TaskHandle_t checkForOTATask;
-        TaskHandle_t showPatternTask;
         TaskHandle_t printMemTask;
         Preferences prefs;
 

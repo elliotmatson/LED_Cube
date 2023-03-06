@@ -59,7 +59,8 @@ void Cube::init()
     for (Pattern *pattern : patternList) {
         const std::string name = pattern->getName();
         Card* card = new Card(&dashboard, BUTTON_CARD, pattern->getName().append(" Pattern").c_str());
-        card->attachCallback([&, name, card](int value)
+        ESPDash *dash = &dashboard;
+        card->attachCallback([&, name, card, dash](int value)
                             {
                                 ESP_LOGI("Cube", "Pattern: %s", name.c_str());
                                 currentPattern->stop();
@@ -67,7 +68,7 @@ void Cube::init()
                                 currentPattern->init(&patternServices);
                                 currentPattern->start();
                                 card->update(0);
-                                dashboard.sendUpdates();
+                                dash->sendUpdates();
                             });
         patterns[pattern->getName()] = pattern;
     }
@@ -318,7 +319,7 @@ void Cube::setOTA(bool ota)
 
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
                     ESP_LOGI(__func__,"Start updating %s", type.c_str());
-                    vTaskDelete(showPatternTask);
+                    currentPattern->stop();
                     dma_display->fillScreenRGB888(0, 0, 0);
                     dma_display->setFont(NULL);
                     dma_display->setCursor(6, 21);
@@ -401,7 +402,7 @@ void Cube::setGHUpdate(bool github)
         httpUpdate.onStart([&]()
                            {
             ESP_LOGI(__func__,"Start updating");
-            vTaskDelete(showPatternTask);
+            currentPattern->stop();
             dma_display->fillScreenRGB888(0, 0, 0);
             dma_display->setFont(NULL);
             dma_display->setCursor(6, 21);
@@ -698,54 +699,3 @@ void Cube::printMem()
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
-
-/*void Cube::showPattern()
-{
-    switch (this->currentPattern) {
-        case snake: {
-            SnakeGame game(&patternServices);
-            game.init();
-            for (;;)
-            {
-                game.show();
-                vTaskDelay(1 / portTICK_PERIOD_MS);
-            }
-            break;
-        }
-        case plasma:
-        {
-            Plasma plasma(&patternServices);
-            plasma.init();
-            for (;;)
-            {
-                plasma.show();
-                yield();
-            }
-            break;
-        }
-        case spotify:
-        {
-            Spotify spotify(&patternServices);
-            spotify.init();
-            for (;;)
-            {
-                spotify.show();
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-                yield();
-            }
-            break;
-        }
-        case dateTime:
-        {
-            Clock clock(&patternServices);
-            clock.init();
-            for (;;)
-            {
-                clock.show();
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-                yield();
-            }
-            break;
-        }
-    }
-}*/

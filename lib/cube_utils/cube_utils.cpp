@@ -16,3 +16,4 @@ uint8_t fast_cos(uint16_t x)
 {
     return cos_wave[x % 256];
 };
+

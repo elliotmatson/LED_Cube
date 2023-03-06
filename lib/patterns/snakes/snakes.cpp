@@ -2,36 +2,70 @@
 #include <utility>
 #include <algorithm>
 
-SnakeGame::SnakeGame(PatternServices *pattern)
+SnakeGame::SnakeGame()
+{
+  data.name = "Snake";
+}
+
+SnakeGame::~SnakeGame(){
+  stop();
+}
+
+void SnakeGame::init(PatternServices *pattern)
 {
   this->pattern = pattern;
   this->len = 3;
   this->n_snakes = 30;
   this->n_food = 200;
   this->board = (std::pair<uint8_t, uint8_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
-  for(int i = 0; i < PANEL_HEIGHT; i++){
+  for (int i = 0; i < PANEL_HEIGHT; i++)
+  {
     this->board[i] = (std::pair<uint8_t, uint8_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint8_t>), MALLOC_CAP_SPIRAM);
   }
   this->snakes = (Snake *)heap_caps_malloc(n_snakes * sizeof(Snake), MALLOC_CAP_SPIRAM);
+  reset();
+} 
+
+void SnakeGame::start()
+{
+  xTaskCreate(
+      [](void *o)
+      { static_cast<SnakeGame *>(o)->show(); }, // This is disgusting, but it works
+      "Snake - Refresh",                        // Name of the task (for debugging)
+      8000,                                     // Stack size (bytes)
+      this,                                     // Parameter to pass
+      1,                                        // Task priority
+      &refreshTask                              // Task handle
+  );
 }
-SnakeGame::~SnakeGame(){
-  for(int i = 0; i < PANEL_HEIGHT; i++){
+
+void SnakeGame::stop()
+{
+  vTaskDelete(refreshTask);
+  for (int i = 0; i < PANEL_HEIGHT; i++)
+  {
     free(this->board[i]);
   }
   free(this->board);
   free(this->snakes);
 }
-void SnakeGame::init(){
-  for(int i = 0; i < PANEL_HEIGHT; i++){
-    for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
+
+void SnakeGame::reset()
+{
+  for (int i = 0; i < PANEL_HEIGHT; i++)
+  {
+    for (int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++)
+    {
       this->board[i][j].first = 0;
       this->board[i][j].second = 0;
     }
   }
-  for(uint8_t i = 0; i < n_snakes; i++){
+  for (uint8_t i = 0; i < n_snakes; i++)
+  {
     spawn_snake(i);
   }
 }
+
 void SnakeGame::update(){
   for(uint8_t i = 0; i < n_snakes; i++){
     if(!snakes[i].alive){
@@ -78,9 +112,10 @@ void SnakeGame::update(){
     }
   }
   if(n_alive == 0){
-    init();
+    reset();
   }
 }
+
 void SnakeGame::draw(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
@@ -251,4 +286,5 @@ void SnakeGame::show(){
   this->draw();
 
   frameCount++;
+  vTaskDelay(1 / portTICK_PERIOD_MS);
 }

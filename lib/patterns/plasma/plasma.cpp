@@ -1,14 +1,37 @@
 #include "plasma.h"
 
-Plasma::Plasma(PatternServices *pattern)
+Plasma::Plasma()
+{
+  data.name = "Plasma";
+}
+
+Plasma::~Plasma()
+{
+  stop();
+}
+
+void Plasma::init(PatternServices *pattern)
 {
   this->pattern = pattern;
   frameCount = 25500;
 }
 
-Plasma::~Plasma() {}
+void Plasma::start()
+{
+  xTaskCreate(
+      [](void *o)
+      { static_cast<Plasma *>(o)->show(); }, // This is disgusting, but it works
+      "Plasma - Refresh",                    // Name of the task (for debugging)
+      4000,                                  // Stack size (bytes)
+      this,                                  // Parameter to pass
+      1,                                     // Task priority
+      &refreshTask                           // Task handle
+  );
+}
 
-void Plasma::init() {}
+void Plasma::stop() {
+  vTaskDelete(refreshTask);
+}
 
 void Plasma::show()
 {

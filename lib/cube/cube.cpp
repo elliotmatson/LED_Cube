@@ -7,7 +7,6 @@ const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartitio
 Cube::Cube() : 
     leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
     server(80),
-    currentPattern(patterns::dateTime),
     serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
     wifiReady(false),
     dashboard(&server),
@@ -23,7 +22,6 @@ Cube::Cube() :
     resetWifiButton(&dashboard, BUTTON_CARD, "Reset Wifi"),
     crashMe(&dashboard, BUTTON_CARD, "Crash Cube"),
     systemTab(&dashboard, "System"),
-    displayTab(&dashboard, "Display"),
     developerTab(&dashboard, "Development")
 {
 }
@@ -57,6 +55,16 @@ void Cube::init()
     patternServices.display = dma_display;
     patternServices.server = &server;
 
+    // make unordered map of patterns from the patterns list array
+    for (Pattern *pattern : patternList) {
+        ESP_LOGI("Cube", "setting pattern %s: %p", pattern->getName().c_str(), (void *)pattern);
+        ESP_LOGI("Cube", "test %s: %p", patternList[0]->getName().c_str(), (void *)currentPattern);
+        patterns[pattern->getName()] = pattern;
+    }
+
+    currentPattern = patterns["Clock"];
+
+
     // Start the task to show the selected pattern
     xTaskCreate(
         [](void* o){ static_cast<Cube*>(o)->printMem(); },     // This is disgusting, but it works
@@ -66,15 +74,20 @@ void Cube::init()
         1,                   // Task priority
         &printMemTask // Task handle
     );
-    // Start the task to show the selected pattern
-    xTaskCreate(
+
+    // Start the selected pattern
+    ESP_LOGI("Cube", "currentPattern: %p", (void *)currentPattern);
+    currentPattern->init(&patternServices);
+    currentPattern->start();
+
+    /*xTaskCreate(
         [](void* o){ static_cast<Cube*>(o)->showPattern(); },     // This is disgusting, but it works
         "Show Pattern",      // Name of the task (for debugging)
         10000,                // Stack size (bytes)
         this, // Parameter to pass
         6,                   // Task priority
         &showPatternTask // Task handle
-    );
+    );*/
 }
 
 // Initialize Preferences Library
@@ -257,15 +270,15 @@ void Cube::initUI()
     this->rebootButton.update(true);
     this->resetWifiButton.update(true);
 
+    this->rebootButton.setTab(&systemTab);
+    this->resetWifiButton.setTab(&systemTab);
     this->otaToggle.setTab(&developerTab);
     this->developmentToggle.setTab(&developerTab);
     this->GHUpdateToggle.setTab(&developerTab);
     this->signedFWOnlyToggle.setTab(&developerTab);
-    this->brightnessSlider.setTab(&displayTab);
-    this->latchSlider.setTab(&displayTab);
-    this->use20MHzToggle.setTab(&displayTab);
-    this->rebootButton.setTab(&systemTab);
-    this->resetWifiButton.setTab(&systemTab);
+    this->crashMe.setTab(&developerTab);
+    this->latchSlider.setTab(&developerTab);
+    this->use20MHzToggle.setTab(&developerTab);
 
     dashboard.sendUpdates();
 }
@@ -684,7 +697,7 @@ void Cube::printMem()
     }
 }
 
-void Cube::showPattern()
+/*void Cube::showPattern()
 {
     switch (this->currentPattern) {
         case snake: {
@@ -733,4 +746,4 @@ void Cube::showPattern()
             break;
         }
     }
-}
+}*/

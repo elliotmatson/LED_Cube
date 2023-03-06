@@ -9,13 +9,8 @@
 #include "spotify/spotify.h"
 #include "clock/clock.h"
 
-// Enum for all patterns
-enum patterns
-{
-    snake,
-    plasma,
-    spotify,
-    dateTime
-};
+
+// Array of all patterns
+extern Pattern *patternList[4];
 
 #endif

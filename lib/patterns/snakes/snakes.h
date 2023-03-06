@@ -156,13 +156,13 @@ struct Snake{
 
 class SnakeGame: public Pattern{
     public:
-        SnakeGame(PatternServices *pattern);
-        void init();
-        void update();
-        void draw();
-        void show();
+        SnakeGame();
+        void init(PatternServices *pattern);
+        void start();
+        void stop();
         ~SnakeGame();
-    private:
+
+      private:
         unsigned long frameCount;
         uint8_t len; // Starting length of all snakes
         Snake * snakes; // Array of all snakes in the game
@@ -170,6 +170,10 @@ class SnakeGame: public Pattern{
         uint8_t n_snakes;
         uint16_t n_food;
 
+        void reset();
+        void update();
+        void draw();
+        void show();
         void place_food();
         void spawn_snake(uint8_t i);
         enum SnakeType {

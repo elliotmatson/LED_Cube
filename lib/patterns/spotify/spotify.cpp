@@ -19,34 +19,41 @@ const char *webpageTemplate =
       </html>
       )";
 
-Spotify::Spotify(PatternServices *pattern) : panel0(*pattern->display, 2, 2),
-                                            panel1(*pattern->display, 1, 2),
-                                            panel2(*pattern->display, 0, 0),
-                                            spotify(this->client)
+Spotify::Spotify()
 {
-  this->pattern = pattern;
+    data.name = "Spotify";
 }
 
-void Spotify::init(){
-    spotifyPrefs.begin("spotify");
+Spotify::~Spotify() 
+{
+    stop();
+}
 
-    spotifyPrefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
-    spotifyPrefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
+void Spotify::init(PatternServices *pattern)
+{
+    this->pattern = pattern;
+    panel0 = new SinglePanel(*pattern->display, 2, 2);
+    panel1 = new SinglePanel(*pattern->display, 1, 2);
+    panel2 = new SinglePanel(*pattern->display, 0, 0);
+    spotify = new SpotifyArduino(this->client);
+  spotifyPrefs.begin("spotify");
 
-    ESP_LOGI(__func__,"Setting up Spotify Library");
-    client.setCACertBundle(rootca_crt_bundle_start);
-    spotify.lateInit(spotifyID, spotifySecret, spotifyPrefs.getString("SPOTIFY_TOKEN").c_str());
+  spotifyPrefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
+  spotifyPrefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);
 
+  ESP_LOGI(__func__, "Setting up Spotify Library");
+  client.setCACertBundle(rootca_crt_bundle_start);
+  spotify->lateInit(spotifyID, spotifySecret, spotifyPrefs.getString("SPOTIFY_TOKEN").c_str());
 
-    ESP_LOGI(__func__,"Setting up callbacks");
-    pattern->server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
-               {    
+  ESP_LOGI(__func__, "Setting up callbacks");
+  pattern->server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
+                      {    
                     char webpage[800];
                     sprintf(webpage, webpageTemplate, spotifyPrefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope);
                     request->send(200, "text/html", webpage);
                     ESP_LOGI(__func__,"got root request"); });
-    pattern->server->on("/callback/", HTTP_GET, [&](AsyncWebServerRequest *request)
-                        {    
+  pattern->server->on("/callback/", HTTP_GET, [&](AsyncWebServerRequest *request)
+                      {    
                     String code = "";
                     const char *refreshToken = NULL;
                     for (uint8_t i = 0; i < request->args(); i++)
@@ -54,7 +61,7 @@ void Spotify::init(){
                         if (request->argName(i) == "code")
                         {
                             code = request->arg(i);
-                            refreshToken = spotify.requestAccessTokens(code.c_str(), callbackURI);
+                            refreshToken = spotify->requestAccessTokens(code.c_str(), callbackURI);
                         }
                     }
 
@@ -69,8 +76,8 @@ void Spotify::init(){
                         request->send(404, "text/plain", "Failed to load token, check serial monitor");
                         ESP_LOGI(__func__,"Failed to load token, check serial monitor");
                     } });
-    pattern->server->onNotFound([&](AsyncWebServerRequest *request)
-                                {
+  pattern->server->onNotFound([&](AsyncWebServerRequest *request)
+                              {
                         String message = "File Not Found\n\n";
                         message += "URI: ";
                         message += request->url();
@@ -88,37 +95,58 @@ void Spotify::init(){
                         request->send(404, "text/plain", message);
 
                         ESP_LOGI(__func__,"%s", message.c_str()); });
-    ESP_LOGI(__func__,"HTTP server started");
-    TJpgDec.setJpgScale(1);
+  ESP_LOGI(__func__, "HTTP server started");
+  TJpgDec.setJpgScale(1);
 
-    // The decoder must be given the exact name of the rendering function above
-    TJpgDec.setCallback([&](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
-                        {
-                            return this->displayOutput(x, y, w, h, bitmap);
-                        });
+  // The decoder must be given the exact name of the rendering function above
+  TJpgDec.setCallback([&](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
+                      { return this->displayOutput(x, y, w, h, bitmap); });
 
-    ESP_LOGI(__func__,"Refreshing Access Tokens");
-    if (!spotify.refreshAccessToken())
-    {
-        ESP_LOGI(__func__,"Failed to get access tokens");
-    }
+  ESP_LOGI(__func__, "Refreshing Access Tokens");
+  if (!spotify->refreshAccessToken())
+  {
+      ESP_LOGI(__func__, "Failed to get access tokens");
+  }
+}
 
-    xTaskCreate(
-        [](void *o)
-        { static_cast<Spotify *>(o)->displayProgress(); }, // This is disgusting, but it works
-        "Spotify - Display Progress",                        // Name of the task (for debugging)
-        2000,                                    // Stack size (bytes)
-        this,                                    // Parameter to pass
-        1,                                       // Task priority
-        &progressTask                            // Task handle
-    );
+void Spotify::start()
+{
+  xTaskCreate(
+      [](void *o)
+      { static_cast<Spotify *>(o)->show(); }, // This is disgusting, but it works
+      "Spotify - Refresh",                    // Name of the task (for debugging)
+      10000,                                 // Stack size (bytes)
+      this,                                 // Parameter to pass
+      1,                                    // Task priority
+      &refreshTask                          // Task handle
+  );
+
+  xTaskCreate(
+      [](void *o)
+      { static_cast<Spotify *>(o)->displayProgress(); }, // This is disgusting, but it works
+      "Spotify - Display Progress",                      // Name of the task (for debugging)
+      2000,                                              // Stack size (bytes)
+      this,                                              // Parameter to pass
+      1,                                                 // Task priority
+      &progressTask                                      // Task handle
+  );
+}
+
+void Spotify::stop()
+{
+    delete panel0;
+    delete panel1;
+    delete panel2;
+    delete spotify;
+    vTaskDelete(refreshTask);
+    vTaskDelete(progressTask);
 }
 
 void Spotify::show()
 {
     // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
-    int status = spotify.getCurrentlyPlaying([&](CurrentlyPlaying currentlyPlaying)
-                                             { 
+  int status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currentlyPlaying)
+                                            { 
                 isPlaying = currentlyPlaying.isPlaying;
                 lastUpdate = millis();
                 lastProgress = currentlyPlaying.progressMs;
@@ -140,14 +168,14 @@ void Spotify::show()
                     previousTrack = currentlyPlaying.trackUri;
                     previousAlbum = currentlyPlaying.albumUri;
                 } },
-                                             "US");
-    if (status > 300)
-    {
-        ESP_LOGI(__func__,"Error: %d", status);
+                                            "US");
+  if (status > 300)
+  {
+      ESP_LOGI(__func__, "Error: %d", status);
     }
-    status = spotify.getPlayerDetails([&](PlayerDetails current)
-                                             { this->displayPlayback(current); },
-                                             "US");
+    status = spotify->getPlayerDetails([&](PlayerDetails current)
+                                       { this->displayPlayback(current); },
+                                       "US");
     if (status > 300)
     {
         ESP_LOGI(__func__,"Error: %d", status);
@@ -157,7 +185,8 @@ void Spotify::show()
 bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
 {
     // Stop further decoding as image is running off bottom of screen
-    if (y >= panel0.height()){
+    if (y >= panel0->height())
+    {
         ESP_LOGI(__func__,"Invalid display parameters: x=%d, y=%d, w=%d, h=%d", x, y, w, h);
         return 0;
     }
@@ -166,7 +195,7 @@ bool Spotify::displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_
     {
         for (int16_t i = 0; i < w; i++)
         {
-            panel0.drawPixelRGB888(x + i, y, pgm_read_byte(&bitmap[((j * w + i) * 3)]), pgm_read_byte(&bitmap[((j * w + i) * 3)+1]), pgm_read_byte(&bitmap[((j * w + i) * 3)+2]));
+            panel0->drawPixelRGB888(x + i, y, pgm_read_byte(&bitmap[((j * w + i) * 3)]), pgm_read_byte(&bitmap[((j * w + i) * 3) + 1]), pgm_read_byte(&bitmap[((j * w + i) * 3) + 2]));
         }
     }
     // Return 1 to decode next block
@@ -182,7 +211,7 @@ int Spotify::displayImage(CurrentlyPlaying currentlyPlaying)
 
     uint8_t *imageFile; // pointer that the library will store the image at (uses malloc)
     int imageSize;      // library will update the size of the image
-    bool gotImage = spotify.getImage(albumArtUrl, &imageFile, &imageSize);
+    bool gotImage = spotify->getImage(albumArtUrl, &imageFile, &imageSize);
 
     if (gotImage)
     {
@@ -198,16 +227,16 @@ int Spotify::displayImage(CurrentlyPlaying currentlyPlaying)
 
 void Spotify::displayInfo(CurrentlyPlaying currentlyPlaying)
 {
-    panel1.fillRect(0, 0, 64, 38, 0x0000);
-    panel1.setTextColor(0xFFFF);
-    panel1.setCursor(0, 0);
-    panel1.setTextSize(1);
-    panel1.setTextWrap(false);
-    panel1.setCursor(0, 5);
-    panel1.setFont(&LEMONMILK_Medium7pt7b);
-    panel1.println(currentlyPlaying.trackName);
-    panel1.setFont(NULL);
-    panel1.setCursor(1, 16);
+    panel1->fillRect(0, 0, 64, 38, 0x0000);
+    panel1->setTextColor(0xFFFF);
+    panel1->setCursor(0, 0);
+    panel1->setTextSize(1);
+    panel1->setTextWrap(false);
+    panel1->setCursor(0, 5);
+    panel1->setFont(&LEMONMILK_Medium7pt7b);
+    panel1->println(currentlyPlaying.trackName);
+    panel1->setFont(NULL);
+    panel1->setCursor(1, 16);
     String artists = "";
     for (int i = 0; i < currentlyPlaying.numArtists; i++)
     {
@@ -217,10 +246,10 @@ void Spotify::displayInfo(CurrentlyPlaying currentlyPlaying)
             artists += ", ";
         }
     }
-    panel1.println(artists);
-    panel1.setTextColor(panel1.color565(160, 160, 160));
-    panel1.setCursor(1, 27);
-    panel1.println(currentlyPlaying.albumName);
+    panel1->println(artists);
+    panel1->setTextColor(panel1->color565(160, 160, 160));
+    panel1->setCursor(1, 27);
+    panel1->println(currentlyPlaying.albumName);
 }
 
 void Spotify::displayProgress()
@@ -238,12 +267,12 @@ void Spotify::displayProgress()
         }
         if (duration > 0)
         {
-            panel1.drawLine(0, 39, 63, 39, panel1.color565(50, 50, 50));
+            panel1->drawLine(0, 39, 63, 39, panel1->color565(50, 50, 50));
             int barLength = (progress * 63) / (duration);
             long rem = (progress * 63) % (duration);
             int bright = (rem * 205 / duration) + 50;
-            panel1.drawLine(0, 39, barLength, 39, panel1.color565(255, 255, 255));
-            panel1.drawPixelRGB888(barLength + 1, 39, bright, bright, bright);
+            panel1->drawLine(0, 39, barLength, 39, panel1->color565(255, 255, 255));
+            panel1->drawPixelRGB888(barLength + 1, 39, bright, bright, bright);
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
@@ -252,24 +281,24 @@ void Spotify::displayProgress()
 void Spotify::displayPlayback(PlayerDetails playerDetails)
 {
     if(playerDetails.isPlaying){
-        panel1.drawSprite16(spotify_pause, 24, 44, 16, 16, 100,100,100,true);
+        panel1->drawSprite16(spotify_pause, 24, 44, 16, 16, 100,100,100,true);
     } else {
-        panel1.drawSprite16(spotify_play, 24, 44, 16, 16, 100,100,100,true);
+        panel1->drawSprite16(spotify_play, 24, 44, 16, 16, 100,100,100,true);
     }
     if(playerDetails.shuffleState)
     {
-        panel1.drawSprite16(spotify_shuffle_on, 3, 47, 15, 16, 50,120,50,true);
+        panel1->drawSprite16(spotify_shuffle_on, 3, 47, 15, 16, 50,120,50,true);
     } else {
-        panel1.drawSprite16(spotify_shuffle_off, 3, 47, 15, 16, 100,100,100,true);
+        panel1->drawSprite16(spotify_shuffle_off, 3, 47, 15, 16, 100,100,100,true);
     }
     if (playerDetails.repeatState == repeat_off)
     {
-        panel1.drawSprite16(spotify_loop_off, 46, 47, 15, 16, 100,100,100,true);
+        panel1->drawSprite16(spotify_loop_off, 46, 47, 15, 16, 100,100,100,true);
     } else if(playerDetails.repeatState == repeat_context)
     {
-        panel1.drawSprite16(spotify_loop_context, 46, 47, 15, 16, 50,120,50,true);
+        panel1->drawSprite16(spotify_loop_context, 46, 47, 15, 16, 50,120,50,true);
     } else if(playerDetails.repeatState == repeat_track)
     {
-        panel1.drawSprite16(spotify_loop_track, 46, 47, 15, 16, 50,120,50,true);
+        panel1->drawSprite16(spotify_loop_track, 46, 47, 15, 16, 50,120,50,true);
     }
 }

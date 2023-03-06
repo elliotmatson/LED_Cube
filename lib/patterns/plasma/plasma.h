@@ -7,10 +7,14 @@
 
 class Plasma: public Pattern{
     public:
-        Plasma(PatternServices *pattern);
-        void init();
-        void show();
+        Plasma();
+        void init(PatternServices *pattern);
+        void start();
+        void stop();
         ~Plasma();
+
+    private:
+        void show();
 };
 
 #endif

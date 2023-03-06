@@ -23,23 +23,25 @@ extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_star
 class Spotify : public Pattern
 {
 public:
-  Spotify(PatternServices *pattern);
-  void init();
-  void show();
-//  ~Spotify();
+  Spotify();
+  void init(PatternServices *pattern);
+  void start();
+  void stop();
+  ~Spotify();
 
 private:
+  void show();
   bool displayOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap);
   int displayImage(CurrentlyPlaying currentlyPlaying);
   void displayInfo(CurrentlyPlaying currentlyPlaying);
   void displayProgress();
   void displayPlayback(PlayerDetails playerDetails);
 
-  SinglePanel panel0;
-  SinglePanel panel1;
-  SinglePanel panel2;
+  SinglePanel *panel0;
+  SinglePanel *panel1;
+  SinglePanel *panel2;
   WiFiClientSecure client;
-  SpotifyArduino spotify;
+  SpotifyArduino *spotify;
   Preferences spotifyPrefs;
 
   TaskHandle_t progressTask;

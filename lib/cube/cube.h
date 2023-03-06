@@ -66,8 +66,9 @@ class Cube {
         AsyncWebServer server;
         WiFiManager wifiManager;
         CubePrefs cubePrefs;
-        patterns currentPattern;
+        Pattern *currentPattern;
         PatternServices patternServices;
+        std::unordered_map<std::string, Pattern *> patterns;
 
         // Variables
         String serial;
@@ -87,7 +88,6 @@ class Cube {
         Card resetWifiButton;
         Card crashMe;
         Tab systemTab;
-        Tab displayTab;
         Tab developerTab;
 
         // FreeRTOS Tasks

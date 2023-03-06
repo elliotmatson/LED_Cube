@@ -35,15 +35,25 @@ struct PatternServices
     AsyncWebServer *server;
 };
 
+struct PatternData
+{
+    std::string name;
+};
+
 // Pattern interface
 class Pattern
 {
     public:
-        virtual void show() = 0;
-        virtual void init() = 0;
+        virtual void init(PatternServices *pattern) = 0;
+        virtual void start() = 0;
+        virtual void stop() = 0;
+        std::string getName() { return data.name; };
+
     protected:
+        TaskHandle_t refreshTask;
         unsigned long frameCount{0};
         PatternServices *pattern;
+        PatternData data;
 };
 
 uint8_t fast_cos(uint16_t x);

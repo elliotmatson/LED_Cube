@@ -7,13 +7,15 @@
 
 class Clock: public Pattern{
     public:
-        Clock(PatternServices *pattern);
-        void init();
-        void show();
+        Clock();
+        void init(PatternServices *pattern);
+        void start();
+        void stop();
         ~Clock();
 
     private:
         struct tm timeinfo;
+        void show();
 };
 
 #endif

@@ -88,8 +88,7 @@ jobs:
       if: github.event_name == 'workflow_dispatch'
       uses: actions/cache@v3
       with:
-        path: |
-          'esp32s3.bin'
+        path: 'esp32s3.bin'
         key: ${{ runner.os }}-${{ github.run_id	 }}
     - name: Development Release
       uses: ncipollo/release-action@v1

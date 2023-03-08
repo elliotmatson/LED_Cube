@@ -74,7 +74,7 @@ void Cube::init()
     }
     dashboard.sendUpdates();
 
-    currentPattern = patterns["Clock"];
+    currentPattern = patterns["Snake"];
 
 
     // Start the task to show the selected pattern

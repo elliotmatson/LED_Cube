@@ -46,6 +46,10 @@ void Cube::init()
         leds.setPixelColor(2, 0, 255, 0);
         leds.show();
     }
+    
+    showDebug();
+    delay(5000);
+    
     initUI();
     initUpdates();
     leds.setPixelColor(3, 0, 255, 0);

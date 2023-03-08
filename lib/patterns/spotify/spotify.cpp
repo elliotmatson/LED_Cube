@@ -38,14 +38,14 @@ void Spotify::init(PatternServices *pattern)
     spotify = new SpotifyArduino(this->client);
   spotifyPrefs.begin("spotify");
 
-//#ifdef SPOTIFY_CLIENT_ID
+#ifdef SPOTIFY_CLIENT_ID
   spotifyPrefs.putString("SPOTIFY_ID", SPOTIFY_CLIENT_ID);
   ESP_LOGI(__func__, "SPOTIFY_CLIENT_ID: %s", SPOTIFY_CLIENT_ID);
-//#endif
-//#ifdef SPOTIFY_CLIENT_SECRET
+#endif
+#ifdef SPOTIFY_CLIENT_SECRET
   spotifyPrefs.putString("SPOTIFY_SECRET", SPOTIFY_CLIENT_SECRET);
   ESP_LOGI(__func__, "SPOTIFY_CLIENT_SECRET: %s", SPOTIFY_CLIENT_SECRET);
-//#endif
+#endif
 
   spotifyPrefs.getString("SPOTIFY_ID").toCharArray(spotifyID, 33);
   spotifyPrefs.getString("SPOTIFY_SECRET").toCharArray(spotifySecret, 33);

@@ -46,6 +46,7 @@ struct CubePrefs
     bool signedFWOnly = 1;
     uint8_t latchBlanking = 1;
     bool use20MHz = 0;
+    u_int8_t patternIndex = 0;
     void print(String prefix) {
         ESP_LOGI(__func__, "%s\nBrightness: %d\nDevelopment: %d\nOTA: %d\nGithub: %d\nSigned FW Only: %d\n", prefix.c_str(), brightness, development, ota, github, signedFWOnly);
     }
@@ -117,7 +118,6 @@ class Cube {
         void initUI();
         void checkForUpdates();
         void checkForOTA();
-        void showPattern();
         void updatePrefs();
         void printMem();
 };

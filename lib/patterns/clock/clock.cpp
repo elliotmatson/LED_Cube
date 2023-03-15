@@ -5,7 +5,7 @@ Clock::Clock()
   data.name = "Clock";
 }
 
-Clock::~Clock() 
+Clock::~Clock()
 {
   stop();
 }
@@ -35,7 +35,8 @@ void Clock::stop()
 
 void Clock::show()
 {
-  while (true) {
+  while (true)
+  {
     if (!getLocalTime(&timeinfo))
     {
       ESP_LOGE(__func__, "Failed to obtain time");
@@ -45,6 +46,6 @@ void Clock::show()
     pattern->display->setTextSize(1);
     pattern->display->setCursor(0, 0);
     pattern->display->printf("%.2d:%.2d:%.2d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }

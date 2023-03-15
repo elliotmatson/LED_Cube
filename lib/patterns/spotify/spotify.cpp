@@ -65,11 +65,13 @@ void Spotify::init(PatternServices *pattern)
                       {    
                     String code = "";
                     const char *refreshToken = NULL;
+                    ESP_LOGI(__func__,"got callback request");
                     for (uint8_t i = 0; i < request->args(); i++)
                     {
                         if (request->argName(i) == "code")
                         {
                             code = request->arg(i);
+                            ESP_LOGI(__func__,"got code: %s", code.c_str());
                             refreshToken = spotify->requestAccessTokens(code.c_str(), callbackURI);
                         }
                     }

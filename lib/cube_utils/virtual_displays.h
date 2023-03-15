@@ -163,7 +163,11 @@ inline void SinglePanel::fillScreen(uint16_t color)
 /// @param b  Blue
 inline void SinglePanel::fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b)
 {
+#ifdef SPIRAM_FRAMEBUFFER
+    this->display->fillRect((_panel * virtualResX), 0, this->virtualResX, this->virtualResY, this->display->color565(r, g, b));
+#else
     this->display->fillRect((_panel * virtualResX), 0, this->virtualResX, this->virtualResY, r, g, b);
+#endif
 }
 
 /// @brief Draw a horizontal line
@@ -175,6 +179,26 @@ inline void SinglePanel::fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b)
 /// @param b  Blue
 inline void SinglePanel::drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t r, uint8_t g, uint8_t b)
 {
+#ifdef SPIRAM_FRAMEBUFFER
+    switch (_rotate) {
+        case 1:
+            // 90 degrees
+            this->display->drawFastVLine((_panel * virtualResX) + y, virtualResY - 1 - x - w + 1, w, this->display->color565(r, g, b));
+            break;
+        case 2:
+            // 180 degrees
+            this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - x - w + 1, virtualResY - 1 - y, w, this->display->color565(r, g, b));
+            break;
+        case 3:
+            // 270 degrees
+            this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - y, x, w, this->display->color565(r, g, b));
+            break;
+        default:
+            // 0 degrees
+            this->display->drawFastHLine((_panel * virtualResX) + x, y, w, this->display->color565(r, g, b));
+            break;
+    }
+#else
     switch(_rotate) {
         case 1:
             // 90 degrees
@@ -193,6 +217,7 @@ inline void SinglePanel::drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t 
             this->display->drawFastHLine((_panel * virtualResX) + x, y, w, r, g, b);
             break;
     }
+#endif
 }
 
 /// @brief Draw a horizontal line
@@ -216,6 +241,26 @@ inline void SinglePanel::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t
 /// @param b  Blue
 inline void SinglePanel::drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b)
 {
+#ifdef SPIRAM_FRAMEBUFFER
+    switch (_rotate) {
+        case 1:
+            // 90 degrees
+            this->display->drawFastHLine((_panel * virtualResX) + y, virtualResX - 1 - x, h, this->display->color565(r, g, b));
+            break;
+        case 2:
+            // 180 degrees
+            this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - x, virtualResY - 1 - y - h + 1, h, this->display->color565(r, g, b));
+            break;
+        case 3:
+            // 270 degrees
+            this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - y - h + 1, x, h, this->display->color565(r, g, b));
+            break;
+        default:
+            // 0 degrees
+            this->display->drawFastVLine((_panel * virtualResX) + x, y, h, this->display->color565(r, g, b));
+            break;
+    }
+#else
     switch (_rotate) {
         case 1:
             // 90 degrees
@@ -234,6 +279,7 @@ inline void SinglePanel::drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t 
             this->display->drawFastVLine((_panel * virtualResX) + x, y, h, r, g, b);
             break;
     }
+#endif
 }
 
 /// @brief Draw a vertical line

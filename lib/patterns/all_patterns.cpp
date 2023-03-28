@@ -5,4 +5,6 @@ Pattern *patternList[] = {
     new SnakeGame(),
     new Plasma(),
     new Spotify(),
-    new Clock()};
+    new Clock(),
+    new GameOfLife()
+    };

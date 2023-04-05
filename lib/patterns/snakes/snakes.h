@@ -6,8 +6,9 @@
 #include "cube_utils.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
-const uint8_t FOOD_ID = 255;
-const uint8_t N_SNAKE_TYPES = 13;
+const uint8_t FOOD_ID = 254;
+const uint8_t SPACE_ID = 255;
+const uint8_t N_SNAKE_TYPES = 14;
 
 inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
   // Check if the move is valid, and if so, return the new position
@@ -84,7 +85,7 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
           }
           break;
         case 1: // Right
-          if(row == 0){ // Left border (invalid move)
+          if(col == 191){ // Left border (invalid move)
             return std::make_pair(255, 255);
           } else {
             return std::make_pair(row, col + 1);
@@ -111,24 +112,29 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
 struct Snake{
   uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, len, id, respawn_delay, type, slow, segment_len;
   bool alive;
-  void move(std::pair<uint8_t, uint8_t> ** board){
+  void move(std::pair<uint8_t, uint8_t> ** board, Snake * snakes){
+
     bool valid_dirs[4] = {true, true, true, true};
     uint8_t n_dirs = 4;
     // valid_dirs[(this->dir + 2) % 4] = false;
     for(uint8_t i = 0 ; i < 4; i++){
       std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, i);
       // if(new_pos.first == 255 || (board[new_pos.first][new_pos.second].second != 0 && board[new_pos.first][new_pos.second].first != this->id)){
-      if(new_pos.first == 255 || board[new_pos.first][new_pos.second].second != 0){
+      if(new_pos.first == 255){ 
         valid_dirs[i] = false;
         n_dirs--;
-      }
+      } else if(board[new_pos.first][new_pos.second].second != 0){
+        if(this->type != 13 || snakes[board[new_pos.first][new_pos.second].first].type == 13){
+          valid_dirs[i] = false;
+          n_dirs--;
+        }
+      } 
     }
     
     
     // If the snake has no valid moves, the snake is dead :(
     if(n_dirs == 0){
-      this->alive = false;
-      this->respawn_delay = this->len * this->slow;
+      this->die();
       return;
     }
 
@@ -142,7 +148,15 @@ struct Snake{
     t++;
 
     // Move the snake
+
     std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, this->dir);
+    std::pair<uint8_t, uint8_t> board_vals = board[new_pos.first][new_pos.second];
+    if(board_vals.second != 0){
+      if(this->type == 13 && snakes[board_vals.first].type != 13 && snakes[board_vals.first].alive){ // Eater of worlds
+        this->len += board_vals.second;
+        snakes[board_vals.first].die();
+      }
+    }
     this->row = new_pos.first;
     this->col = new_pos.second;
     
@@ -151,6 +165,10 @@ struct Snake{
     }
     board[this->row][this->col].second = this->len * this->slow;
     board[this->row][this->col].first = this->id;
+  }
+  void die(){
+    this->alive = false;
+    this->respawn_delay = this->len * this->slow;
   }
 };
 
@@ -190,21 +208,23 @@ class SnakeGame: public Pattern{
           FAST = 10,
           TECHNICOLOR = 11,
           DASHED = 12,
+          EATER_OF_WORLDS = 13,
         };
-        int snake_type_to_rarity[N_SNAKE_TYPES] = {
-          10000, // Regular
-          300, // Gradient
-          150, // Alternating
-          10, // Ghost
-          5, // Sparkle
-          10, // Pulsing
-          1, // Strobe
-          10, // Fade
-          150, // Static Alternating
-          50, // Slow
-          50, // Fast
-          10, // Technicolor
-          20 // Dashed
+        long snake_type_to_rarity[N_SNAKE_TYPES] = {
+          100000, // Regular
+          3000, // Gradient
+          1500, // Alternating
+          100, // Ghost
+          50, // Sparkle
+          100, // Pulsing
+          10, // Strobe
+          0, // Fade
+          1500, // Static Alternating
+          500, // Slow
+          500, // Fast
+          100, // Technicolor
+          200, // Dashed
+          1, // Eater of Worlds
         };
 };
 

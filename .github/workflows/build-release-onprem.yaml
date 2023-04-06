@@ -19,7 +19,7 @@ on:
         - 'development'
         - 'build only'
         default: 'development'
-  pull_request:
+  #pull_request:
     
 jobs:
   build-esp32s3:

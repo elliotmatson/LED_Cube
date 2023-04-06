@@ -15,12 +15,12 @@ void SnakeGame::init(PatternServices *pattern)
 {
   this->pattern = pattern;
   this->len = 3;
-  this->n_snakes = 30;
+  this->n_snakes = 25;
   this->n_food = 200;
-  this->board = (std::pair<uint8_t, uint8_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
+  this->board = (std::pair<uint8_t, uint16_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
   for (int i = 0; i < PANEL_HEIGHT; i++)
   {
-    this->board[i] = (std::pair<uint8_t, uint8_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint8_t>), MALLOC_CAP_SPIRAM);
+    this->board[i] = (std::pair<uint8_t, uint16_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint16_t>), MALLOC_CAP_SPIRAM);
   }
   this->snakes = (Snake *)heap_caps_malloc(n_snakes * sizeof(Snake), MALLOC_CAP_SPIRAM);
   reset();
@@ -56,7 +56,7 @@ void SnakeGame::reset()
   {
     for (int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++)
     {
-      this->board[i][j].first = 0;
+      this->board[i][j].first = SPACE_ID;
       this->board[i][j].second = 0;
     }
   }
@@ -70,7 +70,7 @@ void SnakeGame::update(){
   for(uint8_t i = 0; i < n_snakes; i++){
     if(!snakes[i].alive){
       snakes[i].respawn_delay--;
-      if(snakes[i].respawn_delay == 0){
+      if(snakes[i].respawn_delay <= 0){
         spawn_snake(i);
       }
     }
@@ -79,9 +79,12 @@ void SnakeGame::update(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){
-        this->board[i][j].second--;
-        if(this->board[i][j].second == 0){
-          this->board[i][j].first = 0;
+        Snake * s = &snakes[this->board[i][j].first];
+        if(s->type != SnakeType::INFINITE || !s->alive){
+          this->board[i][j].second--;
+          if(this->board[i][j].second == 0){
+            this->board[i][j].first = SPACE_ID;
+          }
         }
       }
       if(this->board[i][j].first == FOOD_ID){
@@ -101,13 +104,11 @@ void SnakeGame::update(){
     }
     if(snakes[i].alive){
       n_alive++;
-      if(snakes[i].type != SnakeType::SLOW){
-        snakes[i].move(board);
-      } else if(frameCount % snakes[i].slow == 0){
-          snakes[i].move(board);
+      if(snakes[i].type != SnakeType::SLOW || frameCount % snakes[i].slow == 0){
+        snakes[i].move(board, snakes);
       }
       if (snakes[i].type == SnakeType::FAST){
-        snakes[i].move(board);
+        snakes[i].move(board, snakes);
       }
     }
   }
@@ -198,6 +199,18 @@ void SnakeGame::draw(){
             g = 0;
             b = 0;
           }
+        } else if(s->type == SnakeType::EATER_OF_WORLDS){
+          r = 100 * c1_factor  + 155 * c1_factor * (fast_cos((u_int8_t)(frameCount* 6)) / 255.0);
+          g = 0;
+          b = 0;
+        } else if(s->type == SnakeType::INFINITE){
+          uint8_t c = (this->board[i][j].second - (frameCount * 2)) % 50;
+          if(c < 20){
+            double multiplier = infinite_vals[c];
+            r = min((int)(s->r1 * multiplier),255);
+            g = min((int)(s->g1 * multiplier),255);
+            b = min((int)(s->b1 * multiplier),255);
+          }
         }
         if(s->alive){
           pattern->display->drawPixelRGB888(j, i, r, g, b);
@@ -212,11 +225,28 @@ void SnakeGame::draw(){
 
       } else if (this->board[i][j].first == FOOD_ID){
         pattern->display->drawPixelRGB888(j, i, 100, 100, 100);
-      } else {
+      } else { // Background
         pattern->display->drawPixelRGB888(j, i, 0, 0 , 0);
       }
     }
   }
+  // // Top panel
+  // pattern->display->drawPixelRGB888(0,0,255,0,0);
+  // pattern->display->drawPixelRGB888(0,63,0,255,0);
+  // pattern->display->drawPixelRGB888(63,0,0,0,255);
+  // pattern->display->drawPixelRGB888(63,63,255,255,255);
+
+  // // Right panel
+  // pattern->display->drawPixelRGB888(64,0,255,0,0);
+  // pattern->display->drawPixelRGB888(64,63,0,255,0);
+  // pattern->display->drawPixelRGB888(127,0,0,0,255);
+  // pattern->display->drawPixelRGB888(127,63,255,255,0);
+
+  // // Left panel  
+  // pattern->display->drawPixelRGB888(128,0,255,0,0);
+  // pattern->display->drawPixelRGB888(128,63,0,255,0);
+  // pattern->display->drawPixelRGB888(191,0,0,0,255);
+  // pattern->display->drawPixelRGB888(191,63,0,255,255);
 }
 
 void SnakeGame::spawn_snake(uint8_t i){
@@ -267,7 +297,7 @@ void SnakeGame::spawn_snake(uint8_t i){
   do{
     snakes[i].col = random(PANEL_WIDTH * PANELS_NUMBER);
     snakes[i].row = random(PANEL_HEIGHT);
-  } while(this->board[snakes[i].row][snakes[i].col].first != 0);
+  } while(this->board[snakes[i].row][snakes[i].col].second != 0);
   this->board[snakes[i].row][snakes[i].col].second = this->len * snakes[i].slow;
   this->board[snakes[i].row][snakes[i].col].first = i;
 }
@@ -277,7 +307,7 @@ void SnakeGame::place_food(){
   do{
     row = random(PANEL_HEIGHT);
     col = random(PANEL_WIDTH * PANELS_NUMBER);
-  } while(this->board[row][col].first != 0);
+  } while(this->board[row][col].first != SPACE_ID);
   this->board[row][col].first = FOOD_ID;
 }
 

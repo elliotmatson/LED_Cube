@@ -8,7 +8,7 @@
 
 const uint8_t FOOD_ID = 254;
 const uint8_t SPACE_ID = 255;
-const uint8_t N_SNAKE_TYPES = 14;
+const uint8_t N_SNAKE_TYPES = 15;
 
 inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
   // Check if the move is valid, and if so, return the new position
@@ -110,9 +110,10 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
-  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, len, id, respawn_delay, type, slow, segment_len;
+  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, id, type, slow, segment_len;
+  uint16_t len, respawn_delay;
   bool alive;
-  void move(std::pair<uint8_t, uint8_t> ** board, Snake * snakes){
+  void move(std::pair<uint8_t, uint16_t> ** board, Snake * snakes){
 
     bool valid_dirs[4] = {true, true, true, true};
     uint8_t n_dirs = 4;
@@ -150,7 +151,7 @@ struct Snake{
     // Move the snake
 
     std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, this->dir);
-    std::pair<uint8_t, uint8_t> board_vals = board[new_pos.first][new_pos.second];
+    std::pair<uint8_t, uint16_t> board_vals = board[new_pos.first][new_pos.second];
     if(board_vals.second != 0){
       if(this->type == 13 && snakes[board_vals.first].type != 13 && snakes[board_vals.first].alive){ // Eater of worlds
         this->len += board_vals.second;
@@ -162,6 +163,8 @@ struct Snake{
     
     if(board[this->row][this->col].first == FOOD_ID){
       this->len+=2;
+    } else if(this->type == 14){ // Infinite
+      this->len++;
     }
     board[this->row][this->col].second = this->len * this->slow;
     board[this->row][this->col].first = this->id;
@@ -184,9 +187,10 @@ class SnakeGame: public Pattern{
         unsigned long frameCount;
         uint8_t len; // Starting length of all snakes
         Snake * snakes; // Array of all snakes in the game
-        std::pair<uint8_t,uint8_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
+        std::pair<uint8_t,uint16_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
         uint8_t n_snakes;
         uint16_t n_food;
+        double infinite_vals[20] = {1.05,1.1,1.15,1.2,1.25,1.3,1.35,1.4,1.45,1.5,1.55,1.6,1.65,1.7,1.75,1.8,1.85,1.9,1.95,2};
 
         void reset();
         void update();
@@ -209,6 +213,7 @@ class SnakeGame: public Pattern{
           TECHNICOLOR = 11,
           DASHED = 12,
           EATER_OF_WORLDS = 13,
+          INFINITE = 14,
         };
         long snake_type_to_rarity[N_SNAKE_TYPES] = {
           100000, // Regular
@@ -225,6 +230,7 @@ class SnakeGame: public Pattern{
           100, // Technicolor
           200, // Dashed
           1, // Eater of Worlds
+          1, // Infinite
         };
 };
 

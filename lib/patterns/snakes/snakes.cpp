@@ -17,10 +17,10 @@ void SnakeGame::init(PatternServices *pattern)
   this->len = 3;
   this->n_snakes = 25;
   this->n_food = 200;
-  this->board = (std::pair<uint8_t, uint8_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
+  this->board = (std::pair<uint8_t, uint16_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
   for (int i = 0; i < PANEL_HEIGHT; i++)
   {
-    this->board[i] = (std::pair<uint8_t, uint8_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint8_t>), MALLOC_CAP_SPIRAM);
+    this->board[i] = (std::pair<uint8_t, uint16_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint16_t>), MALLOC_CAP_SPIRAM);
   }
   this->snakes = (Snake *)heap_caps_malloc(n_snakes * sizeof(Snake), MALLOC_CAP_SPIRAM);
   reset();
@@ -70,7 +70,7 @@ void SnakeGame::update(){
   for(uint8_t i = 0; i < n_snakes; i++){
     if(!snakes[i].alive){
       snakes[i].respawn_delay--;
-      if(snakes[i].respawn_delay == 0){
+      if(snakes[i].respawn_delay <= 0){
         spawn_snake(i);
       }
     }
@@ -79,9 +79,12 @@ void SnakeGame::update(){
   for(int i = 0; i < PANEL_HEIGHT; i++){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){
-        this->board[i][j].second--;
-        if(this->board[i][j].second == 0){
-          this->board[i][j].first = SPACE_ID;
+        Snake * s = &snakes[this->board[i][j].first];
+        if(s->type != SnakeType::INFINITE || !s->alive){
+          this->board[i][j].second--;
+          if(this->board[i][j].second == 0){
+            this->board[i][j].first = SPACE_ID;
+          }
         }
       }
       if(this->board[i][j].first == FOOD_ID){
@@ -200,6 +203,14 @@ void SnakeGame::draw(){
           r = 100 * c1_factor  + 155 * c1_factor * (fast_cos((u_int8_t)(frameCount* 6)) / 255.0);
           g = 0;
           b = 0;
+        } else if(s->type == SnakeType::INFINITE){
+          uint8_t c = (this->board[i][j].second - (frameCount * 2)) % 50;
+          if(c < 20){
+            double multiplier = infinite_vals[c];
+            r = min((int)(s->r1 * multiplier),255);
+            g = min((int)(s->g1 * multiplier),255);
+            b = min((int)(s->b1 * multiplier),255);
+          }
         }
         if(s->alive){
           pattern->display->drawPixelRGB888(j, i, r, g, b);

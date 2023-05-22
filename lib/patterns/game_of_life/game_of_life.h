@@ -2,6 +2,7 @@
 #define GAME_OF_LIFE_H
 
 #include <Arduino.h>
+#include "mbedtls/md.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "cube_utils.h"
 
@@ -17,8 +18,18 @@ class GameOfLife: public Pattern{
 
     private:
         void show();
-        bool currentFrame[64][64];
-        bool nextFrame[64][64];
+        uint8_t frames[192][64];
+        bool currentFrame[192][64];
+        bool nextFrame[192][64];
+        void initFrame();
+        void drawCurrentFrame();
+        void drawIntermediateFrame();
+        void calcNextFrame();
+        int calcNeighbors(int x, int y);
+
+
+        SinglePanel *top;
+        BottomPanels *bottom;
 };
 
 #endif

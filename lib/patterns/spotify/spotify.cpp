@@ -80,7 +80,7 @@ void Spotify::init(PatternServices *pattern)
                     {
                         ESP_LOGI(__func__, "storing token: %s", refreshToken);
                         spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
-                        //request->send(200, "text/plain", refreshToken);
+                        request->send(200, "text/plain", refreshToken);
                         ESP_LOGI(__func__,"got token: %s", refreshToken);
                     }
                     else
@@ -124,25 +124,29 @@ void Spotify::init(PatternServices *pattern)
 void Spotify::start()
 {
     this->pattern->display->fillScreen(0x0000);
-  xTaskCreate(
-      [](void *o)
-      { static_cast<Spotify *>(o)->show(); }, // This is disgusting, but it works
-      "Spotify - Refresh",                    // Name of the task (for debugging)
-      10000,                                 // Stack size (bytes)
-      this,                                 // Parameter to pass
-      1,                                    // Task priority
-      &refreshTask                          // Task handle
-  );
+    if (spotifyPrefs.getString("SPOTIFY_TOKEN").c_str()) {
+        xTaskCreate(
+            [](void *o)
+            { static_cast<Spotify *>(o)->show(); }, // This is disgusting, but it works
+            "Spotify - Refresh",                    // Name of the task (for debugging)
+            10000,                                 // Stack size (bytes)
+            this,                                 // Parameter to pass
+            1,                                    // Task priority
+            &refreshTask                          // Task handle
+        );
 
-  xTaskCreate(
-      [](void *o)
-      { static_cast<Spotify *>(o)->displayProgress(); }, // This is disgusting, but it works
-      "Spotify - Display Progress",                      // Name of the task (for debugging)
-      2000,                                              // Stack size (bytes)
-      this,                                              // Parameter to pass
-      1,                                                 // Task priority
-      &progressTask                                      // Task handle
-  );
+        xTaskCreate(
+            [](void *o)
+            { static_cast<Spotify *>(o)->displayProgress(); }, // This is disgusting, but it works
+            "Spotify - Display Progress",                      // Name of the task (for debugging)
+            2000,                                              // Stack size (bytes)
+            this,                                              // Parameter to pass
+            1,                                                 // Task priority
+            &progressTask                                      // Task handle
+        );
+    } else {
+        ESP_LOGI(__func__, "No token found, please visit http://cube.local/spotify to authenticate");
+    }
 }
 
 void Spotify::stop()

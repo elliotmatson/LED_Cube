@@ -302,7 +302,6 @@ void Spotify::displayPlayback(PlayerDetails playerDetails)
     } else {
         panel1->drawSprite16(spotify_play, 24, 44, 16, 16, 100,100,100,true);
     }
-    if(playerDetails.)
     if(playerDetails.shuffleState)
     {
         panel1->drawSprite16(spotify_shuffle_on, 3, 47, 15, 16, 50,120,50,true);

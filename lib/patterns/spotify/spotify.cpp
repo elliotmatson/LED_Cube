@@ -78,8 +78,9 @@ void Spotify::init(PatternServices *pattern)
 
                     if (refreshToken != NULL)
                     {
+                        ESP_LOGI(__func__, "storing token: %s", refreshToken);
                         spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
-                        request->send(200, "text/plain", refreshToken);
+                        //request->send(200, "text/plain", refreshToken);
                         ESP_LOGI(__func__,"got token: %s", refreshToken);
                     }
                     else
@@ -122,6 +123,7 @@ void Spotify::init(PatternServices *pattern)
 
 void Spotify::start()
 {
+    this->pattern->display->fillScreen(0x0000);
   xTaskCreate(
       [](void *o)
       { static_cast<Spotify *>(o)->show(); }, // This is disgusting, but it works
@@ -157,9 +159,9 @@ void Spotify::show()
 {
     while (true)
     {
-            // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
-        int status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currentlyPlaying)
-                                                    { 
+      // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
+      int status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currentlyPlaying)
+                                                { 
                         isPlaying = currentlyPlaying.isPlaying;
                         lastUpdate = millis();
                         lastProgress = currentlyPlaying.progressMs;
@@ -180,19 +182,18 @@ void Spotify::show()
                             }
                             previousTrack = currentlyPlaying.trackUri;
                             previousAlbum = currentlyPlaying.albumUri;
-                        } },
-                                                    "US");
-        if (status > 300)
-        {
-            ESP_LOGI(__func__, "Error: %d", status);
-            }
-            status = spotify->getPlayerDetails([&](PlayerDetails current)
-                                            { this->displayPlayback(current); },
-                                            "US");
-            if (status > 300)
-            {
-                ESP_LOGI(__func__,"Error: %d", status);
-            }
+                        } });
+      if (status > 300)
+      {
+          ESP_LOGI(__func__, "Error: %d", status);
+      }
+      status = spotify->getPlayerDetails([&](PlayerDetails current)
+                                         { this->displayPlayback(current); });
+      if (status > 300)
+      {
+          ESP_LOGI(__func__, "Error: %d", status);
+      }
+      vTaskDelay(300 / portTICK_PERIOD_MS);
     }
 }
 
@@ -225,6 +226,8 @@ int Spotify::displayImage(CurrentlyPlaying currentlyPlaying)
 
     uint8_t *imageFile; // pointer that the library will store the image at (uses malloc)
     int imageSize;      // library will update the size of the image
+    // log url
+    ESP_LOGI(__func__,"Album Art URL: %s", albumArtUrl);
     bool gotImage = spotify->getImage(albumArtUrl, &imageFile, &imageSize);
 
     if (gotImage)
@@ -299,6 +302,7 @@ void Spotify::displayPlayback(PlayerDetails playerDetails)
     } else {
         panel1->drawSprite16(spotify_play, 24, 44, 16, 16, 100,100,100,true);
     }
+    if(playerDetails.)
     if(playerDetails.shuffleState)
     {
         panel1->drawSprite16(spotify_shuffle_on, 3, 47, 15, 16, 50,120,50,true);

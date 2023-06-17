@@ -228,10 +228,8 @@ void Spotify::refreshInfo()
             case playback:
                 status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currPlaying)
                                                       { 
-                        ESP_LOGI(__func__,"Got Currently Playing");
                         currentlyPlaying = currPlaying;
                         lastUpdate = millis();
-                        ESP_LOGI(__func__,"Updated vals");
                         if (currentlyPlaying.isPlaying)
                         {
                             String currentTrack = String(currentlyPlaying.trackUri);

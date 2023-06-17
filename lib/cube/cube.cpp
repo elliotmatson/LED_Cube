@@ -497,8 +497,6 @@ void Cube::updatePrefs()
 // shows debug info on display
 void Cube::showDebug()
 {
-    ESP_LOGI(__func__, "Free Heap: %d / %d, Used PSRAM: %d / %d", ESP.getFreeHeap(), ESP.getHeapSize(), heap_caps_get_total_size(MALLOC_CAP_SPIRAM) - heap_caps_get_free_size(MALLOC_CAP_SPIRAM), heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
-    ESP_LOGI(__func__,"Largest free block in Heap: %d, PSRAM: %d", ESP.getMaxAllocHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setCursor(0, 0);
     dma_display->setTextColor(0xFFFF);

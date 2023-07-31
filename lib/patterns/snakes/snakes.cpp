@@ -107,7 +107,7 @@ void SnakeGame::update(){
       if(snakes[i].type != SnakeType::SLOW || frameCount % snakes[i].slow == 0){
         snakes[i].move(board, snakes);
       }
-      if (snakes[i].type == SnakeType::FAST){
+      if (snakes[i].type == SnakeType::FAST || (snakes[i].type == SnakeType::EATER_OF_WORLDS && snakes[i].misc == 1)){
         snakes[i].move(board, snakes);
       }
     }
@@ -199,7 +199,25 @@ void SnakeGame::draw(){
             g = 0;
             b = 0;
           }
-        } else if(s->type == SnakeType::EATER_OF_WORLDS){
+        } else if(s->type == SnakeType::RAYCASTER){
+          if(this->board[i][j].second == s->len){
+            if(frameCount % 20 < 10){
+              r = s->r1;
+              g = s->g1;
+              b = s->b1;
+            } else {
+              r = min(255, s->r1+100);
+              g = min(255, s->g1+100);
+              b = min(255, s->b1+100);
+            }
+          }
+          else {
+            r = 255 - s->r1;
+            g = 255 - s->g1;
+            b = 255 - s->b1;
+          }
+        }
+        else if(s->type == SnakeType::EATER_OF_WORLDS){
           r = 100 * c1_factor  + 155 * c1_factor * (fast_cos((u_int8_t)(frameCount* 6)) / 255.0);
           g = 0;
           b = 0;
@@ -261,7 +279,7 @@ void SnakeGame::spawn_snake(uint8_t i){
 
   snakes[i].slow = 1;
   snakes[i].t = 0;
-  snakes[i].dir = 0;
+  snakes[i].dir = random(3);
   snakes[i].len = this->len;
   snakes[i].id = i;
   snakes[i].segment_len = 1;

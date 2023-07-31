@@ -8,7 +8,7 @@
 
 const uint8_t FOOD_ID = 254;
 const uint8_t SPACE_ID = 255;
-const uint8_t N_SNAKE_TYPES = 15;
+const uint8_t N_SNAKE_TYPES = 17;
 
 inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
   // Check if the move is valid, and if so, return the new position
@@ -19,7 +19,7 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
     case 0: // Top face
       switch (dir){
         case 0: // Up
-          if(row == 0){ // Top border (invalid move)
+          if(row <= 0){ // Top border (invalid move)
             return std::make_pair(255, 255);
           } else {
             return std::make_pair(row - 1, col);
@@ -40,7 +40,7 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
           }
           break;
         case 3: // Left
-          if(col == 0){ // Left border (invalid move)
+          if(col <= 0){ // Left border (invalid move)
             return std::make_pair(255, 255);
           } else {
             return std::make_pair(row, col - 1);
@@ -68,7 +68,7 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
           }
           break;
         case 3:
-          if(col == 64){ // Right border (invalid move)
+          if(col <= 64){ // Right border (invalid move)  changed from 64
             return std::make_pair(255, 255);
           } else {
             return std::make_pair(row, col-1);
@@ -78,14 +78,14 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
     case 2: // Left face
       switch (dir){
         case 0: // Up
-          if(row == 0){ // Bottom border (invalid move)
+          if(row <= 0){ // Bottom border (invalid move)
             return std::make_pair(255, 255);
           } else {
             return std::make_pair(row - 1, col);
           }
           break;
         case 1: // Right
-          if(col == 191){ // Left border (invalid move)
+          if(col >= 191){ // Left border (invalid move)
             return std::make_pair(255, 255);
           } else {
             return std::make_pair(row, col + 1);
@@ -110,7 +110,7 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
-  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, id, type, slow, segment_len;
+  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, id, type, slow, segment_len, misc;
   uint16_t len, respawn_delay;
   bool alive;
   void move(std::pair<uint8_t, uint16_t> ** board, Snake * snakes){
@@ -139,14 +139,28 @@ struct Snake{
       return;
     }
 
-    // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
-    if(random(1000) < 30 * (1.0/sqrt(len)) * t || !valid_dirs[this->dir]){
-      do{
-        this->dir = random(4);
-      } while(!valid_dirs[this->dir]);
-      t=0;
+    uint8_t old_dir = this->dir;
+    // If raycaster, use raycasting to move
+    if(this->type == 15){
+      this->dir = raycast(board, valid_dirs);
+    } else if(this->type == 13){
+      this->dir = evil_raycast(board, valid_dirs, snakes);
+    } else {
+      // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
+      if(random(1000) < 30 * (1.0/sqrt(len)) * t || !valid_dirs[this->dir]){
+        do{
+          this->dir = random(4);
+        } while(!valid_dirs[this->dir]);
+        t=0;
+      }
+      t++;
     }
-    t++;
+    if(this->type == 16 && this->dir != old_dir){
+      this->r1 = random(255);
+      this->g1 = random(255);
+      this->b1 = random(255);
+    }
+
 
     // Move the snake
 
@@ -173,6 +187,76 @@ struct Snake{
     this->alive = false;
     this->respawn_delay = this->len * this->slow;
   }
+  
+  uint8_t raycast(std::pair<uint8_t, uint16_t> ** board, bool * valid_dirs){
+    // u_int8_t distances[4] = {0,0,0,0};
+    uint8_t maxD = 0;
+    uint8_t maxI = 0;
+    for(uint8_t i = 0; i < 4; i++){
+      // if(!valid_dirs[i]){
+      //   continue;
+      // }
+      std::pair<uint8_t, uint8_t> pos = {this->row, this->col};
+      uint8_t d = 0;
+      while(d < 200){
+        std::pair<uint8_t, uint8_t> new_pos = check_move(pos.first, pos.second, i);
+        if(new_pos.first == 255){
+          break;
+        }
+        if(board[new_pos.first][new_pos.second].second != 0){
+          break;
+        }
+        pos = new_pos;
+        d++;
+      }
+      if(d > maxD){
+        maxD = d;
+        maxI = i;
+      }
+    }
+    return maxI;
+  }
+
+  uint8_t evil_raycast(std::pair<uint8_t, uint16_t> ** board, bool * valid_dirs, Snake * snakes){
+    // u_int8_t distances[4] = {0,0,0,0};
+    uint8_t minD = 255;
+    uint8_t minI = 255;
+    uint8_t maxD = 0;
+    uint8_t maxI = 0;
+    for(uint8_t i = 0; i < 4; i++){
+      std::pair<uint8_t, uint8_t> pos = {this->row, this->col};
+      uint8_t d = 0;
+      while(d < 200){
+        std::pair<uint8_t, uint8_t> new_pos = check_move(pos.first, pos.second, i);
+        if(new_pos.first == 255){
+          break;
+        }
+        if(board[new_pos.first][new_pos.second].second != 0){
+          if(snakes[board[new_pos.first][new_pos.second].first].type != 13 && snakes[board[new_pos.first][new_pos.second].first].alive && d < minD){
+            minD = d;
+            minI = i;
+            break;
+          } else if(snakes[board[new_pos.first][new_pos.second].first].type == 13){
+            break;
+          }
+        }
+        pos = new_pos;
+        d++;
+      }
+      if(d > maxD){
+        maxD = d;
+        maxI = i;
+      }
+    }
+    if(minI != 255){
+      this->misc = 1;
+      return minI;
+    } else {
+      this->misc = 0;
+      return maxI;
+    }
+  }
+
 };
 
 class SnakeGame: public Pattern{
@@ -214,6 +298,8 @@ class SnakeGame: public Pattern{
           DASHED = 12,
           EATER_OF_WORLDS = 13,
           INFINITE = 14,
+          RAYCASTER = 15,
+          DISCO_TURN = 16
         };
         long snake_type_to_rarity[N_SNAKE_TYPES] = {
           100000, // Regular
@@ -231,6 +317,8 @@ class SnakeGame: public Pattern{
           200, // Dashed
           1, // Eater of Worlds
           1, // Infinite
+          500, // Raycaster
+          100, // Disco Turn
         };
 };
 

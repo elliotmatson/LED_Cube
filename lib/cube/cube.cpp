@@ -308,7 +308,7 @@ void Cube::initAPI()
     server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
               {
         AsyncResponseStream *response = request->beginResponseStream("application/json");
-        SpiRamJsonDocument doc(1024);
+        DynamicJsonBuffer doc;
         JsonArray patterns = doc.to<JsonArray>();
         for (Pattern *pattern : patternList)
         {

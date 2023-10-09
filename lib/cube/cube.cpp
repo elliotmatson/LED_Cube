@@ -49,15 +49,17 @@ void Cube::init()
     
     showDebug();
     delay(5000);
-    
-    initUI();
-    initUpdates();
-    leds.setPixelColor(3, 0, 255, 0);
-    leds.show();
 
     // Set up pattern services
     patternServices.display = dma_display;
     patternServices.server = &server;
+
+    initUI();
+    initUpdates();
+    initAPI();
+
+    leds.setPixelColor(3, 0, 255, 0);
+    leds.show();
 
     // make unordered map of patterns from the patterns list array
     int i = 0;
@@ -295,6 +297,27 @@ void Cube::initUI()
     this->use20MHzToggle.setTab(&developerTab);
 
     dashboard.sendUpdates();
+}
+
+// initialize Cube API
+void Cube::initAPI()
+{
+    const u_int8_t version  =   1;
+    char uri[128];
+    sprintf(uri, "%s/v%d/%s", API_ENDPOINT, version, "patterns");
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        SpiRamJsonDocument doc(1024);
+        JsonArray patterns = doc.to<JsonArray>();
+        for (Pattern *pattern : patternList)
+        {
+            JsonObject patternJson = patterns.createNestedObject();
+            patternJson["name"] = pattern->getName();
+            patternJson["description"] = "test";
+        }
+        serializeJson(doc, *response);
+        request->send(response); });
 }
 
 // set brightness of display

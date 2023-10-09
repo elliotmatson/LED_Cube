@@ -24,6 +24,7 @@
 #include <WebSerial.h>
 #include <Adafruit_NeoPixel.h>
 #include "time.h"
+#include <ArduinoJson.h>
 
 #include "config.h"
 #include "cube_utils.h"
@@ -35,6 +36,9 @@
 
 // get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
+
+// ArduinoJSON PSRAM Allocator
+using SpiRamJsonDocument = BasicJsonDocument<SpiRamAllocator>;
 
 // Preferences struct for storing and loading in nvs
 struct CubePrefs
@@ -116,6 +120,7 @@ class Cube {
         bool initDisplay();
         bool initWifi();
         void initUI();
+        void initAPI();
         void checkForUpdates();
         void checkForOTA();
         void updatePrefs();

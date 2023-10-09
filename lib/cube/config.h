@@ -28,6 +28,9 @@
 // NTP server
 #define NTP_SERVER "pool.ntp.org"
 
+// API Endpoint
+#define API_ENDPOINT "/api"
+
 // PCB pinouts
 #ifdef CONFIG_IDF_TARGET_ESP32
   #define R1_PIN 4

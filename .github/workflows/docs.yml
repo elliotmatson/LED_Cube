@@ -1,0 +1,28 @@
+name: Generate and Publish Docs
+
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    generate_docs:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Doxygen
+              run: sudo apt-get install -y doxygen
+
+            - name: Install doxygen-awesome-css
+              run: git clone https://github.com/jothepro/doxygen-awesome-css.git
+
+            - name: Generate Doxygen documentation
+              run: doxygen Doxyfile
+
+            - name: Publish to GitHub Pages
+              uses: peaceiris/actions-gh-pages@v3
+              with:
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  publish_dir: ./docs/html

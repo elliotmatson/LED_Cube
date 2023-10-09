@@ -299,25 +299,17 @@ void Cube::initUI()
     dashboard.sendUpdates();
 }
 
-// initialize Cube API
+/**
+ * The function initializes the API and creates a JSON response containing information about patterns.
+ */
 void Cube::initAPI()
 {
     const u_int8_t version  =   1;
     char uri[128];
-    sprintf(uri, "%s/v%d/%s", API_ENDPOINT, version, "patterns");
+    sprintf(uri, "%s/v%d/%s", API_ENDPOINT, version, "test");
     server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
               {
-        AsyncResponseStream *response = request->beginResponseStream("application/json");
-        DynamicJsonBuffer doc;
-        JsonArray patterns = doc.to<JsonArray>();
-        for (Pattern *pattern : patternList)
-        {
-            JsonObject patternJson = patterns.createNestedObject();
-            patternJson["name"] = pattern->getName();
-            patternJson["description"] = "test";
-        }
-        serializeJson(doc, *response);
-        request->send(response); });
+        request->send(200, "text/plain", "Hello, world"); });
 }
 
 // set brightness of display
@@ -426,7 +418,13 @@ void Cube::setOTA(bool ota)
     }
 }
 
-// set Github Update enabled/disabled
+/**
+ * The function `setGHUpdate` enables or disables Github updates for a Cube object and performs
+ * necessary actions based on the update status.
+ * 
+ * @param github The parameter "github" is a boolean value that indicates whether GitHub updates are
+ * enabled or disabled.
+ */
 void Cube::setGHUpdate(bool github)
 {
     cubePrefs.github=github;

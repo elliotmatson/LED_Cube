@@ -1,0 +1,26 @@
+var classBottomPanels =
+[
+    [ "BottomPanels", "classBottomPanels.html#a29298e51d7d85cf15104627905bfbf26", null ],
+    [ "clearScreen", "classBottomPanels.html#a9fc35c2eace98c15b30d04462028501f", null ],
+    [ "color333", "classBottomPanels.html#adefd9833f3eb613ec3e0d37b013e021e", null ],
+    [ "color444", "classBottomPanels.html#aaf17b3b677082ff2aff9ce0371d54746", null ],
+    [ "color565", "classBottomPanels.html#a020b75e99fe76ea2b39893d854cf4fee", null ],
+    [ "drawFastHLine", "classBottomPanels.html#acd68bbed35e19c0e7b8483003ab0cf13", null ],
+    [ "drawFastHLine", "classBottomPanels.html#a3dda27dad5e6feade18a4b4fe87f6ab5", null ],
+    [ "drawFastVLine", "classBottomPanels.html#aeb4858391b05e1f0575961a4173e00d7", null ],
+    [ "drawFastVLine", "classBottomPanels.html#a4a03969c5c28b229a5f0c0507fd36b75", null ],
+    [ "drawPixel", "classBottomPanels.html#aa649d1d0caa36a0ed292e72557e50277", null ],
+    [ "drawPixelRGB888", "classBottomPanels.html#a673b342b5924c580ea433256eba0e91d", null ],
+    [ "drawSprite16", "classBottomPanels.html#af6b8a29cfbd9b96f89545e9b85fbf64d", null ],
+    [ "drawSprite16", "classBottomPanels.html#a048898a264292f630f81676c3ebb7a9d", null ],
+    [ "drawSprite8", "classBottomPanels.html#a58dfc2caa01d2b383c9615814132c826", null ],
+    [ "drawSprite8", "classBottomPanels.html#ad73dbb2ce530abbb9d0287195cd35a38", null ],
+    [ "fillScreen", "classBottomPanels.html#aa6f1b2342d1f4cf635b17c60d61bd13b", null ],
+    [ "fillScreenRGB888", "classBottomPanels.html#a759689dcbc7b1cc7af81bb2af27beeeb", null ],
+    [ "flipDMABuffer", "classBottomPanels.html#a836e2f4a652ae2bccc25a8e889e25fa5", null ],
+    [ "getCoords", "classBottomPanels.html#adb15a3d4e66e59db54a357f7871deebc", null ],
+    [ "coords", "classBottomPanels.html#a4631bf1b708d4bb52bde7f61d33974c4", null ],
+    [ "display", "classBottomPanels.html#a74103a7589752fa454df5d8667352a1b", null ],
+    [ "virtualResX", "classBottomPanels.html#a0a1ae1da25a04a2074b6bf90238c359d", null ],
+    [ "virtualResY", "classBottomPanels.html#ab350376df6ac039e859b3359185d9909", null ]
+];

@@ -71,7 +71,7 @@ jobs:
         path: 'esp32s3.bin'
         key: ${{ runner.os }}-${{ github.run_id	 }}
     - name: Archive Build
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: 'build'
         path: 'esp32s3.bin'

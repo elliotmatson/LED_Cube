@@ -24,6 +24,8 @@
 #include <WebSerial.h>
 #include <Adafruit_NeoPixel.h>
 #include "time.h"
+#include "AsyncJson.h"
+#include <ArduinoJson.h>
 
 #include "config.h"
 #include "cube_utils.h"
@@ -116,6 +118,7 @@ class Cube {
         bool initDisplay();
         bool initWifi();
         void initUI();
+        void initAPI();
         void checkForUpdates();
         void checkForOTA();
         void updatePrefs();

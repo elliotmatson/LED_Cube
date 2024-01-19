@@ -29,6 +29,7 @@ Cube::Cube() :
 // initialize all cube tasks and functions
 void Cube::init()
 {
+    pinMode(CONTROL_BUTTON, INPUT_PULLUP);
     leds.begin();
     leds.setBrightness(20);
     leds.fill(leds.Color(255,0,0), 0, 0);
@@ -49,15 +50,17 @@ void Cube::init()
     
     showDebug();
     delay(5000);
-    
-    initUI();
-    initUpdates();
-    leds.setPixelColor(3, 0, 255, 0);
-    leds.show();
 
     // Set up pattern services
     patternServices.display = dma_display;
     patternServices.server = &server;
+
+    initUI();
+    initUpdates();
+    initAPI();
+
+    leds.setPixelColor(3, 0, 255, 0);
+    leds.show();
 
     // make unordered map of patterns from the patterns list array
     int i = 0;
@@ -85,18 +88,23 @@ void Cube::init()
     }
     dashboard.sendUpdates();
 
-    //currentPattern = patterns["Snake"];
-
 
     // Start the task to show the selected pattern
     xTaskCreate(
-        [](void* o){ static_cast<Cube*>(o)->printMem(); },     // This is disgusting, but it works
-        "Memory Printer",      // Name of the task (for debugging)
-        3000,                // Stack size (bytes)
-        this, // Parameter to pass
-        1,                   // Task priority
-        &printMemTask // Task handle
+        [](void *o)
+        { static_cast<Cube *>(o)->printMem(); }, // This is disgusting, but it works
+        "Memory Printer",                        // Name of the task (for debugging)
+        3000,                                    // Stack size (bytes)
+        this,                                    // Parameter to pass
+        1,                                       // Task priority
+        &printMemTask                            // Task handle
     );
+
+    // Changes to a known "safe" pattern if the button is pressed
+    if (digitalRead(CONTROL_BUTTON) == LOW)
+    {
+        currentPattern = patterns["Plasma"];
+    }
 
     // Start the selected pattern
     ESP_LOGI("Cube", "currentPattern: %p", (void *)currentPattern);
@@ -297,6 +305,19 @@ void Cube::initUI()
     dashboard.sendUpdates();
 }
 
+/**
+ * The function initializes the API and creates a JSON response containing information about patterns.
+ */
+void Cube::initAPI()
+{
+    const u_int8_t version  =   1;
+    char uri[128];
+    sprintf(uri, "%s/v%d/%s", API_ENDPOINT, version, "test");
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        request->send(200, "text/plain", "Hello, world"); });
+}
+
 // set brightness of display
 void Cube::setBrightness(uint8_t brightness)
 {
@@ -403,7 +424,13 @@ void Cube::setOTA(bool ota)
     }
 }
 
-// set Github Update enabled/disabled
+/**
+ * The function `setGHUpdate` enables or disables Github updates for a Cube object and performs
+ * necessary actions based on the update status.
+ * 
+ * @param github The parameter "github" is a boolean value that indicates whether GitHub updates are
+ * enabled or disabled.
+ */
 void Cube::setGHUpdate(bool github)
 {
     cubePrefs.github=github;

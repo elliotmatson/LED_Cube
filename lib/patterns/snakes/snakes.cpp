@@ -5,6 +5,7 @@
 SnakeGame::SnakeGame()
 {
   data.name = "Snake";
+  this->generator.seed(rand());
 }
 
 SnakeGame::~SnakeGame(){
@@ -80,7 +81,7 @@ void SnakeGame::update(){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){
         Snake * s = &snakes[this->board[i][j].first];
-        if(s->type != SnakeType::INFINITE || !s->alive){
+        if((s->type != SnakeType::INFINITE || !s->alive) && (s->type != SnakeType::STASIS_SNAKE || s->misc2 == 0)){
           this->board[i][j].second--;
           if(this->board[i][j].second == 0){
             this->board[i][j].first = SPACE_ID;
@@ -97,17 +98,31 @@ void SnakeGame::update(){
   }
   uint8_t n_alive = 0;
   for(uint8_t i = 0; i < n_snakes; i++){
-    if(snakes[i].type == SnakeType::STROBE){
-      snakes[i].r1 = random(256);
-      snakes[i].g1 = random(256);
-      snakes[i].b1 = random(256);
+    switch(snakes[i].type){
+      case SnakeType::STROBE:{
+        snakes[i].r1 = random(256);
+        snakes[i].g1 = random(256);
+        snakes[i].b1 = random(256);
+        break;
+      }
+      case SnakeType::STASIS_SNAKE:{
+        if(snakes[i].misc2 == 0){
+          snakes[i].r1 = max(0,min(255,snakes[i].r1 + (rand()%41 - 20)));
+          snakes[i].g1 = max(0,min(255,snakes[i].g1 + (rand()%41 - 20)));
+          snakes[i].b1 = max(0,min(255,snakes[i].b1 + (rand()%41 - 20)));
+          snakes[i].r2 = max(0,min(255,snakes[i].r2 + (rand()%41 - 20)));
+          snakes[i].g2 = max(0,min(255,snakes[i].g2 + (rand()%41 - 20)));
+          snakes[i].b2 = max(0,min(255,snakes[i].b2 + (rand()%41 - 20)));
+        }
+        break;
+      }
     }
     if(snakes[i].alive){
       n_alive++;
       if(snakes[i].type != SnakeType::SLOW || frameCount % snakes[i].slow == 0){
         snakes[i].move(board, snakes);
       }
-      if (snakes[i].type == SnakeType::FAST || (snakes[i].type == SnakeType::EATER_OF_WORLDS && snakes[i].misc == 1)){
+      if (snakes[i].type == SnakeType::FAST || (snakes[i].type == SnakeType::EATER_OF_WORLDS && snakes[i].misc2 == 1)){
         snakes[i].move(board, snakes);
       }
     }
@@ -126,108 +141,150 @@ void SnakeGame::draw(){
         double c1_factor = (double)(this->board[i][j].second - 1) / (s->len - 1);
         double c2_factor = (double)((s->len-1) - (this->board[i][j].second - 1)) / (s->len - 1);
         
-        // Multicolor gradient snake
-        if(s->type == SnakeType::GRADIENT){
-          r = (c1_factor * s->r1 + c2_factor * s->r2) / 2;
-          g = (c1_factor * s->g1 + c2_factor * s->g2) / 2;
-          b = (c1_factor * s->b1 + c2_factor * s->b2) / 2;
-        } else if(s->type == SnakeType::ALTERNATING){
-          if(this->board[i][j].second / s->segment_len % 2 == 0){
-            r = s->r1;
-            g = s->g1;
-            b = s->b1;
-          } else {
-            r = s->r2;
-            g = s->g2;
-            b = s->b2;
+        switch(s->type){
+          // Multicolor gradient snake or Color shifter
+          case SnakeType::GRADIENT:{
+            r = (c1_factor * s->r1 + c2_factor * s->r2) / 2;
+            g = (c1_factor * s->g1 + c2_factor * s->g2) / 2;
+            b = (c1_factor * s->b1 + c2_factor * s->b2) / 2;
+            break;
           }
-        } else if(s->type == SnakeType::GHOST){
-          r = random(20);
-          g = random(20);
-          b = random(20);
-        } else if(s->type == SnakeType::SPARKLE){
-          if(random(10) == 0){
-            r = min(255, s->r1 * 4);
-            g = min(255, s->g1 * 4);
-            b = min(255, s->b1 * 4);
-          } else {
-            r = s->r1;
-            g = s->g1;
-            b = s->b1;
-          }
-        } else if(s->type == SnakeType::STROBE){
-          // Actual color is set in update()
-          r = s->r1;
-          g = s->g1;
-          b = s->b1;
-        } else if(s->type == SnakeType::STATIC_ALTERNATING){
-          if((i+j) / s->segment_len % 2 == 0){
-            r = s->r1;
-            g = s->g1;
-            b = s->b1;
-          } else {
-            r = s->r2;
-            g = s->g2;
-            b = s->b2;
-          }
-        } else if(s->type == SnakeType::FADE){
-          double brightness = 0;
-          brightness += max(0,((int)frameCount % 120) - 80) / 40.0; // Fade in
-          brightness += max(0,(40 - (int)frameCount % 120)) / 40.0;
-          r = s->r1 * brightness;
-          g = s->g1 * brightness;
-          b = s->b1 * brightness;
-        } else if(s->type == SnakeType::PULSING){
-          double brightness = 0;
-          brightness += max(0,((int)frameCount % 30) - 25) / 5.0; // Pulse in
-          brightness += max(0,(5 - (int)frameCount % 30)) / 5.0; // Pulse out
-          r = min(255, (int)(s->r1 * (1 + brightness)));
-          g = min(255, (int)(s->g1 * (1 + brightness)));
-          b = min(255, (int)(s->b1 * (1 + brightness))); 
-        } else if(s->type == SnakeType::TECHNICOLOR){
-          srand(s->id + board[i][j].second);
-          r = rand()%256;
-          g = rand()%256;
-          b = rand()%256;
-        } else if(s->type == SnakeType::DASHED){
-          if(this->board[i][j].second / s->segment_len % 2 == 0){
-            r = s->r1;
-            g = s->g1;
-            b = s->b1;
-          } else {
-            r = 0;
-            g = 0;
-            b = 0;
-          }
-        } else if(s->type == SnakeType::RAYCASTER){
-          if(this->board[i][j].second == s->len){
-            if(frameCount % 20 < 10){
+          case SnakeType::ALTERNATING:{
+            if(this->board[i][j].second / s->misc1 % 2 == 0){
               r = s->r1;
               g = s->g1;
               b = s->b1;
             } else {
-              r = min(255, s->r1+100);
-              g = min(255, s->g1+100);
-              b = min(255, s->b1+100);
+              r = s->r2;
+              g = s->g2;
+              b = s->b2;
             }
+            break;
           }
-          else {
-            r = 255 - s->r1;
-            g = 255 - s->g1;
-            b = 255 - s->b1;
+          case SnakeType::GHOST:{
+            r = random(20);
+            g = random(20);
+            b = random(20);
+            break;
           }
-        }
-        else if(s->type == SnakeType::EATER_OF_WORLDS){
-          r = 100 * c1_factor  + 155 * c1_factor * (fast_cos((u_int8_t)(frameCount* 6)) / 255.0);
-          g = 0;
-          b = 0;
-        } else if(s->type == SnakeType::INFINITE){
-          uint8_t c = (this->board[i][j].second - (frameCount * 2)) % 50;
-          if(c < 20){
-            double multiplier = infinite_vals[c];
-            r = min((int)(s->r1 * multiplier),255);
-            g = min((int)(s->g1 * multiplier),255);
-            b = min((int)(s->b1 * multiplier),255);
+          case SnakeType::SPARKLE:{
+            if(random(10) == 0){
+              r = min(255, s->r1 * 4);
+              g = min(255, s->g1 * 4);
+              b = min(255, s->b1 * 4);
+            } else {
+              r = s->r1;
+              g = s->g1;
+              b = s->b1;
+            }
+            break;
+          }
+          case SnakeType::STROBE:{
+            // Actual color is set in update()
+            r = s->r1;
+            g = s->g1;
+            b = s->b1;
+            break;
+          }
+          case SnakeType::STATIC_ALTERNATING:{
+            if((i+j) / s->misc1 % 2 == 0){
+              r = s->r1;
+              g = s->g1;
+              b = s->b1;
+            } else {
+              r = s->r2;
+              g = s->g2;
+              b = s->b2;
+            }
+            break;
+          }
+          case SnakeType::FADE:{
+            double brightness = 0;
+            brightness += max(0,((int)frameCount % 120) - 80) / 40.0; // Fade in
+            brightness += max(0,(40 - (int)frameCount % 120)) / 40.0;
+            r = s->r1 * brightness;
+            g = s->g1 * brightness;
+            b = s->b1 * brightness;
+            break;
+          }
+          case SnakeType::PULSING:{
+            double brightness = 0;
+            brightness += max(0,((int)frameCount % 30) - 25) / 5.0; // Pulse in
+            brightness += max(0,(5 - (int)frameCount % 30)) / 5.0; // Pulse out
+            r = min(255, (int)(s->r1 * (1 + brightness)));
+            g = min(255, (int)(s->g1 * (1 + brightness)));
+            b = min(255, (int)(s->b1 * (1 + brightness)));
+            break;
+          }
+          case SnakeType::TECHNICOLOR:{
+            srand(s->id + board[i][j].second);
+            r = rand()%256;
+            g = rand()%256;
+            b = rand()%256;
+            break;
+          }
+          case SnakeType::DASHED:{
+            if(this->board[i][j].second / s->misc1 % 2 == 0){
+              r = s->r1;
+              g = s->g1;
+              b = s->b1;
+            } else {
+              r = 0;
+              g = 0;
+              b = 0;
+            }
+            break;
+          }
+          case SnakeType::RAYCASTER:{
+            if(this->board[i][j].second == s->len){
+              if(frameCount % 20 < 10){
+                r = s->r1;
+                g = s->g1;
+                b = s->b1;
+              } else {
+                r = min(255, s->r1+100);
+                g = min(255, s->g1+100);
+                b = min(255, s->b1+100);
+              }
+            }
+            else {
+              r = 255 - s->r1;
+              g = 255 - s->g1;
+              b = 255 - s->b1;
+            }
+            break;
+          }
+          case SnakeType::EATER_OF_WORLDS:{
+            r = 100 * c1_factor  + 155 * c1_factor * (fast_cos((u_int8_t)(frameCount* 6)) / 255.0);
+            g = 0;
+            b = 0;
+            break;
+          }
+          case SnakeType::INFINITE:{
+            uint8_t c = (this->board[i][j].second - (frameCount * 2)) % 50;
+            if(c < 20){
+              double multiplier = infinite_vals[c];
+              r = min((int)(s->r1 * multiplier),255);
+              g = min((int)(s->g1 * multiplier),255);
+              b = min((int)(s->b1 * multiplier),255);
+            }
+            break;
+          }
+          case SnakeType::STASIS_SNAKE:{
+            r = (c1_factor * s->r1 + c2_factor * s->r2) / 2;
+            g = (c1_factor * s->g1 + c2_factor * s->g2) / 2;
+            b = (c1_factor * s->b1 + c2_factor * s->b2) / 2;
+            if(s->misc2 > 0){
+              r = (int)(r/5.0 + r*4.0/5/s->misc2);
+              g = (int)(g/5.0 + g*4.0/5/s->misc2);
+              b = (int)(b/5.0 + b*4.0/5/s->misc2);
+              if(random(s->misc1) < s->misc2 * 2 / 3){
+                r = 0;
+                g = 0;
+                b = 0;
+              }
+            }
+            break;
           }
         }
         if(s->alive){
@@ -282,7 +339,8 @@ void SnakeGame::spawn_snake(uint8_t i){
   snakes[i].dir = random(3);
   snakes[i].len = this->len;
   snakes[i].id = i;
-  snakes[i].segment_len = 1;
+  snakes[i].misc1 = 1;
+  snakes[i].misc2 = 0;
 
 
   // Determines the snake type
@@ -300,15 +358,24 @@ void SnakeGame::spawn_snake(uint8_t i){
     }
   }
 
-  // Special modification for slow snakes
-  if(snakes[i].type == SnakeType::SLOW){
-    snakes[i].slow = random(3) + 2;
-  } else if(snakes[i].type == SnakeType::ALTERNATING){
-    snakes[i].segment_len = random(7) + 1;
-  } else if(snakes[i].type == SnakeType::STATIC_ALTERNATING){
-    snakes[i].segment_len = random(7) + 1;
-  } else if(snakes[i].type == SnakeType::DASHED){
-    snakes[i].segment_len = random(7) + 1;
+  // Special modification for various snakes
+  switch(snakes[i].type){
+    case SnakeType::SLOW:{
+      snakes[i].slow =  min(255.0,this->slow_distribution(this->generator) + 2);
+      break;
+    } case SnakeType::ALTERNATING:{
+      snakes[i].misc1 = min(255.0, this->segment_distribution(this->generator) + 1);
+      break;
+    } case SnakeType::STATIC_ALTERNATING:{
+      snakes[i].misc1 = min(255.0, this->segment_distribution(this->generator) + 1);
+      break;
+    } case SnakeType::DASHED:{
+      snakes[i].misc1 = min(255.0, this->segment_distribution(this->generator) + 1);
+      break;
+    } case SnakeType::STASIS_SNAKE:{
+      snakes[i].misc1 = min(255.0,this->stasis_distribution(this->generator) + STASIS_DURATION_MIN);
+      break;
+    }
   }
 
   // Place the new snake and initialize the location

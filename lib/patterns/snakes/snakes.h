@@ -4,11 +4,13 @@
 #include <Arduino.h>
 #include <utility>
 #include "cube_utils.h"
+#include <random>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 254;
 const uint8_t SPACE_ID = 255;
-const uint8_t N_SNAKE_TYPES = 17;
+const uint8_t N_SNAKE_TYPES = 18;
+const uint8_t STASIS_DURATION_MIN = 10;
 
 inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
   // Check if the move is valid, and if so, return the new position
@@ -110,7 +112,7 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
 // struct representing a snake. Each snake has a position, direction, color, head
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
-  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, id, type, slow, segment_len, misc;
+  uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, id, type, slow, misc1, misc2;
   uint16_t len, respawn_delay;
   bool alive;
   void move(std::pair<uint8_t, uint16_t> ** board, Snake * snakes){
@@ -131,14 +133,28 @@ struct Snake{
         }
       } 
     }
-    
-    
-    // If the snake has no valid moves, the snake is dead :(
-    if(n_dirs == 0){
+
+    // DEATH LOGIC
+    if(this->type == 17){ // Stasis Snake
+      if(n_dirs == 0){
+        if(this->misc2 == 0){ // If going to die, enter stasis
+          this->misc2 = misc1;
+        } else {
+          this->misc2--; // Decrement stasis timer
+          if(this->misc2 == 0){ // If last frame of stasis
+            this->die();
+          }
+        }
+        return;
+      }
+      else { // We have a move, exit stasis if applicable
+        this->misc2 = 0;
+      }
+    } else if(n_dirs == 0){ // All other snakes
+      // If the snake has no valid moves, the snake is dead :(
       this->die();
       return;
     }
-
     uint8_t old_dir = this->dir;
     // If raycaster, use raycasting to move
     if(this->type == 15){
@@ -249,10 +265,10 @@ struct Snake{
       }
     }
     if(minI != 255){
-      this->misc = 1;
+      this->misc2 = 1;
       return minI;
     } else {
-      this->misc = 0;
+      this->misc2 = 0;
       return maxI;
     }
   }
@@ -275,6 +291,10 @@ class SnakeGame: public Pattern{
         uint8_t n_snakes;
         uint16_t n_food;
         double infinite_vals[20] = {1.05,1.1,1.15,1.2,1.25,1.3,1.35,1.4,1.45,1.5,1.55,1.6,1.65,1.7,1.75,1.8,1.85,1.9,1.95,2};
+        std::default_random_engine generator;
+        std::lognormal_distribution<double> stasis_distribution = std::lognormal_distribution<double>(3.68,0.672);
+        std::lognormal_distribution<double> slow_distribution = std::lognormal_distribution<double>(0,0.613);
+        std::lognormal_distribution<double> segment_distribution = std::lognormal_distribution<double>(0.693,0.672);
 
         void reset();
         void update();
@@ -299,7 +319,8 @@ class SnakeGame: public Pattern{
           EATER_OF_WORLDS = 13,
           INFINITE = 14,
           RAYCASTER = 15,
-          DISCO_TURN = 16
+          DISCO_TURN = 16,
+          STASIS_SNAKE = 17
         };
         long snake_type_to_rarity[N_SNAKE_TYPES] = {
           100000, // Regular
@@ -309,7 +330,7 @@ class SnakeGame: public Pattern{
           50, // Sparkle
           100, // Pulsing
           10, // Strobe
-          0, // Fade
+          100, // Fade
           1500, // Static Alternating
           500, // Slow
           500, // Fast
@@ -317,8 +338,9 @@ class SnakeGame: public Pattern{
           200, // Dashed
           1, // Eater of Worlds
           1, // Infinite
-          500, // Raycaster
+          100, // Raycaster
           100, // Disco Turn
+          100 // Stasis Snake
         };
 };
 

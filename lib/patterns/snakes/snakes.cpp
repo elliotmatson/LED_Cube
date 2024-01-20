@@ -142,7 +142,7 @@ void SnakeGame::draw(){
         double c2_factor = (double)((s->len-1) - (this->board[i][j].second - 1)) / (s->len - 1);
         
         switch(s->type){
-          // Multicolor gradient snake or Color shifter
+          // Multicolor gradient snake
           case SnakeType::GRADIENT:{
             r = (c1_factor * s->r1 + c2_factor * s->r2) / 2;
             g = (c1_factor * s->g1 + c2_factor * s->g2) / 2;

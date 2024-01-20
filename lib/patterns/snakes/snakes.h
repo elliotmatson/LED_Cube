@@ -12,40 +12,40 @@ const uint8_t SPACE_ID = 255;
 const uint8_t N_SNAKE_TYPES = 18;
 const uint8_t STASIS_DURATION_MIN = 10;
 
-inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
-  // Check if the move is valid, and if so, return the new position
+inline std::pair<std::pair<uint8_t,uint8_t>, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t dir){
+  // Check if the move is valid, and if so, return the new position and new direction.
   // Movement space is 3 sides of a cube (top, left, right) 64 x 64 pixels for each face. 
-  // Cols 0-63 are the left face, 64-127 are the right face, and 128-191 are the top face
+  // Cols 0-63 are the top face, 64-127 are the right face, and 128-191 are the left face
   
   switch (col / PANEL_WIDTH){
     case 0: // Top face
       switch (dir){
         case 0: // Up
-          if(row <= 0){ // Top border (invalid move)
-            return std::make_pair(255, 255);
+          if(row <= 0){ // Top right border (invalid move)
+            return std::make_pair(std::make_pair(255, 255), 255);
           } else {
-            return std::make_pair(row - 1, col);
+            return std::make_pair(std::make_pair(row - 1, col), dir);
           }
           break;
         case 1: // Right
           if(col == 63){ // Move to the right face 
-            return std::make_pair(63, 64 + row);
+            return std::make_pair(std::make_pair(63, 64 + row), 0);
           } else {
-            return std::make_pair(row, col + 1);
+            return std::make_pair(std::make_pair(row, col + 1), dir);
           }
           break;
         case 2: // Down
           if(row == 63){ // Move to the left face
-            return std::make_pair(63, 191 - col);
+            return std::make_pair(std::make_pair(63, 191 - col), 0);
           } else {
-            return std::make_pair(row + 1, col);
+            return std::make_pair(std::make_pair(row + 1, col), dir);
           }
           break;
         case 3: // Left
-          if(col <= 0){ // Left border (invalid move)
-            return std::make_pair(255, 255);
+          if(col <= 0){ // Top left border (invalid move)
+            return std::make_pair(std::make_pair(255, 255), dir);
           } else {
-            return std::make_pair(row, col - 1);
+            return std::make_pair(std::make_pair(row, col - 1), dir);
           }
           break;
       }
@@ -54,26 +54,26 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
       switch (dir){
         case 0: // Up
           if(row == 0){ // Bottom border (invalid move)
-            return std::make_pair(255, 255);
+            return std::make_pair(std::make_pair(255, 255), dir);
           } else {
-            return std::make_pair(row - 1, col);
+            return std::make_pair(std::make_pair(row - 1, col), dir);
           }
           break;
         case 1: // Right
-          return std::make_pair(row, col + 1);
+          return std::make_pair(std::make_pair(row, col + 1), dir);
           break;
         case 2: // Down
           if(row == 63){ // Move to the top face
-            return std::make_pair(col - 64, 63);
+            return std::make_pair(std::make_pair(col - 64, 63), 3);
           } else {
-            return std::make_pair(row + 1, col);
+            return std::make_pair(std::make_pair(row + 1, col), dir);
           }
           break;
         case 3:
-          if(col <= 64){ // Right border (invalid move)  changed from 64
-            return std::make_pair(255, 255);
+          if(col <= 64){ // Right border (invalid move)
+            return std::make_pair(std::make_pair(255, 255), dir);
           } else {
-            return std::make_pair(row, col-1);
+            return std::make_pair(std::make_pair(row, col-1), dir);
           }
       }
       break;
@@ -81,32 +81,32 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
       switch (dir){
         case 0: // Up
           if(row <= 0){ // Bottom border (invalid move)
-            return std::make_pair(255, 255);
+            return std::make_pair(std::make_pair(255, 255), dir);
           } else {
-            return std::make_pair(row - 1, col);
+            return std::make_pair(std::make_pair(row - 1, col), dir);
           }
           break;
         case 1: // Right
           if(col >= 191){ // Left border (invalid move)
-            return std::make_pair(255, 255);
+            return std::make_pair(std::make_pair(255, 255), dir);
           } else {
-            return std::make_pair(row, col + 1);
+            return std::make_pair(std::make_pair(row, col + 1), dir);
           }
           break;
         case 2: // Down
           if(row == 63){ // Move to the top face
-            return std::make_pair(63, 191 - col);
+            return std::make_pair(std::make_pair(63, 191 - col), 0);
           } else {
-            return std::make_pair(row + 1, col);
+            return std::make_pair(std::make_pair(row + 1, col), dir);
           }
           break;
         case 3: // Left
-          return std::make_pair(row, col - 1);
+          return std::make_pair(std::make_pair(row, col - 1), dir);
           break;
       }
       break;
   }
-  return std::make_pair(255, 255);
+  return std::make_pair(std::make_pair(255, 255), 255);
 }
 
 // struct representing a snake. Each snake has a position, direction, color, head
@@ -121,7 +121,9 @@ struct Snake{
     uint8_t n_dirs = 4;
     // valid_dirs[(this->dir + 2) % 4] = false;
     for(uint8_t i = 0 ; i < 4; i++){
-      std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, i);
+      std::pair<uint8_t, uint8_t> new_pos;
+      uint8_t new_dir;
+      std::tie(new_pos, new_dir) = check_move(this->row, this->col, i);
       // if(new_pos.first == 255 || (board[new_pos.first][new_pos.second].second != 0 && board[new_pos.first][new_pos.second].first != this->id)){
       if(new_pos.first == 255){ 
         valid_dirs[i] = false;
@@ -179,8 +181,9 @@ struct Snake{
 
 
     // Move the snake
-
-    std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, this->dir);
+    std::pair<uint8_t, uint8_t> new_pos;
+    uint8_t new_dir;
+    std::tie(new_pos, new_dir) = check_move(this->row, this->col, this->dir);
     std::pair<uint8_t, uint16_t> board_vals = board[new_pos.first][new_pos.second];
     if(board_vals.second != 0){
       if(this->type == 13 && snakes[board_vals.first].type != 13 && snakes[board_vals.first].alive){ // Eater of worlds
@@ -190,6 +193,7 @@ struct Snake{
     }
     this->row = new_pos.first;
     this->col = new_pos.second;
+    this->dir = new_dir;
     
     if(board[this->row][this->col].first == FOOD_ID){
       this->len+=2;
@@ -213,9 +217,12 @@ struct Snake{
       //   continue;
       // }
       std::pair<uint8_t, uint8_t> pos = {this->row, this->col};
+      uint8_t dir = i;
       uint8_t d = 0;
       while(d < 200){
-        std::pair<uint8_t, uint8_t> new_pos = check_move(pos.first, pos.second, i);
+        std::pair<uint8_t, uint8_t> new_pos;
+        uint8_t new_dir;
+        std::tie(new_pos, new_dir) = check_move(pos.first, pos.second, dir);
         if(new_pos.first == 255){
           break;
         }
@@ -223,6 +230,7 @@ struct Snake{
           break;
         }
         pos = new_pos;
+        dir = new_dir;
         d++;
       }
       if(d > maxD){
@@ -242,8 +250,11 @@ struct Snake{
     for(uint8_t i = 0; i < 4; i++){
       std::pair<uint8_t, uint8_t> pos = {this->row, this->col};
       uint8_t d = 0;
+      uint8_t dir = i;
       while(d < 200){
-        std::pair<uint8_t, uint8_t> new_pos = check_move(pos.first, pos.second, i);
+        std::pair<uint8_t, uint8_t> new_pos;
+        uint8_t new_dir;
+        std::tie(new_pos, new_dir) = check_move(pos.first, pos.second, dir);
         if(new_pos.first == 255){
           break;
         }
@@ -257,6 +268,7 @@ struct Snake{
           }
         }
         pos = new_pos;
+        dir = new_dir;
         d++;
       }
       if(d > maxD){

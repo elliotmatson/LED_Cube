@@ -338,20 +338,20 @@ class SnakeGame: public Pattern{
           100000, // Regular
           3000, // Gradient
           1500, // Alternating
-          100, // Ghost
-          50, // Sparkle
-          100, // Pulsing
+          50, // Ghost
+          40, // Sparkle
+          70, // Pulsing
           10, // Strobe
           100, // Fade
           1500, // Static Alternating
           500, // Slow
           500, // Fast
-          100, // Technicolor
+          10, // Technicolor
           200, // Dashed
           1, // Eater of Worlds
           1, // Infinite
           100, // Raycaster
-          100, // Disco Turn
+          50, // Disco Turn
           100 // Stasis Snake
         };
 };

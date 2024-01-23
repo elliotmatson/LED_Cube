@@ -200,8 +200,8 @@ void SnakeGame::draw(){
           }
           case SnakeType::FADE:{
             double brightness = 0;
-            brightness += max(0,((int)frameCount % 120) - 80) / 40.0; // Fade in
-            brightness += max(0,(40 - (int)frameCount % 120)) / 40.0;
+            brightness += max(0,40 - (int)(frameCount % 120)) / 40.0; // Fade out
+            brightness += max(0,(int)(frameCount % 120) - 80) / 40.0; // Fade in
             r = s->r1 * brightness;
             g = s->g1 * brightness;
             b = s->b1 * brightness;
@@ -209,8 +209,8 @@ void SnakeGame::draw(){
           }
           case SnakeType::PULSING:{
             double brightness = 0;
-            brightness += max(0,((int)frameCount % 30) - 25) / 5.0; // Pulse in
-            brightness += max(0,(5 - (int)frameCount % 30)) / 5.0; // Pulse out
+            brightness += max(0,(int)(frameCount % 30) - 25) / 5.0; // Pulse in
+            brightness += max(0,5 - (int)(frameCount % 30)) / 5.0; // Pulse out
             r = min(255, (int)(s->r1 * (1 + brightness)));
             g = min(255, (int)(s->g1 * (1 + brightness)));
             b = min(255, (int)(s->b1 * (1 + brightness)));
@@ -221,6 +221,8 @@ void SnakeGame::draw(){
             r = rand()%256;
             g = rand()%256;
             b = rand()%256;
+            srand(rand());
+            r = rand()%256;
             break;
           }
           case SnakeType::DASHED:{
@@ -339,7 +341,7 @@ void SnakeGame::spawn_snake(uint8_t i){
   snakes[i].dir = random(3);
   snakes[i].len = this->len;
   snakes[i].id = i;
-  snakes[i].misc1 = 1;
+  snakes[i].misc1 = 0;
   snakes[i].misc2 = 0;
 
 

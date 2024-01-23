@@ -165,7 +165,7 @@ struct Snake{
       this->dir = evil_raycast(board, valid_dirs, snakes);
     } else {
       // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
-      if(random(1000) < 30 * (1.0/sqrt(len)) * t || !valid_dirs[this->dir]){
+      if(random(100) < 3 * (1.0/sqrt(len)) * t || !valid_dirs[this->dir]){
         do{
           this->dir = random(4);
         } while(!valid_dirs[this->dir]);

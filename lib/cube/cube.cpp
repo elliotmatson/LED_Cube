@@ -55,9 +55,9 @@ void Cube::init()
     patternServices.display = dma_display;
     patternServices.server = &server;
 
+    initAPI();
     initUI();
     initUpdates();
-    initAPI();
 
     leds.setPixelColor(3, 0, 255, 0);
     leds.show();
@@ -303,6 +303,8 @@ void Cube::initUI()
     this->use20MHzToggle.setTab(&developerTab);
 
     dashboard.sendUpdates();
+
+    MDNS.addService("http", "tcp", 80);
 }
 
 /**
@@ -310,12 +312,36 @@ void Cube::initUI()
  */
 void Cube::initAPI()
 {
-    const u_int8_t version  =   1;
     char uri[128];
-    sprintf(uri, "%s/v%d/%s", API_ENDPOINT, version, "test");
+
+    // test endpoint
+    sprintf(uri, "%s/v1/test", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              { request->send(200, "application/json", "{\"Hello\": \"world\"}"); });
+
+    // get/set brightness in JSON
+    sprintf(uri, "%s/v1/brightness", API_ENDPOINT);
     server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
               {
-        request->send(200, "text/plain", "Hello, world"); });
+        request->send(200, "application/json", String("{\"brightness\":") + this->getBrightness() + "}"); });
+    server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
+              {
+        //print request
+        ESP_LOGI(__func__,"POST %s", request->url().c_str());
+        if (request->hasArg("brightness"))
+        {
+            this->setBrightness(request->arg("brightness").toInt());
+            request->send(200, "application/json", String("{\"brightness\":") + this->getBrightness() + "}");
+        }
+        else
+        {
+            request->send(400, "application/json", "{\"error\": \"No brightness parameter\"}");
+        }
+    });
+
+    // redirect to docs on api root request
+    server.on(API_ENDPOINT, HTTP_GET, [&](AsyncWebServerRequest *request)
+              { request->redirect("https://github.com/elliotmatson/LED_Cube"); });
 }
 
 // set brightness of display

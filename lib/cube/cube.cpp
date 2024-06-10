@@ -29,6 +29,7 @@ Cube::Cube() :
 // initialize all cube tasks and functions
 void Cube::init()
 {
+    pinMode(CONTROL_BUTTON, INPUT_PULLUP);
     leds.begin();
     leds.setBrightness(20);
     leds.fill(leds.Color(255,0,0), 0, 0);
@@ -87,18 +88,23 @@ void Cube::init()
     }
     dashboard.sendUpdates();
 
-    //currentPattern = patterns["Snake"];
-
 
     // Start the task to show the selected pattern
     xTaskCreate(
-        [](void* o){ static_cast<Cube*>(o)->printMem(); },     // This is disgusting, but it works
-        "Memory Printer",      // Name of the task (for debugging)
-        3000,                // Stack size (bytes)
-        this, // Parameter to pass
-        1,                   // Task priority
-        &printMemTask // Task handle
+        [](void *o)
+        { static_cast<Cube *>(o)->printMem(); }, // This is disgusting, but it works
+        "Memory Printer",                        // Name of the task (for debugging)
+        3000,                                    // Stack size (bytes)
+        this,                                    // Parameter to pass
+        1,                                       // Task priority
+        &printMemTask                            // Task handle
     );
+
+    // Changes to a known "safe" pattern if the button is pressed
+    if (digitalRead(CONTROL_BUTTON) == LOW)
+    {
+        currentPattern = patterns["Plasma"];
+    }
 
     // Start the selected pattern
     ESP_LOGI("Cube", "currentPattern: %p", (void *)currentPattern);

@@ -30,14 +30,14 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     - name: Cache pip and platformio
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/pip
           ~/.platformio/.cache
         key: ${{ runner.os }}-pio
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.9' 
     - name: Install PlatformIO
@@ -53,7 +53,7 @@ jobs:
       run: cp .pio/build/esp32-s3-devkitc-1/firmware.bin esp32s3.bin
     - name: Cache Build
       if: github.event_name == 'workflow_dispatch'
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: 'esp32s3.bin'
         key: ${{ runner.os }}-${{ github.run_id }}
@@ -66,12 +66,12 @@ jobs:
     steps:
     - name: Get Cached Build
       if: github.event_name == 'workflow_dispatch'
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: 'esp32s3.bin'
         key: ${{ runner.os }}-${{ github.run_id	 }}
     - name: Archive Build
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: 'build'
         path: 'esp32s3.bin'
@@ -86,7 +86,7 @@ jobs:
     steps:
     - name: Get Cached Build
       if: github.event_name == 'workflow_dispatch'
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: 'esp32s3.bin'
         key: ${{ runner.os }}-${{ github.run_id	 }}

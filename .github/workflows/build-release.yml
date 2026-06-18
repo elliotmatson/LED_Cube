@@ -28,7 +28,7 @@ jobs:
       contents: write
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
     - name: Cache pip and platformio
       uses: actions/cache@v4
       with:

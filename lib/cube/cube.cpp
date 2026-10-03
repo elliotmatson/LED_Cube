@@ -4,26 +4,26 @@
 const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartition = {CUBE_MAGIC_COOKIE};
 
 // Create a new Cube object with optional devMode
-Cube::Cube() : 
-    leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
-    server(80),
-    serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
-    wifiReady(false),
-    dashboard(&server),
-    otaToggle(&dashboard, BUTTON_CARD, "OTA Update Enabled"),
-    GHUpdateToggle(&dashboard, BUTTON_CARD, "Github Update Enabled"),
-    developmentToggle(&dashboard, BUTTON_CARD, "Use Development Builds"),
-    signedFWOnlyToggle(&dashboard, BUTTON_CARD, "Signed FW only"),
-    fwVersion(&dashboard, "Firmware Version", FW_VERSION),
-    brightnessSlider(&dashboard, SLIDER_CARD, "Brightness:", "", 0, 255),
-    latchSlider(&dashboard, SLIDER_CARD, "Latch Blanking:", "", 1, 4),
-    use20MHzToggle(&dashboard, BUTTON_CARD, "Use 20MHz Clock"),
-    rebootButton(&dashboard, BUTTON_CARD, "Reboot Cube"),
-    resetWifiButton(&dashboard, BUTTON_CARD, "Reset Wifi"),
-    crashMe(&dashboard, BUTTON_CARD, "Crash Cube"),
-    systemTab(&dashboard, "System"),
-    developerTab(&dashboard, "Development")
+Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
+               server(80),
+               serial(String(ESP.getEfuseMac() % 0x1000000, HEX)),
+               wifiReady(false),
+               dashboard(server),
+               otaToggle(dashboard, "OTA Update Enabled"),
+               GHUpdateToggle(dashboard, "Github Update Enabled"),
+               developmentToggle(dashboard, "Use Development Builds"),
+               signedFWOnlyToggle(dashboard, "Signed FW only"),
+               fwVersion(dashboard, "Firmware Version"),
+               brightnessSlider(dashboard, "Brightness:", 0, 255),
+               latchSlider(dashboard, "Latch Blanking:", 1, 4),
+               use20MHzToggle(dashboard, "Use 20MHz Clock"),
+               rebootButton(dashboard, "Reboot Cube"),
+               resetWifiButton(dashboard, "Reset Wifi"),
+               crashMe(dashboard, "Crash Cube"),
+               systemTab(dashboard, "System"),
+               developerTab(dashboard, "Development")
 {
+    fwVersion.setValue(FW_VERSION);
 }
 
 // initialize all cube tasks and functions
@@ -32,22 +32,25 @@ void Cube::init()
     pinMode(CONTROL_BUTTON, INPUT_PULLUP);
     leds.begin();
     leds.setBrightness(20);
-    leds.fill(leds.Color(255,0,0), 0, 0);
+    leds.fill(leds.Color(255, 0, 0), 0, 0);
     leds.show(); // Initialize all pixels to 'off'
     Serial.begin(115200);
-    if(initPrefs()) {
+    if (initPrefs())
+    {
         leds.setPixelColor(0, 0, 255, 0);
         leds.show();
     }
-    if(initDisplay()) {
+    if (initDisplay())
+    {
         leds.setPixelColor(1, 0, 255, 0);
         leds.show();
     }
-    if(initWifi()) {
+    if (initWifi())
+    {
         leds.setPixelColor(2, 0, 255, 0);
         leds.show();
     }
-    
+
     showDebug();
     delay(5000);
 
@@ -63,13 +66,18 @@ void Cube::init()
     leds.show();
 
     // make unordered map of patterns from the patterns list array
+    // reserve capacity up front so push_back never reallocates: dash::Component only stores an
+    // unowned const char*, so the backing std::string must never move for the life of the app
+    patternButtonLabels.reserve(std::size(patternList));
     int i = 0;
-    for (Pattern *pattern : patternList) {
+    for (Pattern *pattern : patternList)
+    {
         const std::string name = pattern->getName();
-        Card* card = new Card(&dashboard, BUTTON_CARD, pattern->getName().append(" Pattern").c_str());
+        patternButtonLabels.push_back(name + " Pattern");
+        dash::PushButtonCard *card = new dash::PushButtonCard(dashboard, patternButtonLabels.back().c_str());
         ESPDash *dash = &dashboard;
-        card->attachCallback([&, name, card, dash, i](int value)
-                            {
+        card->onPush([&, name, dash, i]()
+                             {
                                 ESP_LOGI("Cube", "Pattern: %s", name.c_str());
                                 currentPattern->stop();
                                 currentPattern = patterns[name];
@@ -77,17 +85,15 @@ void Cube::init()
                                 currentPattern->start();
                                 this->cubePrefs.patternIndex = i;
                                 this->updatePrefs();
-                                card->update(0);
-                                dash->sendUpdates();
-                            });
+                                dash->sendUpdates(); });
         patterns[pattern->getName()] = pattern;
-        if (i == cubePrefs.patternIndex) {
+        if (i == cubePrefs.patternIndex)
+        {
             currentPattern = pattern;
         }
         i++;
     }
     dashboard.sendUpdates();
-
 
     // Start the task to show the selected pattern
     xTaskCreate(
@@ -117,7 +123,8 @@ bool Cube::initPrefs()
 {
     bool status = prefs.begin("cube");
 
-    if ((!prefs.isKey("cubePrefs")) || (prefs.getBytesLength("cubePrefs") != sizeof(CubePrefs))) {
+    if ((!prefs.isKey("cubePrefs")) || (prefs.getBytesLength("cubePrefs") != sizeof(CubePrefs)))
+    {
         this->cubePrefs.print("No valid preferences found, creating new");
         prefs.putBytes("cubePrefs", &cubePrefs, sizeof(CubePrefs));
     }
@@ -137,12 +144,15 @@ void Cube::initUpdates()
 bool Cube::initDisplay()
 {
     bool status = false;
-    ESP_LOGI(__func__,"Configuring HUB_75");
+    ESP_LOGI(__func__, "Configuring HUB_75");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
-    if(cubePrefs.use20MHz) {
+    if (cubePrefs.use20MHz)
+    {
         mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_20M;
-    } else {
+    }
+    else
+    {
         mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
     }
     mxconfig.clkphase = false;
@@ -150,9 +160,12 @@ bool Cube::initDisplay()
     dma_display->setLatBlanking(cubePrefs.latchBlanking);
 
     // Allocate memory and start DMA display
-    if (dma_display->begin()) {
+    if (dma_display->begin())
+    {
         status = true;
-    } else {
+    }
+    else
+    {
         ESP_LOGE(__func__, "****** !KABOOM! I2S memory allocation failed ***********");
     }
     setBrightness(this->cubePrefs.brightness);
@@ -162,18 +175,17 @@ bool Cube::initDisplay()
 // Initialize wifi and prompt for connection if needed
 bool Cube::initWifi()
 {
-    ESP_LOGI(__func__,"Connecting to WiFi...");
+    ESP_LOGI(__func__, "Connecting to WiFi...");
     wifiManager.setHostname("cube");
     wifiManager.setClass("invert");
     wifiManager.setAPCallback([&](WiFiManager *myWiFiManager)
-        {
+                              {
             dma_display->fillScreen(BLACK);
             dma_display->setTextColor(WHITE);
             dma_display->setCursor(0, 0);
             dma_display->printf("\n\nConnect to\n   WiFi\n\nSSID: %s", myWiFiManager->getConfigPortalSSID().c_str());
             leds.setPixelColor(2, 0, 0, 255);
-            leds.show();
-        });
+            leds.show(); });
 
     bool status = wifiManager.autoConnect("Cube");
 
@@ -186,10 +198,12 @@ bool Cube::initWifi()
     HTTPClient http;
     http.begin(client, "http://worldtimeapi.org/api/ip");
     int httpCode = http.GET();
-    if (httpCode > 0) {
-        if (httpCode == HTTP_CODE_OK) {
+    if (httpCode > 0)
+    {
+        if (httpCode == HTTP_CODE_OK)
+        {
             String payload = http.getString();
-            DynamicJsonDocument doc(1024);
+            JsonDocument doc;
             deserializeJson(doc, payload);
             gmtOffset_sec = doc["raw_offset"].as<int>();
             daylightOffset_sec = doc["dst_offset"].as<int>();
@@ -200,21 +214,31 @@ bool Cube::initWifi()
     // Set time via NTP
     configTime(gmtOffset_sec, daylightOffset_sec, NTP_SERVER);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo))
+    {
         ESP_LOGE(__func__, "Failed to obtain time");
     }
-    ESP_LOGI(__func__,"Time set: %s", asctime(&timeinfo));
+    ESP_LOGI(__func__, "Time set: %s", asctime(&timeinfo));
 
     // Set up web server
     this->server.begin();
 
-    // Set up WebSerial
-    WebSerial.begin(&this->server, "/log");
+    // Set up ElegantOTA (replaces removed PrettyOTA)
+    ElegantOTA.begin(&this->server);
+    xTaskCreate(
+        [](void *o)
+        { for (;;) { ElegantOTA.loop(); vTaskDelay(pdMS_TO_TICKS(1000)); } }, // This is disgusting, but it works
+        "ElegantOTA Loop",                                                   // Name of the task (for debugging)
+        3000,                                                                // Stack size (bytes)
+        this,                                                                // Parameter to pass
+        1,                                                                   // Task priority
+        &elegantOtaTask                                                     // Task handle
+    );
 
     this->wifiReady = true;
 
-    ESP_LOGI(__func__,"IP address: ");
-    ESP_LOGI(__func__,"%s",WiFi.localIP().toString().c_str());
+    ESP_LOGI(__func__, "IP address: ");
+    ESP_LOGI(__func__, "%s", WiFi.localIP().toString().c_str());
     MDNS.begin(HOSTNAME);
     return status;
 }
@@ -224,83 +248,78 @@ void Cube::initUI()
 {
     dashboard.setTitle("cube");
 
-    this->otaToggle.attachCallback([&](int value)
-        {
-            this->setOTA(value);
-            this->otaToggle.update(value);
-            this->dashboard.sendUpdates(); 
-        });
-    this->developmentToggle.attachCallback([&](int value)
-        {
-            this->setDevelopment(value);
-            this->developmentToggle.update(value);
-            this->dashboard.sendUpdates(); 
-        });
-    this->GHUpdateToggle.attachCallback([&](int value)
-        {
-            this->setGHUpdate(value);
-            this->GHUpdateToggle.update(value);
-            this->dashboard.sendUpdates(); 
-        });
-    this->signedFWOnlyToggle.attachCallback([&](int value)
+    this->otaToggle.onChange([&](bool state)
+                                   {
+            this->setOTA(state);
+            this->otaToggle.setValue(state);
+            this->dashboard.sendUpdates(); });
+    this->developmentToggle.onChange([&](bool state)
+                                           {
+            this->setDevelopment(state);
+            this->developmentToggle.setValue(state);
+            this->dashboard.sendUpdates(); });
+    this->GHUpdateToggle.onChange([&](bool state)
+                                        {
+            this->setGHUpdate(state);
+            this->GHUpdateToggle.setValue(state);
+            this->dashboard.sendUpdates(); });
+    this->signedFWOnlyToggle.onChange([&](bool state)
                                             {
-            this->setSignedFWOnly(value);
-            this->signedFWOnlyToggle.update(value);
+            this->setSignedFWOnly(state);
+            this->signedFWOnlyToggle.setValue(state);
             this->dashboard.sendUpdates(); });
-    brightnessSlider.attachCallback([&](int value)
-                                     {
+    brightnessSlider.onChange([&](int value)
+                                    {
             this->setBrightness(value);
-            this->brightnessSlider.update(value);
+            this->brightnessSlider.setValue(value);
             this->dashboard.sendUpdates(); });
-    latchSlider.attachCallback([&](int value)
-                                     {
+    latchSlider.onChange([&](int value)
+                               {
             this->dma_display->setLatBlanking(value);
             this->cubePrefs.latchBlanking = value;
             this->updatePrefs();
-            this->latchSlider.update(value);
+            this->latchSlider.setValue(value);
             this->dashboard.sendUpdates(); });
-    use20MHzToggle.attachCallback([&](int value)
+    use20MHzToggle.onChange([&](bool state)
                                   {
-            this->cubePrefs.use20MHz = value;
+            this->cubePrefs.use20MHz = state;
             this->updatePrefs();
-            this->use20MHzToggle.update(value);
+            this->use20MHzToggle.setValue(state);
             this->dashboard.sendUpdates(); });
-    rebootButton.attachCallback([&](int value)
+    rebootButton.onPush([&]()
                                 {
             ESP_LOGI(__func__,"Rebooting...");
             ESP.restart();
             this->dashboard.sendUpdates(); });
-    resetWifiButton.attachCallback([&](int value)
-                                     {
+    resetWifiButton.onPush([&]()
+                                   {
             ESP_LOGI(__func__,"Resetting WiFi...");
             wifiManager.resetSettings();
             ESP.restart();
             this->dashboard.sendUpdates(); });
-    crashMe.attachCallback([&](int value)
-                                     {
+    crashMe.onPush([&]()
+                           {
             ESP_LOGI(__func__,"Crashing...");
             int *p = NULL;
             *p = 80;
             this->dashboard.sendUpdates(); });
-    this->otaToggle.update(this->cubePrefs.ota);
-    this->developmentToggle.update(this->cubePrefs.development);
-    this->GHUpdateToggle.update(this->cubePrefs.github);
-    this->brightnessSlider.update(this->cubePrefs.brightness);
-    this->signedFWOnlyToggle.update(this->cubePrefs.signedFWOnly);
-    this->latchSlider.update(this->cubePrefs.latchBlanking);
-    this->use20MHzToggle.update(this->cubePrefs.use20MHz);
-    this->rebootButton.update(true);
-    this->resetWifiButton.update(true);
+    this->otaToggle.setValue(this->cubePrefs.ota);
+    this->developmentToggle.setValue(this->cubePrefs.development);
+    this->GHUpdateToggle.setValue(this->cubePrefs.github);
+    this->brightnessSlider.setValue(this->cubePrefs.brightness);
+    this->signedFWOnlyToggle.setValue(this->cubePrefs.signedFWOnly);
+    this->latchSlider.setValue(this->cubePrefs.latchBlanking);
+    this->use20MHzToggle.setValue(this->cubePrefs.use20MHz);
 
-    this->rebootButton.setTab(&systemTab);
-    this->resetWifiButton.setTab(&systemTab);
-    this->otaToggle.setTab(&developerTab);
-    this->developmentToggle.setTab(&developerTab);
-    this->GHUpdateToggle.setTab(&developerTab);
-    this->signedFWOnlyToggle.setTab(&developerTab);
-    this->crashMe.setTab(&developerTab);
-    this->latchSlider.setTab(&developerTab);
-    this->use20MHzToggle.setTab(&developerTab);
+    this->rebootButton.setTab(systemTab);
+    this->resetWifiButton.setTab(systemTab);
+    this->otaToggle.setTab(developerTab);
+    this->developmentToggle.setTab(developerTab);
+    this->GHUpdateToggle.setTab(developerTab);
+    this->signedFWOnlyToggle.setTab(developerTab);
+    this->crashMe.setTab(developerTab);
+    this->latchSlider.setTab(developerTab);
+    this->use20MHzToggle.setTab(developerTab);
 
     dashboard.sendUpdates();
 
@@ -322,8 +341,7 @@ void Cube::initAPI()
     // get/set brightness in JSON
     sprintf(uri, "%s/v1/brightness", API_ENDPOINT);
     server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
-              {
-        request->send(200, "application/json", String("{\"brightness\":") + this->getBrightness() + "}"); });
+              { request->send(200, "application/json", String("{\"brightness\":") + this->getBrightness() + "}"); });
     server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
               {
         //print request
@@ -336,8 +354,7 @@ void Cube::initAPI()
         else
         {
             request->send(400, "application/json", "{\"error\": \"No brightness parameter\"}");
-        }
-    });
+        } });
 
     // redirect to docs on api root request
     server.on(API_ENDPOINT, HTTP_GET, [&](AsyncWebServerRequest *request)
@@ -363,8 +380,9 @@ void Cube::setOTA(bool ota)
 {
     cubePrefs.ota = ota;
     this->updatePrefs();
-    if(ota) {
-        ESP_LOGI(__func__,"Starting OTA");
+    if (ota)
+    {
+        ESP_LOGI(__func__, "Starting OTA");
         ArduinoOTA.setHostname(HOSTNAME);
         ArduinoOTA
             .onStart([&]()
@@ -433,18 +451,21 @@ void Cube::setOTA(bool ota)
         ArduinoOTA.begin();
 
         xTaskCreate(
-            [](void* o){ static_cast<Cube*>(o)->checkForOTA(); }, // This is disgusting, but it works
-            "Check For OTA", // Name of the task (for debugging)
-            6000,            // Stack size (bytes)
-            this,            // Parameter to pass
-            5,               // Task priority
-            &checkForOTATask // Task handle
+            [](void *o)
+            { static_cast<Cube *>(o)->checkForOTA(); }, // This is disgusting, but it works
+            "Check For OTA",                            // Name of the task (for debugging)
+            6000,                                       // Stack size (bytes)
+            this,                                       // Parameter to pass
+            5,                                          // Task priority
+            &checkForOTATask                            // Task handle
         );
-    } else
+    }
+    else
     {
-        ESP_LOGI(__func__,"OTA Disabled");
+        ESP_LOGI(__func__, "OTA Disabled");
         ArduinoOTA.end();
-        if(checkForOTATask){
+        if (checkForOTATask)
+        {
             vTaskDelete(checkForOTATask);
         }
     }
@@ -453,16 +474,17 @@ void Cube::setOTA(bool ota)
 /**
  * The function `setGHUpdate` enables or disables Github updates for a Cube object and performs
  * necessary actions based on the update status.
- * 
+ *
  * @param github The parameter "github" is a boolean value that indicates whether GitHub updates are
  * enabled or disabled.
  */
 void Cube::setGHUpdate(bool github)
 {
-    cubePrefs.github=github;
+    cubePrefs.github = github;
     this->updatePrefs();
-    if(github) {
-        ESP_LOGI(__func__,"Github Update enabled...");
+    if (github)
+    {
+        ESP_LOGI(__func__, "Github Update enabled...");
         httpUpdate.onStart([&]()
                            {
             ESP_LOGI(__func__,"Start updating");
@@ -474,12 +496,11 @@ void Cube::setGHUpdate(bool github)
             dma_display->setTextSize(3);
             dma_display->print("GHA"); });
         httpUpdate.onEnd([&]()
-        { 
+                         { 
             ESP_LOGI(__func__,"End"); 
             for(int i = getBrightness(); i > 0; i=i-3) {
                 dma_display->setBrightness8(max(i, 0));
-            }
-        });
+            } });
         httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
                               { 
             ESP_LOGI(__func__,"Progress: %u%%\r", (progress / (total / 100)));
@@ -511,16 +532,20 @@ void Cube::setGHUpdate(bool github)
             dma_display->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
             dma_display->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF); });
         xTaskCreate(
-            [](void* o){ static_cast<Cube*>(o)->checkForUpdates(); },     // This is disgusting, but it works
-            "Check For Updates",    // Name of the task (for debugging)
-            8000,                   // Stack size (bytes)
-            this,                   // Parameter to pass
-            5,                      // Task priority
-            &checkForUpdatesTask    // Task handle
+            [](void *o)
+            { static_cast<Cube *>(o)->checkForUpdates(); }, // This is disgusting, but it works
+            "Check For Updates",                            // Name of the task (for debugging)
+            8000,                                           // Stack size (bytes)
+            this,                                           // Parameter to pass
+            5,                                              // Task priority
+            &checkForUpdatesTask                            // Task handle
         );
-    } else {
-        ESP_LOGI(__func__,"Github Updates Disabled");
-        if(checkForUpdatesTask) {
+    }
+    else
+    {
+        ESP_LOGI(__func__, "Github Updates Disabled");
+        if (checkForUpdatesTask)
+        {
             vTaskDelete(checkForUpdatesTask);
         }
     }
@@ -528,14 +553,14 @@ void Cube::setGHUpdate(bool github)
 
 // set dev mode
 void Cube::setDevelopment(bool development)
-{ 
+{
     cubePrefs.development = development;
     this->updatePrefs();
 }
 
 // set signedFWOnly
 void Cube::setSignedFWOnly(bool signedFWOnly)
-{ 
+{
     cubePrefs.signedFWOnly = signedFWOnly;
     this->updatePrefs();
 }
@@ -564,27 +589,29 @@ void Cube::showDebug()
 }
 
 // shows coordinates on display for debugging
-void Cube::showCoordinates() {
+void Cube::showCoordinates()
+{
     dma_display->fillScreenRGB888(0, 0, 0);
     dma_display->setTextColor(RED);
     dma_display->setTextSize(1);
     dma_display->drawFastHLine(0, 0, 192, 0x4208);
     dma_display->drawFastHLine(0, 63, 192, 0x4208);
-    for(int i = 0; i < 3; i++) {
-        int x0 = i*64;
+    for (int i = 0; i < 3; i++)
+    {
+        int x0 = i * 64;
         int y0 = 0;
         dma_display->drawFastVLine(i * 64, 0, 64, 0x4208);
         dma_display->drawFastVLine((i * 64) + 63, 0, 64, 0x4208);
         dma_display->drawPixel(x0, y0, RED);
-        dma_display->drawPixel(x0, y0+63, GREEN);
-        dma_display->drawPixel(x0+63, y0, BLUE);
-        dma_display->drawPixel(x0+63, y0+63, YELLOW);
+        dma_display->drawPixel(x0, y0 + 63, GREEN);
+        dma_display->drawPixel(x0 + 63, y0, BLUE);
+        dma_display->drawPixel(x0 + 63, y0 + 63, YELLOW);
         dma_display->setTextColor(RED);
         dma_display->setCursor(x0 + 1, y0 + 1);
         dma_display->printf("%d,%d", x0, y0);
         dma_display->setTextColor(GREEN);
-        dma_display->setCursor(x0+1, y0+55);
-        dma_display->printf("%d,%d", x0, y0+63);
+        dma_display->setCursor(x0 + 1, y0 + 55);
+        dma_display->printf("%d,%d", x0, y0 + 63);
     }
     dma_display->setTextColor(BLUE);
     dma_display->setCursor(40, 1);
@@ -605,48 +632,48 @@ void Cube::showCoordinates() {
 // Show a basic test sequence for testing panels
 void Cube::showTestSequence()
 {
-  dma_display->fillScreenRGB888(255, 0, 0);
-  delay(500);
-  dma_display->fillScreenRGB888(0, 255, 0);
-  delay(500);
-  dma_display->fillScreenRGB888(0, 0, 255);
-  delay(500);
-  dma_display->fillScreenRGB888(255, 255, 255);
-  delay(500);
-  dma_display->fillScreenRGB888(0, 0, 0);
+    dma_display->fillScreenRGB888(255, 0, 0);
+    delay(500);
+    dma_display->fillScreenRGB888(0, 255, 0);
+    delay(500);
+    dma_display->fillScreenRGB888(0, 0, 255);
+    delay(500);
+    dma_display->fillScreenRGB888(255, 255, 255);
+    delay(500);
+    dma_display->fillScreenRGB888(0, 0, 0);
 
-  for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
-  {
-    for (uint8_t j = 0; j < 64; j++)
-    {
-      dma_display->drawPixelRGB888(i, j, 255, 255, 255);
-    }
-    delay(50);
-  }
-  for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
-  {
-    for (uint8_t j = 0; j < 64; j++)
-    {
-      dma_display->drawPixelRGB888(i, j, 0, 0, 0);
-    }
-    delay(50);
-  }
-  for (uint8_t j = 0; j < 64; j++)
-  {
     for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
     {
-      dma_display->drawPixelRGB888(i, j, 255, 255, 255);
+        for (uint8_t j = 0; j < 64; j++)
+        {
+            dma_display->drawPixelRGB888(i, j, 255, 255, 255);
+        }
+        delay(50);
     }
-    delay(50);
-  }
-  for (uint8_t j = 0; j < 64; j++)
-  {
     for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
     {
-      dma_display->drawPixelRGB888(i, j, 0, 0, 0);
+        for (uint8_t j = 0; j < 64; j++)
+        {
+            dma_display->drawPixelRGB888(i, j, 0, 0, 0);
+        }
+        delay(50);
     }
-    delay(50);
-  }
+    for (uint8_t j = 0; j < 64; j++)
+    {
+        for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
+        {
+            dma_display->drawPixelRGB888(i, j, 255, 255, 255);
+        }
+        delay(50);
+    }
+    for (uint8_t j = 0; j < 64; j++)
+    {
+        for (uint8_t i = 0; i < 64 * PANELS_NUMBER; i++)
+        {
+            dma_display->drawPixelRGB888(i, j, 0, 0, 0);
+        }
+        delay(50);
+    }
 }
 
 // Task to check for updates
@@ -655,34 +682,36 @@ void Cube::checkForUpdates()
     for (;;)
     {
         HTTPClient http;
-        WiFiClientSecure client;
-        client.setCACertBundle(rootca_crt_bundle_start);
+        NetworkClientSecure client;
+        client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
 
         String firmwareUrl = "";
-        ESP_LOGI(__func__,"Branch = %s", this->cubePrefs.development ? "development" : "main");
+        ESP_LOGI(__func__, "Branch = %s", this->cubePrefs.development ? "development" : "main");
 #ifdef CONFIG_IDF_TARGET_ESP32S3
         String boardFile = "/esp32s3.bin";
 #else
         String boardFile = "/esp32.bin";
 #endif
-        if(this->cubePrefs.development) {
+        if (this->cubePrefs.development)
+        {
             // https://api.github.com/repos/elliotmatson/LED_Cube/releases
             String jsonUrl = String("https://api.github.com/repos/") + REPO_URL + String("/releases");
-            ESP_LOGI(__func__,"%s", jsonUrl.c_str());
+            ESP_LOGI(__func__, "%s", jsonUrl.c_str());
             http.useHTTP10(true);
-            if (http.begin(client, jsonUrl)) {
-                SpiRamJsonDocument filter(200);
+            if (http.begin(client, jsonUrl))
+            {
+                JsonDocument filter(spiRamAllocator());
                 filter[0]["name"] = true;
                 filter[0]["prerelease"] = true;
                 filter[0]["assets"] = true;
                 filter[0]["published_at"] = true;
                 http.GET();
-                SpiRamJsonDocument doc(4096);
+                JsonDocument doc(spiRamAllocator());
                 deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
                 JsonArray releases = doc.as<JsonArray>();
                 int newestPrereleaseIndex = -1;
                 String newestPrereleaseDate = "";
-                for (int i=0; i<releases.size(); i++)
+                for (int i = 0; i < releases.size(); i++)
                 {
                     JsonObject release = releases[i].as<JsonObject>();
                     if (release["prerelease"].as<bool>() && release["published_at"].as<String>() > newestPrereleaseDate)
@@ -692,26 +721,29 @@ void Cube::checkForUpdates()
                     }
                 }
                 JsonObject newestPrerelease = releases[newestPrereleaseIndex].as<JsonObject>();
-                ESP_LOGI(__func__,"Newest Prerelease: %s  date:%s", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
+                ESP_LOGI(__func__, "Newest Prerelease: %s  date:%s", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
                 // https://github.com/elliotmatson/LED_Cube/releases/download/v0.2.3/esp32.bin
                 firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/download/") + newestPrerelease["name"].as<String>() + boardFile;
                 http.end();
             }
-        } else {
+        }
+        else
+        {
             firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/") + boardFile;
         }
-        ESP_LOGI(__func__,"%s", firmwareUrl.c_str());
+        ESP_LOGI(__func__, "%s", firmwareUrl.c_str());
 
-        if (http.begin(client, firmwareUrl) && firmwareUrl != "") {
+        if (http.begin(client, firmwareUrl) && firmwareUrl != "")
+        {
             int httpCode = http.sendRequest("HEAD");
             if (httpCode < 300 || httpCode > 400 || (http.getLocation().indexOf(String(FW_VERSION)) > 0) || (firmwareUrl.indexOf(String(FW_VERSION)) > 0))
             {
-                ESP_LOGI(__func__,"Not updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
+                ESP_LOGI(__func__, "Not updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
                 http.end();
             }
             else
             {
-                ESP_LOGI(__func__,"Updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
+                ESP_LOGI(__func__, "Updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
 
                 httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
                 t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
@@ -719,15 +751,15 @@ void Cube::checkForUpdates()
                 switch (ret)
                 {
                 case HTTP_UPDATE_FAILED:
-                    ESP_LOGE(__func__,"Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+                    ESP_LOGE(__func__, "Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
                     break;
 
                 case HTTP_UPDATE_NO_UPDATES:
-                    ESP_LOGI(__func__,"No Update!");
+                    ESP_LOGI(__func__, "No Update!");
                     break;
 
                 case HTTP_UPDATE_OK:
-                    ESP_LOGI(__func__,"Update OK!");
+                    ESP_LOGI(__func__, "Update OK!");
                     break;
                 }
             }
@@ -748,7 +780,8 @@ void Cube::checkForOTA()
 
 void Cube::printMem()
 {
-    for (;;) {
+    for (;;)
+    {
         ESP_LOGI(__func__, "Free Heap: %d / %d, Used PSRAM: %d / %d", ESP.getFreeHeap(), ESP.getHeapSize(), heap_caps_get_total_size(MALLOC_CAP_SPIRAM) - heap_caps_get_free_size(MALLOC_CAP_SPIRAM), heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
         ESP_LOGI(__func__, "Largest free block in Heap: %d, PSRAM: %d", ESP.getMaxAllocHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
         /*char *buf = new char[2048];

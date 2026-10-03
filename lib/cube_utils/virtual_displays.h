@@ -36,7 +36,8 @@ public:
             _panel = panel;
         }
 
-        if (rotate < 4){
+        if (rotate < 4)
+        {
             _rotate = rotate;
         }
 
@@ -53,7 +54,6 @@ public:
 
     uint16_t color444(uint8_t r, uint8_t g, uint8_t b) { return display->color444(r, g, b); }
     uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return display->color565(r, g, b); }
-    uint16_t color333(uint8_t r, uint8_t g, uint8_t b) { return display->color333(r, g, b); }
 
     void flipDMABuffer() { display->flipDMABuffer(); }
     void setRotation(int rotate);
@@ -88,22 +88,23 @@ inline VirtualCoords SinglePanel::getCoords(int16_t &x, int16_t &y)
 
     // Do we want to rotate?
     int16_t temp_x = x;
-    switch(_rotate) {
-        case 1:
-            // 90 degrees
-            x = y;
-            y = virtualResY - 1 - temp_x;
-            break;
-        case 2:
-            // 180 degrees
-            x = virtualResX - 1 - x;
-            y = virtualResY - 1 - y;
-            break;
-        case 3:
-            // 270 degrees
-            x = virtualResX - 1 - y;
-            y = temp_x;
-            break;
+    switch (_rotate)
+    {
+    case 1:
+        // 90 degrees
+        x = y;
+        y = virtualResY - 1 - temp_x;
+        break;
+    case 2:
+        // 180 degrees
+        x = virtualResX - 1 - x;
+        y = virtualResY - 1 - y;
+        break;
+    case 3:
+        // 270 degrees
+        x = virtualResX - 1 - y;
+        y = temp_x;
+        break;
     }
 
     if (x < 0 || x >= virtualResX || y < 0 || y >= virtualResY)
@@ -180,42 +181,44 @@ inline void SinglePanel::fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b)
 inline void SinglePanel::drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t r, uint8_t g, uint8_t b)
 {
 #ifdef SPIRAM_FRAMEBUFFER
-    switch (_rotate) {
-        case 1:
-            // 90 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + y, virtualResY - 1 - x - w + 1, w, this->display->color565(r, g, b));
-            break;
-        case 2:
-            // 180 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - x - w + 1, virtualResY - 1 - y, w, this->display->color565(r, g, b));
-            break;
-        case 3:
-            // 270 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - y, x, w, this->display->color565(r, g, b));
-            break;
-        default:
-            // 0 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + x, y, w, this->display->color565(r, g, b));
-            break;
+    switch (_rotate)
+    {
+    case 1:
+        // 90 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + y, virtualResY - 1 - x - w + 1, w, this->display->color565(r, g, b));
+        break;
+    case 2:
+        // 180 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - x - w + 1, virtualResY - 1 - y, w, this->display->color565(r, g, b));
+        break;
+    case 3:
+        // 270 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - y, x, w, this->display->color565(r, g, b));
+        break;
+    default:
+        // 0 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + x, y, w, this->display->color565(r, g, b));
+        break;
     }
 #else
-    switch(_rotate) {
-        case 1:
-            // 90 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + y, virtualResY - 1 - x - w + 1, w, r, g, b);
-            break;
-        case 2:
-            // 180 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - x - w + 1, virtualResY - 1 - y, w, r, g, b);
-            break;
-        case 3:
-            // 270 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - y, x, w, r, g, b);
-            break;
-        default:
-            // 0 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + x, y, w, r, g, b);
-            break;
+    switch (_rotate)
+    {
+    case 1:
+        // 90 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + y, virtualResY - 1 - x - w + 1, w, r, g, b);
+        break;
+    case 2:
+        // 180 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - x - w + 1, virtualResY - 1 - y, w, r, g, b);
+        break;
+    case 3:
+        // 270 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - y, x, w, r, g, b);
+        break;
+    default:
+        // 0 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + x, y, w, r, g, b);
+        break;
     }
 #endif
 }
@@ -242,42 +245,44 @@ inline void SinglePanel::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t
 inline void SinglePanel::drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b)
 {
 #ifdef SPIRAM_FRAMEBUFFER
-    switch (_rotate) {
-        case 1:
-            // 90 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + y, virtualResX - 1 - x, h, this->display->color565(r, g, b));
-            break;
-        case 2:
-            // 180 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - x, virtualResY - 1 - y - h + 1, h, this->display->color565(r, g, b));
-            break;
-        case 3:
-            // 270 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - y - h + 1, x, h, this->display->color565(r, g, b));
-            break;
-        default:
-            // 0 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + x, y, h, this->display->color565(r, g, b));
-            break;
+    switch (_rotate)
+    {
+    case 1:
+        // 90 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + y, virtualResX - 1 - x, h, this->display->color565(r, g, b));
+        break;
+    case 2:
+        // 180 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - x, virtualResY - 1 - y - h + 1, h, this->display->color565(r, g, b));
+        break;
+    case 3:
+        // 270 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - y - h + 1, x, h, this->display->color565(r, g, b));
+        break;
+    default:
+        // 0 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + x, y, h, this->display->color565(r, g, b));
+        break;
     }
 #else
-    switch (_rotate) {
-        case 1:
-            // 90 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + y, virtualResX - 1 - x, h, r, g, b);
-            break;
-        case 2:
-            // 180 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - x, virtualResY - 1 - y - h + 1, h, r, g, b);
-            break;
-        case 3:
-            // 270 degrees
-            this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - y - h + 1, x, h, r, g, b);
-            break;
-        default:
-            // 0 degrees
-            this->display->drawFastVLine((_panel * virtualResX) + x, y, h, r, g, b);
-            break;
+    switch (_rotate)
+    {
+    case 1:
+        // 90 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + y, virtualResX - 1 - x, h, r, g, b);
+        break;
+    case 2:
+        // 180 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - x, virtualResY - 1 - y - h + 1, h, r, g, b);
+        break;
+    case 3:
+        // 270 degrees
+        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - y - h + 1, x, h, r, g, b);
+        break;
+    default:
+        // 0 degrees
+        this->display->drawFastVLine((_panel * virtualResX) + x, y, h, r, g, b);
+        break;
     }
 #endif
 }
@@ -409,7 +414,6 @@ public:
 
     uint16_t color444(uint8_t r, uint8_t g, uint8_t b) { return display->color444(r, g, b); }
     uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return display->color565(r, g, b); }
-    uint16_t color333(uint8_t r, uint8_t g, uint8_t b) { return display->color333(r, g, b); }
 
     void flipDMABuffer() { display->flipDMABuffer(); }
     void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);

@@ -130,7 +130,7 @@ int Spotify::setupCredentials()
 
     // Initialize Spotify Library
     ESP_LOGI(__func__, "Setting up Spotify Library");
-    client.setCACertBundle(rootca_crt_bundle_start);
+    client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
     spotify->lateInit(spotifyID, spotifySecret);
 
     if (spotifyPrefs.getString("SPOTIFY_TOKEN", "").equals(""))

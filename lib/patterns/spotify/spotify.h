@@ -29,6 +29,7 @@
 
 // get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
+extern const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
 
 enum PatternStatus
 {
@@ -62,7 +63,7 @@ private:
   SinglePanel *panel0;
   SinglePanel *panel1;
   SinglePanel *panel2;
-  WiFiClientSecure client;
+  NetworkClientSecure client;
   SpotifyArduino *spotify;
   Preferences spotifyPrefs;
 

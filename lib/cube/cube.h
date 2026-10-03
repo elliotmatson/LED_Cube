@@ -34,6 +34,8 @@
 
 #include "config.h"
 #include "settings.h"
+#include "renderer.h"
+#include "updates.h"
 #include "timezones.h"
 #include "cube_utils.h"
 #include "all_patterns.h"
@@ -41,17 +43,6 @@
 #if __has_include("secrets.h")
 #include "secrets.h"
 #endif
-
-// get ESP-IDF Certificate Bundle
-extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
-extern const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
-
-// Partition struct for verifying firmware is intended for cube
-struct CubePartition
-{
-    char cookie[32];
-    char reserved[224]; // Reserved for future use, total of 256 bytes
-};
 
 class Cube
 {
@@ -66,47 +57,13 @@ private:
     AsyncWebServer server;
     WiFiManager wifiManager;
     Settings settings;
-    Canvas canvas;
-    // Owned by the render task once it starts: only renderLoop() changes it.
-    Pattern *currentPattern = nullptr;
-    PatternServices patternServices;
-
-    // Requests to the render task. Dashboard handlers run in the AsyncTCP
-    // task and must not block it, so they only post here.
-    struct RenderCommand
-    {
-        enum Type : uint8_t
-        {
-            SWITCH, // to patternList[index]
-            STOP,   // end the pattern, stop rendering, then give renderAck
-            RESUME, // begin the current pattern again after a STOP
-        } type;
-        size_t index;
-    };
-    QueueHandle_t renderCommands = nullptr;
-    SemaphoreHandle_t renderAck = nullptr;
-    SemaphoreHandle_t stopCallers = nullptr; // one stopPattern() at a time
-
-    // Render timing over the last stats window, for /api/v1/stats. Written by
-    // the render task, read by the API under statsMux.
-    struct RenderStats
-    {
-        char pattern[24] = "";
-        uint32_t frames = 0;
-        uint32_t windowMs = 0;
-        uint32_t tickAvgUs = 0, tickMaxUs = 0;
-        uint32_t pushAvgUs = 0, pushMaxUs = 0;
-    } renderStats;
-    portMUX_TYPE statsMux = portMUX_INITIALIZER_UNLOCKED;
+    Renderer renderer;
     std::unordered_map<std::string, Pattern *> patterns;
     std::vector<std::string> patternButtonLabels;
 
     // Variables
     String serial;
     bool wifiReady;
-    // The upload that owns the Update object, or null. Set only after its
-    // image passed checkFirmwareImage() and Update.begin() succeeded.
-    AsyncWebServerRequest *updateRequest = nullptr;
 
     // UI Components
     ESPDash dashboard;
@@ -122,16 +79,12 @@ private:
     dash::PushButtonCard resetWifiButton;
     dash::PushButtonCard crashMe;
     dash::DropdownCard<> timezoneDropdown;
-    dash::FileUploadCard<> firmwareUploadCard;
-    dash::FeedbackCard<> firmwareUploadStatus;
+    Updates updates; // owns the firmware upload cards
     dash::Tab systemTab;
     dash::Tab developerTab;
 
     // FreeRTOS Tasks
-    TaskHandle_t checkForUpdatesTask = nullptr;
-    TaskHandle_t checkForOTATask = nullptr;
     TaskHandle_t printMemTask = nullptr;
-    TaskHandle_t renderTask = nullptr;
 
     // Functions
     void showDebug();
@@ -140,23 +93,12 @@ private:
     void setBrightness(uint8_t brightness);
     uint8_t getBrightness();
     void setDevelopment(bool development);
-    void setOTA(bool ota);
-    void setGHUpdate(bool github);
     void setSignedFWOnly(bool signedFWOnly);
-    void initUpdates();
     bool initDisplay();
     bool initWifi();
     void initUI();
     void initAPI();
-    void initFirmwareUpload();
-    void checkForUpdates();
-    bool findFirmwareRelease(String &tag, String &firmwareUrl);
-    void checkForOTA();
     void printMem();
-    void stopPattern();
-    void resumePattern();
-    void requestPattern(size_t index);
-    void renderLoop();
     const timezones::Zone &currentTimezone();
 };
 

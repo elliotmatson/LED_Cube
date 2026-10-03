@@ -1,7 +1,5 @@
 #include "cube.h"
 
-// for signing FW on Github
-const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartition = {CUBE_MAGIC_COOKIE};
 
 // Create a new Cube object with optional devMode
 Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
@@ -21,8 +19,7 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                resetWifiButton(dashboard, "Reset Wifi"),
                crashMe(dashboard, "Crash Cube"),
                timezoneDropdown(dashboard, "Time Zone", timezones::dropdownOptions()),
-               firmwareUploadCard(dashboard, "Update Firmware", ".bin"),
-               firmwareUploadStatus(dashboard, "Update Status", dash::Status::NONE),
+               updates(dashboard),
                systemTab(dashboard, "System"),
                developerTab(dashboard, "Development")
 {
@@ -57,25 +54,18 @@ void Cube::init()
     showDebug();
     delay(5000);
 
-    // Set up pattern services
-    if (!canvas.begin())
-    {
-        ESP_LOGE(__func__, "No PSRAM for the canvas");
-    }
-    patternServices.display = &canvas;
-    patternServices.server = &server;
+    renderer.begin(dma_display, &server, [this](Pattern *pattern)
+                   {
+        settings.setPattern(pattern->getId());
+        dashboard.sendUpdates(); });
 
     initAPI();
-    initFirmwareUpload();
     initUI();
-    initUpdates();
+    updates.begin(server, dma_display, settings, renderer, systemTab);
 
     leds.setPixelColor(3, 0, 255, 0);
     leds.show();
 
-    renderCommands = xQueueCreate(4, sizeof(RenderCommand));
-    renderAck = xSemaphoreCreateBinary();
-    stopCallers = xSemaphoreCreateMutex();
 
     // make unordered map of patterns from the patterns list array
     // reserve capacity up front so push_back never reallocates: dash::Component only stores an
@@ -91,7 +81,7 @@ void Cube::init()
         card->onPush([this, name, i]()
                      {
                         ESP_LOGI("Cube", "Pattern requested: %s", name.c_str());
-                        this->requestPattern(i); });
+                        this->renderer.requestPattern(i); });
         // ESP-DASH sorts cards by index, and a Widget's index is not
         // initialized: cards allocated here got heap garbage and came up in a
         // different order every boot. After the brightness slider (index 0).
@@ -140,18 +130,7 @@ void Cube::init()
         }
     }
 
-    // Core 1, away from WiFi and AsyncTCP on core 0. Above the update and
-    // pattern worker tasks (1), below the network stack.
-    xTaskCreatePinnedToCore(
-        [](void *o)
-        { static_cast<Cube *>(o)->renderLoop(); },
-        "Render",
-        8192,
-        this,
-        3,
-        &renderTask,
-        1);
-    requestPattern(startIndex);
+    renderer.requestPattern(startIndex);
 
     // Startup got this far, so the image works: stop the bootloader rolling
     // it back (see verifyRollbackLater() in main.cpp). A no-op unless this is
@@ -159,171 +138,11 @@ void Cube::init()
     esp_ota_mark_app_valid_cancel_rollback();
 }
 
-/**
- * Asks the render task to switch to patternList[index]. Returns at once, so
- * it is safe from AsyncTCP callbacks.
- */
-void Cube::requestPattern(size_t index)
-{
-    if (index < std::size(patternList))
-    {
-        RenderCommand cmd{RenderCommand::SWITCH, index};
-        xQueueSend(renderCommands, &cmd, 0);
-    }
-}
-
-/**
- * Ends the running pattern and stops rendering, and returns once that has
- * happened -- so the caller can draw on the panels directly (update
- * progress). Calling it again is a no-op. Not from the render task.
- */
-void Cube::stopPattern()
-{
-    if (renderTask == nullptr || xTaskGetCurrentTaskHandle() == renderTask)
-    {
-        return;
-    }
-    xSemaphoreTake(stopCallers, portMAX_DELAY);
-    RenderCommand cmd{RenderCommand::STOP, 0};
-    xQueueSend(renderCommands, &cmd, portMAX_DELAY);
-    xSemaphoreTake(renderAck, portMAX_DELAY);
-    xSemaphoreGive(stopCallers);
-}
-
-/**
- * Starts the current pattern again after stopPattern(), e.g. when an update
- * fails. A no-op if one is running.
- */
-void Cube::resumePattern()
-{
-    RenderCommand cmd{RenderCommand::RESUME, 0};
-    xQueueSend(renderCommands, &cmd, 0);
-}
-
-/**
- * The render task: the only place patterns are begun, ticked and ended, and
- * the only writer of the HUB75 buffer while a pattern runs. Each frame is the
- * pattern's tick() into the canvas, then a push of the changed rows.
- */
-void Cube::renderLoop()
-{
-    bool running = false;
-    uint32_t nextFrame = 0;
-    // Frame timing, logged every STATS_INTERVAL_MS for tuning.
-    const uint32_t STATS_INTERVAL_MS = 10000;
-    uint32_t statsStart = millis();
-    uint32_t frames = 0;
-    uint64_t tickTotalUs = 0, pushTotalUs = 0;
-    uint32_t tickMaxUs = 0, pushMaxUs = 0;
-
-    for (;;)
-    {
-        TickType_t wait = portMAX_DELAY;
-        if (running)
-        {
-            int32_t remaining = int32_t(nextFrame - millis());
-            wait = remaining > 0 ? pdMS_TO_TICKS(remaining) : 0;
-        }
-
-        RenderCommand cmd;
-        if (xQueueReceive(renderCommands, &cmd, wait) == pdTRUE)
-        {
-            switch (cmd.type)
-            {
-            case RenderCommand::SWITCH:
-                if (running)
-                {
-                    currentPattern->end();
-                }
-                currentPattern = patternList[cmd.index];
-                ESP_LOGI("Cube", "Starting pattern %s", currentPattern->getName().c_str());
-                canvas.fillScreen(0);
-                currentPattern->begin(&patternServices);
-                running = true;
-                nextFrame = millis();
-                settings.setPattern(currentPattern->getId());
-                dashboard.sendUpdates();
-                break;
-            case RenderCommand::STOP:
-                if (running)
-                {
-                    currentPattern->end();
-                    running = false;
-                }
-                xSemaphoreGive(renderAck);
-                break;
-            case RenderCommand::RESUME:
-                if (!running && currentPattern)
-                {
-                    // Whatever was drawn on the panels directly is about to
-                    // be covered: start from a clean frame.
-                    canvas.fillScreen(0);
-                    currentPattern->begin(&patternServices);
-                    running = true;
-                    nextFrame = millis();
-                }
-                break;
-            }
-            continue;
-        }
-
-        // A frame is due.
-        uint32_t t0 = micros();
-        currentPattern->tick();
-        uint32_t t1 = micros();
-        canvas.push(*dma_display);
-        uint32_t t2 = micros();
-
-        frames++;
-        tickTotalUs += t1 - t0;
-        pushTotalUs += t2 - t1;
-        tickMaxUs = max(tickMaxUs, t1 - t0);
-        pushMaxUs = max(pushMaxUs, t2 - t1);
-        if (millis() - statsStart >= STATS_INTERVAL_MS)
-        {
-            RenderStats latest;
-            strlcpy(latest.pattern, currentPattern->getName().c_str(), sizeof(latest.pattern));
-            latest.frames = frames;
-            latest.windowMs = millis() - statsStart;
-            latest.tickAvgUs = tickTotalUs / frames;
-            latest.tickMaxUs = tickMaxUs;
-            latest.pushAvgUs = pushTotalUs / frames;
-            latest.pushMaxUs = pushMaxUs;
-            portENTER_CRITICAL(&statsMux);
-            renderStats = latest;
-            portEXIT_CRITICAL(&statsMux);
-            ESP_LOGD("Render", "%s: %u frames in %u s, tick avg %llu us max %u us, push avg %llu us max %u us",
-                     currentPattern->getName().c_str(), frames, (millis() - statsStart) / 1000,
-                     tickTotalUs / frames, tickMaxUs, pushTotalUs / frames, pushMaxUs);
-            statsStart = millis();
-            frames = 0;
-            tickTotalUs = pushTotalUs = 0;
-            tickMaxUs = pushMaxUs = 0;
-        }
-
-        nextFrame += currentPattern->frameInterval();
-        if (int32_t(millis() - nextFrame) >= 0)
-        {
-            // Overran: start the next frame now rather than catching up, but
-            // yield first so the idle task on this core still runs.
-            nextFrame = millis();
-            vTaskDelay(1);
-        }
-    }
-}
-
 /// The saved time zone, or the default if none is saved or it is unknown.
 const timezones::Zone &Cube::currentTimezone()
 {
     const timezones::Zone *zone = timezones::find(settings.timezone().c_str());
     return zone ? *zone : timezones::DEFAULT_ZONE;
-}
-
-// Initialize update methods, setup check tasks
-void Cube::initUpdates()
-{
-    this->setOTA(settings.ota());
-    this->setGHUpdate(settings.github());
 }
 
 // Initialize display driver
@@ -434,7 +253,7 @@ void Cube::initUI()
 
     this->otaToggle.onChange([&](bool state)
                                    {
-            this->setOTA(state);
+            updates.setOta(state);
             this->otaToggle.setValue(state);
             this->dashboard.sendUpdates(); });
     this->developmentToggle.onChange([&](bool state)
@@ -444,7 +263,7 @@ void Cube::initUI()
             this->dashboard.sendUpdates(); });
     this->GHUpdateToggle.onChange([&](bool state)
                                         {
-            this->setGHUpdate(state);
+            updates.setGithub(state);
             this->GHUpdateToggle.setValue(state);
             this->dashboard.sendUpdates(); });
     this->signedFWOnlyToggle.onChange([&](bool state)
@@ -516,193 +335,13 @@ void Cube::initUI()
     this->GHUpdateToggle.setTab(developerTab);
     this->signedFWOnlyToggle.setTab(developerTab);
     this->crashMe.setTab(developerTab);
-    this->firmwareUploadCard.setTab(systemTab);
-    this->firmwareUploadStatus.setTab(systemTab);
-    // The card's value is where its frontend POSTs the file, as multipart
-    // field "file"; its progress ring follows the response status.
-    this->firmwareUploadCard.setValue(FIRMWARE_UPLOAD_ROUTE);
+
     this->latchSlider.setTab(developerTab);
     this->use20MHzToggle.setTab(developerTab);
 
     dashboard.sendUpdates();
 
     MDNS.addService("http", "tcp", 80);
-}
-
-// What an upload must contain before any of it is written: the image header,
-// the first segment header, the app descriptor, and the cube descriptor that
-// follows it in the same segment (see cubePartition above).
-static constexpr size_t IMAGE_CHECK_BYTES = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) +
-                                            sizeof(esp_app_desc_t) + sizeof(CubePartition);
-
-/**
- * Decides whether an upload is firmware this cube can boot, from its first
- * chunk. Arduino's Update checks only the 0xE9 magic, which every ESP image
- * (and the bootloader at the front of a -factory image) has.
- *
- * @return null if the image is acceptable, otherwise why not.
- */
-static const char *checkFirmwareImage(const uint8_t *data, size_t len, bool requireCubeSignature)
-{
-    // Real clients send ~1.4 KB chunks, so this only rejects a truncated upload.
-    if (len < IMAGE_CHECK_BYTES)
-    {
-        return "Too short to be a firmware image";
-    }
-    esp_image_header_t header;
-    memcpy(&header, data, sizeof(header));
-    if (header.magic != ESP_IMAGE_HEADER_MAGIC)
-    {
-        return "Not a firmware image";
-    }
-    if (header.chip_id != CONFIG_IDF_FIRMWARE_CHIP_ID)
-    {
-        return "Built for a different chip";
-    }
-    size_t offset = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
-    esp_app_desc_t desc;
-    memcpy(&desc, data + offset, sizeof(desc));
-    if (desc.magic_word != ESP_APP_DESC_MAGIC_WORD)
-    {
-        // A -factory image starts with the bootloader, which has no app descriptor.
-        return "Not an application image (use the .bin without -factory)";
-    }
-    // Compared with the running image rather than a literal, so renaming the
-    // project cannot silently start rejecting (or accepting) the wrong thing.
-    if (strncmp(desc.project_name, esp_app_get_description()->project_name, sizeof(desc.project_name)) != 0)
-    {
-        return "Not LED Cube firmware";
-    }
-    if (requireCubeSignature)
-    {
-        CubePartition uploaded;
-        memcpy(&uploaded, data + offset + sizeof(desc), sizeof(uploaded));
-        if (strncmp(uploaded.cookie, cubePartition.cookie, sizeof(uploaded.cookie)) != 0)
-        {
-            return "Missing the cube firmware signature";
-        }
-    }
-    return nullptr;
-}
-
-/**
- * Serves the dashboard's firmware upload card. The image is streamed straight
- * into the inactive OTA partition as each chunk arrives; the cube restarts into
- * it once Update.end() has checked it and marked it bootable.
- */
-void Cube::initFirmwareUpload()
-{
-    server.on(
-        FIRMWARE_UPLOAD_ROUTE, HTTP_POST,
-        [this](AsyncWebServerRequest *request)
-        {
-            if (updateRequest != request)
-            {
-                // Rejected while the body arrived -- that send() only queued
-                // the response, so isSent() is still false here and the queued
-                // one must not be replaced -- or a POST with no file at all.
-                if (request->getResponse() == nullptr)
-                {
-                    request->send(400, "text/plain", "No firmware file in the request");
-                }
-                return;
-            }
-            updateRequest = nullptr;
-
-            // end(true) verifies the image and sets the boot partition.
-            if (!Update.end(true))
-            {
-                ESP_LOGE(__func__, "Update.end failed: %s", Update.errorString());
-                firmwareUploadStatus.setFeedback(Update.errorString(), dash::Status::DANGER);
-                dashboard.sendUpdates();
-                request->send(400, "text/plain", Update.errorString());
-                return;
-            }
-
-            ESP_LOGI(__func__, "Firmware update staged, restarting");
-            firmwareUploadStatus.setFeedback("Update complete - restarting", dash::Status::SUCCESS);
-            dashboard.sendUpdates();
-            AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "Update complete, restarting");
-            response->addHeader("Connection", "close");
-            request->send(response);
-            settings.flush();
-            // Long enough for the response and the dashboard update to go out.
-            xTaskCreate(
-                [](void *)
-                {
-                    vTaskDelay(pdMS_TO_TICKS(1500));
-                    ESP.restart();
-                },
-                "Restart", 2048, nullptr, 1, nullptr);
-        },
-        [this](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
-        {
-            if (index == 0)
-            {
-                ESP_LOGI(__func__, "Firmware upload starting: %s", filename.c_str());
-                if (updateRequest != nullptr)
-                {
-                    request->send(409, "text/plain", "An update is already in progress");
-                    return;
-                }
-                if (!filename.endsWith(".bin"))
-                {
-                    request->send(400, "text/plain", "Only .bin files are accepted");
-                    return;
-                }
-                const char *problem = checkFirmwareImage(data, len, settings.signedFirmwareOnly());
-                if (problem)
-                {
-                    ESP_LOGE(__func__, "Rejecting %s: %s", filename.c_str(), problem);
-                    firmwareUploadStatus.setFeedback(problem, dash::Status::WARNING);
-                    dashboard.sendUpdates();
-                    request->send(400, "text/plain", problem);
-                    return;
-                }
-                // UPDATE_SIZE_UNKNOWN: contentLength() includes the multipart
-                // framing and overstates the image.
-                if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH))
-                {
-                    ESP_LOGE(__func__, "Update.begin failed: %s", Update.errorString());
-                    request->send(500, "text/plain", Update.errorString());
-                    return;
-                }
-                updateRequest = request;
-                // A client that leaves mid-upload never reaches the completion
-                // handler; without this the update would stay owned by a dead
-                // request and every later upload would get a 409.
-                request->onDisconnect([this, request]()
-                                      {
-                    if (updateRequest == request)
-                    {
-                        ESP_LOGW(__func__, "Firmware upload disconnected, aborting");
-                        Update.abort();
-                        updateRequest = nullptr;
-                        firmwareUploadStatus.setFeedback("Upload interrupted - firmware unchanged", dash::Status::WARNING);
-                        dashboard.sendUpdates();
-                    } });
-                firmwareUploadStatus.setFeedback("Receiving firmware...", dash::Status::INFO);
-                dashboard.sendUpdates();
-            }
-            if (updateRequest != request)
-            {
-                return; // rejected above, or another upload owns Update
-            }
-            if (len > 0 && Update.write(data, len) != len)
-            {
-                ESP_LOGE(__func__, "Update.write failed: %s", Update.errorString());
-                firmwareUploadStatus.setFeedback(Update.errorString(), dash::Status::DANGER);
-                dashboard.sendUpdates();
-                Update.abort();
-                updateRequest = nullptr;
-                request->send(400, "text/plain", Update.errorString());
-                return;
-            }
-            if (final)
-            {
-                ESP_LOGI(__func__, "Firmware upload received: %u bytes", (unsigned)(index + len));
-            }
-        });
 }
 
 /**
@@ -751,10 +390,7 @@ void Cube::initAPI()
     sprintf(uri, "%s/v1/stats", API_ENDPOINT);
     server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
               {
-        RenderStats s;
-        portENTER_CRITICAL(&statsMux);
-        s = renderStats;
-        portEXIT_CRITICAL(&statsMux);
+        Renderer::Stats s = renderer.stats();
         char localTime[32] = "unset";
         struct tm now;
         if (getLocalTime(&now, 0))
@@ -790,196 +426,6 @@ void Cube::setBrightness(uint8_t brightness)
 uint8_t Cube::getBrightness()
 {
     return settings.brightness();
-}
-
-// set OTA enabled/disabled
-void Cube::setOTA(bool ota)
-{
-    settings.setOta(ota);
-    if (ota)
-    {
-        ESP_LOGI(__func__, "Starting OTA");
-        ArduinoOTA.setHostname(HOSTNAME);
-        ArduinoOTA
-            .onStart([&]()
-                     {
-                    String type;
-                    if (ArduinoOTA.getCommand() == U_FLASH)
-                        type = "sketch";
-                    else // U_SPIFFS
-                        type = "filesystem";
-
-                    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-                    ESP_LOGI(__func__,"Start updating %s", type.c_str());
-                    stopPattern();
-                    dma_display->fillScreenRGB888(0, 0, 0);
-                    dma_display->setFont(NULL);
-                    dma_display->setCursor(6, 21);
-                    dma_display->setTextColor(0xFFFF);
-                    dma_display->setTextSize(3);
-                    dma_display->print("OTA"); })
-            .onEnd([&]()
-                   {
-                    ESP_LOGI(__func__,"End"); 
-                    settings.flush();
-                    for(int i = getBrightness(); i > 0; i=i-3) {
-                        dma_display->setBrightness8(max(i, 0));
-                    } })
-            .onProgress([&](unsigned int progress, unsigned int total)
-                        { 
-                    ESP_LOGI(__func__,"Progress: %u%%\r", total ? (progress * 100) / total : 0);
-
-                    if (settings.signedFirmwareOnly() && progress == total)
-                    {
-                        CubePartition newCubePartition;
-                        esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
-                        ESP_LOGI(__func__,"Checking for Cube FW Signature: \nNew:%s\nold:%s", newCubePartition.cookie, cubePartition.cookie);
-                        if (strncmp(newCubePartition.cookie, cubePartition.cookie, sizeof(cubePartition.cookie)))
-                            Update.abort();
-                    }
-
-                    int i = map(progress, 0, total, 0, 512);
-                    dma_display->drawFastHLine(128, 0, constrain(i, 0, 64), 0xFFFF);
-                    dma_display->drawFastVLine(191, 0, constrain(i - 64, 0, 64), 0xFFFF);
-
-                    dma_display->drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(0, 0, constrain(i - 192, 0, 64), 0xFFFF);
-
-                    dma_display->drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(64, 0, constrain(i - 320, 0, 64), 0xFFFF);
-
-                    dma_display->drawFastVLine(127, 0, constrain(i - 384, 0, 64), 0xFFFF);
-                    dma_display->drawFastVLine(128, 0, constrain(i - 384, 0, 64), 0xFFFF);
-
-                    dma_display->drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(128, 63, constrain(i - 448, 0, 64), 0xFFFF);
-                    dma_display->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
-                    dma_display->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF); })
-            .onError([&](ota_error_t error)
-                     {
-                    ESP_LOGE(__func__,"Error[%u]: ", error);
-                    if (error == OTA_AUTH_ERROR) ESP_LOGE(__func__,"Auth Failed");
-                    else if (error == OTA_BEGIN_ERROR) ESP_LOGE(__func__,"Begin Failed");
-                    else if (error == OTA_CONNECT_ERROR) ESP_LOGE(__func__,"Connect Failed");
-                    else if (error == OTA_RECEIVE_ERROR) ESP_LOGE(__func__,"Receive Failed");
-                    else if (error == OTA_END_ERROR) ESP_LOGE(__func__,"End Failed");
-                    // The pattern was stopped in onStart; nothing will reboot into
-                    // new firmware now, so bring it back.
-                    resumePattern(); });
-
-        if (checkForOTATask)
-        {
-            // Already running. begin() twice would start a second listener,
-            // and a second task would lose the first one's handle.
-            return;
-        }
-        ArduinoOTA.begin();
-
-        xTaskCreate(
-            [](void *o)
-            { static_cast<Cube *>(o)->checkForOTA(); }, // This is disgusting, but it works
-            "Check For OTA",                            // Name of the task (for debugging)
-            6000,                                       // Stack size (bytes)
-            this,                                       // Parameter to pass
-            5,                                          // Task priority
-            &checkForOTATask                            // Task handle
-        );
-    }
-    else
-    {
-        ESP_LOGI(__func__, "OTA Disabled");
-        if (checkForOTATask)
-        {
-            vTaskDelete(checkForOTATask);
-            checkForOTATask = nullptr;
-            ArduinoOTA.end();
-        }
-    }
-}
-
-/**
- * The function `setGHUpdate` enables or disables Github updates for a Cube object and performs
- * necessary actions based on the update status.
- *
- * @param github The parameter "github" is a boolean value that indicates whether GitHub updates are
- * enabled or disabled.
- */
-void Cube::setGHUpdate(bool github)
-{
-    settings.setGithub(github);
-    if (github)
-    {
-        ESP_LOGI(__func__, "Github Update enabled...");
-        httpUpdate.onStart([&]()
-                           {
-            ESP_LOGI(__func__,"Start updating");
-            stopPattern();
-            dma_display->fillScreenRGB888(0, 0, 0);
-            dma_display->setFont(NULL);
-            dma_display->setCursor(6, 21);
-            dma_display->setTextColor(0xFFFF);
-            dma_display->setTextSize(3);
-            dma_display->print("GHA"); });
-        httpUpdate.onEnd([&]()
-                         { 
-            ESP_LOGI(__func__,"End"); 
-            settings.flush();
-            for(int i = getBrightness(); i > 0; i=i-3) {
-                dma_display->setBrightness8(max(i, 0));
-            } });
-        httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
-                              { 
-            ESP_LOGI(__func__,"Progress: %u%%\r", total ? (progress * 100) / total : 0);
-
-            if (settings.signedFirmwareOnly() && progress == total)
-            {
-                CubePartition newCubePartition;
-                esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
-                ESP_LOGI(__func__,"Checking for Cube FW Signature: \nNew:%s\nold:%s", newCubePartition.cookie, cubePartition.cookie);
-                if (strncmp(newCubePartition.cookie, cubePartition.cookie, sizeof(cubePartition.cookie)))
-                    Update.abort();
-            }
-
-            int i = map(progress, 0, total, 0, 512);
-            dma_display->drawFastHLine(128, 0, constrain(i, 0, 64), 0xFFFF);
-            dma_display->drawFastVLine(191, 0, constrain(i - 64, 0, 64), 0xFFFF);
-
-            dma_display->drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(0, 0, constrain(i - 192, 0, 64), 0xFFFF);
-
-            dma_display->drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(64, 0, constrain(i - 320, 0, 64), 0xFFFF);
-
-            dma_display->drawFastVLine(127, 0, constrain(i - 384, 0, 64), 0xFFFF);
-            dma_display->drawFastVLine(128, 0, constrain(i - 384, 0, 64), 0xFFFF);
-
-            dma_display->drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(128, 63, constrain(i - 448, 0, 64), 0xFFFF);
-            dma_display->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
-            dma_display->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF); });
-        if (checkForUpdatesTask)
-        {
-            return; // already checking
-        }
-        xTaskCreate(
-            [](void *o)
-            { static_cast<Cube *>(o)->checkForUpdates(); }, // This is disgusting, but it works
-            "Check For Updates",                            // Name of the task (for debugging)
-            8000,                                           // Stack size (bytes)
-            this,                                           // Parameter to pass
-            5,                                              // Task priority
-            &checkForUpdatesTask                            // Task handle
-        );
-    }
-    else
-    {
-        ESP_LOGI(__func__, "Github Updates Disabled");
-        if (checkForUpdatesTask)
-        {
-            vTaskDelete(checkForUpdatesTask);
-            checkForUpdatesTask = nullptr;
-        }
-    }
 }
 
 // set dev mode
@@ -1096,170 +542,6 @@ void Cube::showTestSequence()
             dma_display->drawPixelRGB888(i, j, 0, 0, 0);
         }
         delay(50);
-    }
-}
-
-// Task to check for updates
-void Cube::checkForUpdates()
-{
-    for (;;)
-    {
-        String firmwareUrl;
-        String tag;
-        if (findFirmwareRelease(tag, firmwareUrl))
-        {
-            ESP_LOGI(__func__, "Updating %s -> %s from %s", FW_VERSION, tag.c_str(), firmwareUrl.c_str());
-            NetworkClientSecure client;
-            client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
-            // browser_download_url redirects to the release asset CDN.
-            httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-            t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
-
-            switch (ret)
-            {
-            case HTTP_UPDATE_FAILED:
-                ESP_LOGE(__func__, "Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-                // onStart may already have stopped the pattern.
-                resumePattern();
-                break;
-
-            case HTTP_UPDATE_NO_UPDATES:
-                ESP_LOGI(__func__, "No Update!");
-                break;
-
-            case HTTP_UPDATE_OK:
-                ESP_LOGI(__func__, "Update OK!");
-                break;
-            }
-        }
-        vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
-    }
-}
-
-/**
- * Finds the release the cube should be running and, if it is not the running
- * one, the URL of its application image.
- *
- * Releases are published by elliotmatson/pio-actions, which names the app
- * image `<env>-<tag>.bin`. That name carries the version, so the old
- * `/releases/latest/download/esp32s3.bin` shortcut cannot be used: the
- * release is looked up through the API and its asset matched by name.
- *
- * Stable cubes follow `/releases/latest`, which GitHub resolves to the newest
- * non-prerelease. Development cubes take the newest release of either kind.
- *
- * @param tag Set to the chosen release's tag.
- * @param firmwareUrl Set to the download URL of the image to install.
- * @return true only when there is an image to install. A tag that matches
- * FW_VERSION exactly, a local "DEV" build, or any failure along the way
- * returns false.
- */
-bool Cube::findFirmwareRelease(String &tag, String &firmwareUrl)
-{
-    // A build that did not come from CI has no version to compare, and every
-    // release would look newer than it. Overwriting it a minute after it was
-    // flashed is never what was wanted.
-    if (strcmp(FW_VERSION, "DEV") == 0)
-    {
-        ESP_LOGI(__func__, "Local build, not checking GitHub for updates");
-        return false;
-    }
-
-    const bool development = settings.development();
-    String apiUrl = String("https://api.github.com/repos/") + REPO_URL +
-                    (development ? "/releases?per_page=10" : "/releases/latest");
-    ESP_LOGI(__func__, "Checking %s", apiUrl.c_str());
-
-    NetworkClientSecure client;
-    client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
-    HTTPClient http;
-    http.useHTTP10(true); // no chunked encoding, so the body can be streamed into the parser
-    if (!http.begin(client, apiUrl))
-    {
-        ESP_LOGE(__func__, "Could not start request");
-        return false;
-    }
-    http.addHeader("Accept", "application/vnd.github+json");
-    int httpCode = http.GET();
-    if (httpCode != HTTP_CODE_OK)
-    {
-        // 404 from /releases/latest just means nothing has been published yet.
-        ESP_LOGW(__func__, "GitHub returned %d", httpCode);
-        http.end();
-        return false;
-    }
-
-    // Only what is used below; a release's JSON is several KB per asset otherwise.
-    JsonDocument filter(spiRamAllocator());
-    JsonObject releaseFilter = development ? filter[0].to<JsonObject>() : filter.to<JsonObject>();
-    releaseFilter["tag_name"] = true;
-    releaseFilter["draft"] = true;
-    releaseFilter["published_at"] = true;
-    releaseFilter["assets"][0]["name"] = true;
-    releaseFilter["assets"][0]["browser_download_url"] = true;
-
-    JsonDocument doc(spiRamAllocator());
-    DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
-    http.end();
-    if (err)
-    {
-        ESP_LOGE(__func__, "Could not parse release list: %s", err.c_str());
-        return false;
-    }
-
-    JsonObject release;
-    if (development)
-    {
-        // ISO 8601 timestamps in the same zone compare correctly as strings.
-        const char *newest = "";
-        for (JsonObject candidate : doc.as<JsonArray>())
-        {
-            const char *published = candidate["published_at"] | "";
-            if (!(candidate["draft"] | false) && strcmp(published, newest) > 0)
-            {
-                release = candidate;
-                newest = published;
-            }
-        }
-    }
-    else
-    {
-        release = doc.as<JsonObject>();
-    }
-    if (release.isNull() || !release["tag_name"].is<const char *>())
-    {
-        ESP_LOGW(__func__, "No release found");
-        return false;
-    }
-
-    tag = release["tag_name"].as<const char *>();
-    // Exact match: a substring test would treat v0.2.1 as already running v0.2.10.
-    if (tag == FW_VERSION)
-    {
-        ESP_LOGI(__func__, "Already running %s", FW_VERSION);
-        return false;
-    }
-
-    String assetName = String(FW_ENV) + "-" + tag + ".bin";
-    for (JsonObject asset : release["assets"].as<JsonArray>())
-    {
-        if (assetName == (asset["name"] | ""))
-        {
-            firmwareUrl = asset["browser_download_url"].as<const char *>();
-            return firmwareUrl.length() > 0;
-        }
-    }
-    ESP_LOGW(__func__, "Release %s has no %s", tag.c_str(), assetName.c_str());
-    return false;
-}
-
-// Task to handle OTA updates
-void Cube::checkForOTA()
-{
-    for (;;)
-    {
-        ArduinoOTA.handle();
-        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
 

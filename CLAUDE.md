@@ -51,11 +51,15 @@ and `SPOTIFY_CLIENT_SECRET` for local builds.
 
 ```
 src/main.cpp                 setup() calls Cube::init(); loop() deletes itself
-lib/cube/                    the Cube class: display, WiFi, prefs, dashboard, API, OTA, GitHub updates
+lib/cube/cube.*              Cube: startup, display, WiFi/time, dashboard cards, REST API
+lib/cube/renderer.*          the render task, canvas and pattern switching
+lib/cube/updates.*           upload card, ArduinoOTA, GitHub updater, update progress screen
+lib/cube/settings.*          persistent settings (NVS)
 lib/cube_utils/              Pattern base class; SinglePanel/BottomPanels views (one ChainView base)
 lib/cube_geometry/           hardware-free: face mappings, seam stepping, 3D surface mapping, projection
 lib/life/                    hardware-free Game of Life step
 lib/timezones/               hardware-free named time zones -> POSIX TZ rules
+lib/firmware_image/          hardware-free checks deciding whether an upload is bootable cube firmware
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts
@@ -69,7 +73,7 @@ across the two side faces. `lib/cube_geometry` (namespace `cube`) has
 for a pixel's 3D position on the cube surface, and `cube::projectX/Y`, an
 isometric projection continuous across the seams.
 
-`lib/cube_geometry`, `lib/life` and `lib/timezones` include nothing from Arduino or ESP-IDF, so
+`lib/cube_geometry`, `lib/life`, `lib/timezones` and `lib/firmware_image` include nothing from Arduino or ESP-IDF, so
 `[env:native]` can test them on the host. Keep it that way, and put new pure
 logic in libraries like these so it can be tested too. The board env takes its
 settings from `[esp32_base]` rather than `[env]`, which would leak the
@@ -92,7 +96,7 @@ namespace.
   `platformio.ini` drops them. If a platform bump brings back a build error
   about `https_server.crt` or `rmaker_*` certs, a new component has slipped
   in: add it to that list rather than embedding its certs.
-- **One render task drives every pattern.** `Cube::renderLoop()` (core 1)
+- **One render task drives every pattern.** `Renderer` (core 1)
   calls a pattern's `begin()` when it is selected, `tick()` every
   `frameInterval()` ms, and `end()` when switching away; patterns never create
   or delete the task that draws them. `tick()` draws into the `Canvas`
@@ -100,9 +104,9 @@ namespace.
   changed span of each row to the HUB75 buffer -- the only writer while a
   pattern runs. `tick()` must not block: slow I/O goes in a worker the pattern
   starts in `begin()` and stops cooperatively in `end()` (see Spotify).
-  Other tasks ask for changes through `Cube::requestPattern` (queues, never
-  blocks -- safe from AsyncTCP), `stopPattern` (waits until rendering has
-  stopped, so the caller can draw on the panels directly) and `resumePattern`.
+  Other tasks ask for changes through `Renderer::requestPattern` (queues,
+  never blocks -- safe from AsyncTCP), `stop` (waits until rendering has
+  stopped, so the caller can draw on the panels directly) and `resume`.
 - **Pushing is the expensive part.** About 2 us a pixel in the HUB75 library,
   so a full 192x64 frame costs ~24 ms. Draw only what changes where you can;
   `/api/v1/stats` reports tick and push times for the running pattern.
@@ -114,10 +118,13 @@ namespace.
   `Cube::init()` (`verifyRollbackLater()` in `main.cpp` stops the Arduino
   core doing it at boot). Anything that can hang before that point will
   roll the update back on the next reset.
-- **Firmware upload checks.** The upload card rejects images whose app
-  descriptor `project_name` differs from the running one (`LED_Cube`, from
-  the root `CMakeLists.txt`). Renaming the project means the first update
-  across the rename has to go over USB or ArduinoOTA.
+- **Firmware image checks.** All three update paths use `lib/firmware_image`:
+  the upload card checks the first chunk with `check()`; ArduinoOTA and the
+  GitHub updater read the written image back with `checkDescriptor()`,
+  because Arduino's `Update` holds back the first 16 bytes (magic, chip id)
+  until `end()`. Images whose `project_name` differs from the running one
+  (`LED_Cube`, from the root `CMakeLists.txt`) are rejected, so renaming the
+  project means the first update across the rename has to go over USB.
 
 ## CI
 

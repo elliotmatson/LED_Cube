@@ -69,8 +69,15 @@ open on the LAN (as on hub); phased PRs.
   routines), hand-written `ee.*` vector instructions for hot loops. GCC does not
   auto-vectorize for PIE, so gains need explicit code. Keep a scalar fallback
   and test both against each other in the native suite.
-- `-O2` for release builds; Snake to integer/`float` maths and dirty-cell
-  redraws; Spotify polling every 1–2 s instead of 300 ms.
+- Done: `-O2`; Plasma's projection precomputed and rows written directly
+  (tick 10.7 -> 2.45 ms, 47.6 fps, animation now time-based); Snake on
+  `float` with direct row writes (7.7 -> 5.0 ms, paced at 30 steps/s);
+  `fast_cos` inline; Spotify polls every second.
+- SIMD (PIE) is integer-only with no gather, so it suits fixed-point
+  per-pixel maths -- the planned 3D noise patterns -- rather than the
+  table-driven existing ones. Write a scalar version first, check the
+  vector one against it in host tests, keep it only if `/api/v1/stats`
+  shows a gain.
 
 ## Patterns
 

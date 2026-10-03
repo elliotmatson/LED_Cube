@@ -35,6 +35,23 @@ public:
     void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override { fillRect(x, y, 1, h, color); }
     void drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b) { fillRect(x, y, 1, h, r, g, b); }
 
+    /**
+     * Direct access to `count` pixels of row y starting at x, as packed
+     * RGB888, for patterns that compute whole rows: no per-pixel call, bounds
+     * check or dirty-span update. The span is marked changed up front.
+     *
+     * @return nullptr if the span is not entirely on the canvas.
+     */
+    uint8_t *rowForWrite(int16_t y, int16_t x, int16_t count)
+    {
+        if (pixels == nullptr || y < 0 || y >= cube::CHAIN_HEIGHT || x < 0 || count <= 0 || x + count > cube::CHAIN_WIDTH)
+        {
+            return nullptr;
+        }
+        markDirty(y, x, x + count - 1);
+        return at(x, y);
+    }
+
     static uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return MatrixPanel_I2S_DMA::color565(r, g, b); }
     static uint16_t color444(uint8_t r, uint8_t g, uint8_t b) { return MatrixPanel_I2S_DMA::color444(r, g, b); }
     static void color565to888(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) { MatrixPanel_I2S_DMA::color565to888(color, r, g, b); }

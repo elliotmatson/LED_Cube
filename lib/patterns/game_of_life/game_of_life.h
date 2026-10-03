@@ -5,22 +5,32 @@
 #include "cube_utils.h"
 #include "life.h"
 
-// a game of life pattern that runs on all 3 sides of the cube
+/**
+ * Conway's Game of Life on all three faces as one surface: cells next to a
+ * seam have neighbours on the adjoining face (cube::buildNeighbours), so
+ * gliders cross from face to face. Reseeds when the population dies out or
+ * stops changing.
+ */
+class GameOfLife : public Pattern
+{
+public:
+    GameOfLife();
+    ~GameOfLife();
+    void begin(PatternServices *services) override;
+    void tick() override;
+    void end() override;
+    uint32_t frameInterval() const override { return 50; }
 
-class GameOfLife: public Pattern{
-    public:
-        GameOfLife();
-        void begin(PatternServices *services) override;
-        void tick() override;
-        uint32_t frameInterval() const override { return 50; }
+private:
+    void seed();
 
-    private:
-        void seed();
-        int lastPopulation = -1;
-        int unchanged = 0;
-        // Row-major, one byte per cell (lib/life's layout).
-        uint8_t currentFrame[64 * 64];
-        uint8_t nextFrame[64 * 64];
+    // PSRAM, allocated in begin(): one byte per cell, row-major 192x64, and
+    // the neighbour table (8 indices per cell).
+    uint8_t *current = nullptr;
+    uint8_t *next = nullptr;
+    int16_t *neighbours = nullptr;
+    int lastPopulation = -1;
+    int unchanged = 0;
 };
 
 #endif

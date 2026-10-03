@@ -207,6 +207,86 @@ void test_every_pixel_lies_on_a_visible_face_of_the_cube(void)
     }
 }
 
+// ---- neighbours ---------------------------------------------------------
+
+static int16_t neighbours[CELLS * NEIGHBOURS];
+
+static bool hasNeighbour(int cell, int other)
+{
+    for (int k = 0; k < NEIGHBOURS; k++)
+    {
+        if (neighbours[cell * NEIGHBOURS + k] == other)
+            return true;
+    }
+    return false;
+}
+
+void test_interior_cells_have_the_usual_eight_neighbours(void)
+{
+    buildNeighbours(neighbours);
+    const int cell = cellIndex({100, 30});
+    const int expected[] = {cellIndex({99, 29}), cellIndex({100, 29}), cellIndex({101, 29}),
+                            cellIndex({99, 30}), cellIndex({101, 30}),
+                            cellIndex({99, 31}), cellIndex({100, 31}), cellIndex({101, 31})};
+    for (int e : expected)
+    {
+        TEST_ASSERT_TRUE(hasNeighbour(cell, e));
+    }
+}
+
+// Game of Life across the seams is only fair if "b is next to a" always
+// means "a is next to b".
+void test_neighbours_are_symmetric(void)
+{
+    buildNeighbours(neighbours);
+    for (int cell = 0; cell < CELLS; cell++)
+    {
+        for (int k = 0; k < NEIGHBOURS; k++)
+        {
+            int other = neighbours[cell * NEIGHBOURS + k];
+            if (other >= 0)
+            {
+                TEST_ASSERT_TRUE_MESSAGE(hasNeighbour(other, cell), "one-way neighbour");
+            }
+        }
+    }
+}
+
+void test_neighbours_are_close_on_the_cube(void)
+{
+    buildNeighbours(neighbours);
+    for (int cell = 0; cell < CELLS; cell++)
+    {
+        Point p{int16_t(cell % CHAIN_WIDTH), int16_t(cell / CHAIN_WIDTH)};
+        for (int k = 0; k < NEIGHBOURS; k++)
+        {
+            int other = neighbours[cell * NEIGHBOURS + k];
+            if (other >= 0)
+            {
+                Point q{int16_t(other % CHAIN_WIDTH), int16_t(other / CHAIN_WIDTH)};
+                TEST_ASSERT_TRUE(distance(toCube(p), toCube(q)) < 1.5f);
+            }
+        }
+    }
+}
+
+void test_seam_cells_have_a_full_set_of_neighbours(void)
+{
+    buildNeighbours(neighbours);
+    // Middle of each seam, on both sides: away from the outer edges and the
+    // shared corner, so all eight should exist.
+    const Point seamCells[] = {{63, 30}, {94, 63}, {30, 63}, {161, 63}, {127, 30}, {128, 30}};
+    for (Point p : seamCells)
+    {
+        int count = 0;
+        for (int k = 0; k < NEIGHBOURS; k++)
+        {
+            count += neighbours[cellIndex(p) * NEIGHBOURS + k] >= 0;
+        }
+        TEST_ASSERT_EQUAL_INT(8, count);
+    }
+}
+
 // ---- projection ---------------------------------------------------------
 
 // Plasma looks continuous across the seams only because neighbouring pixels
@@ -263,6 +343,10 @@ int main(int, char **)
     RUN_TEST(test_every_step_is_reversible);
     RUN_TEST(test_every_step_is_between_neighbouring_points_in_3d);
     RUN_TEST(test_every_pixel_lies_on_a_visible_face_of_the_cube);
+    RUN_TEST(test_interior_cells_have_the_usual_eight_neighbours);
+    RUN_TEST(test_neighbours_are_symmetric);
+    RUN_TEST(test_neighbours_are_close_on_the_cube);
+    RUN_TEST(test_seam_cells_have_a_full_set_of_neighbours);
     RUN_TEST(test_projection_is_continuous_across_seams);
     RUN_TEST(test_integer_projection_tracks_the_float_one);
     return UNITY_END();

@@ -20,6 +20,16 @@ namespace life
      * @return the number of live cells in `next`.
      */
     int step(const uint8_t *current, uint8_t *next, int width, int height);
+
+    /**
+     * The same rules on an arbitrary neighbourhood graph -- e.g. the cube
+     * surface from cube::buildNeighbours(), where cells near a seam have
+     * neighbours on another face.
+     *
+     * @param neighbours cells * 8 cell indices; -1 for "no neighbour".
+     * @return the number of live cells in `next`.
+     */
+    int stepGraph(const uint8_t *current, uint8_t *next, int cells, const int16_t *neighbours);
 }
 
 #endif

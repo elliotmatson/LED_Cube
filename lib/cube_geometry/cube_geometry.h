@@ -74,6 +74,27 @@ namespace cube
      */
     Step step(Point from, Dir dir);
 
+    constexpr int NEIGHBOURS = 8;
+    constexpr int CELLS = CHAIN_WIDTH * CHAIN_HEIGHT;
+
+    /// Index of a chain pixel in a row-major 192x64 array.
+    inline int cellIndex(Point p) { return p.y * CHAIN_WIDTH + p.x; }
+
+    /**
+     * The eight neighbours of every pixel on the cube surface, for cellular
+     * automata that run across the seams: out[cell * 8 + k] is a cell index,
+     * or -1 past the cube's outer edge.
+     *
+     * The four orthogonal neighbours come from step(); each diagonal is a
+     * step followed by a right turn in the heading step() arrived with, so
+     * diagonals stay consistent across seams. At the shared corner, where
+     * three faces meet, a cell has fewer than eight distinct neighbours;
+     * duplicates are reported as -1.
+     *
+     * @param out CELLS * NEIGHBOURS entries.
+     */
+    void buildNeighbours(int16_t *out);
+
     /// A point in the cube's own 3D space, [0, 64] on each axis.
     struct Vec3
     {

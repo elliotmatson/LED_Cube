@@ -73,6 +73,56 @@ void test_every_cell_of_next_is_written(void)
     TEST_ASSERT_EQUAL_MEMORY(a, b, sizeof(a));
 }
 
+// stepGraph() with a torus neighbourhood must agree with step() exactly.
+void test_graph_step_matches_the_grid_step_on_a_torus(void)
+{
+    static int16_t torus[W * H * 8];
+    for (int y = 0; y < H; y++)
+    {
+        for (int x = 0; x < W; x++)
+        {
+            int k = 0;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    if (dx || dy)
+                        torus[(y * W + x) * 8 + k++] = ((y + dy + H) % H) * W + (x + dx + W) % W;
+        }
+    }
+    unsigned seed = 12345;
+    for (int i = 0; i < W * H; i++)
+    {
+        seed = seed * 1103515245u + 12345u;
+        a[i] = (seed >> 16) % 3 == 0;
+    }
+    uint8_t viaGraph[W * H];
+    for (int generation = 0; generation < 20; generation++)
+    {
+        int n1 = life::step(a, b, W, H);
+        int n2 = life::stepGraph(a, viaGraph, W * H, torus);
+        TEST_ASSERT_EQUAL_INT(n1, n2);
+        TEST_ASSERT_EQUAL_MEMORY(b, viaGraph, sizeof(viaGraph));
+        memcpy(a, b, sizeof(a));
+    }
+}
+
+void test_missing_neighbours_count_as_dead(void)
+{
+    // Three cells in a line, each other's only neighbours: the middle one has
+    // two live neighbours and survives; the ends have one and die.
+    int16_t line[3 * 8];
+    for (int i = 0; i < 3 * 8; i++)
+        line[i] = -1;
+    line[0 * 8] = 1;
+    line[1 * 8] = 0;
+    line[1 * 8 + 1] = 2;
+    line[2 * 8] = 1;
+    uint8_t cur[3] = {1, 1, 1}, nxt[3];
+    TEST_ASSERT_EQUAL_INT(1, life::stepGraph(cur, nxt, 3, line));
+    TEST_ASSERT_EQUAL_UINT8(0, nxt[0]);
+    TEST_ASSERT_EQUAL_UINT8(1, nxt[1]);
+    TEST_ASSERT_EQUAL_UINT8(0, nxt[2]);
+}
+
 int main(int, char **)
 {
     UNITY_BEGIN();
@@ -81,5 +131,7 @@ int main(int, char **)
     RUN_TEST(test_glider_moves_one_cell_diagonally_every_four_generations);
     RUN_TEST(test_neighbours_wrap_around_the_edges);
     RUN_TEST(test_every_cell_of_next_is_written);
+    RUN_TEST(test_graph_step_matches_the_grid_step_on_a_torus);
+    RUN_TEST(test_missing_neighbours_count_as_dead);
     return UNITY_END();
 }

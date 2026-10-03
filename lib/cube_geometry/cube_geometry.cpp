@@ -94,6 +94,44 @@ namespace cube
         return none;
     }
 
+    void buildNeighbours(int16_t *out)
+    {
+        for (int16_t y = 0; y < CHAIN_HEIGHT; y++)
+        {
+            for (int16_t x = 0; x < CHAIN_WIDTH; x++)
+            {
+                const Point p{x, y};
+                int16_t *n = out + cellIndex(p) * NEIGHBOURS;
+                int count = 0;
+                for (uint8_t d = 0; d < 4; d++)
+                {
+                    Step orth = step(p, Dir(d));
+                    int16_t candidates[2] = {-1, -1};
+                    if (orth.valid())
+                    {
+                        candidates[0] = int16_t(cellIndex(orth.to));
+                        Step diag = step(orth.to, Dir((orth.dir + 1) & 3));
+                        if (diag.valid())
+                        {
+                            candidates[1] = int16_t(cellIndex(diag.to));
+                        }
+                    }
+                    for (int16_t c : candidates)
+                    {
+                        // Drop duplicates and the cell itself (both happen
+                        // only around the shared corner).
+                        bool keep = c >= 0 && c != cellIndex(p);
+                        for (int k = 0; keep && k < count; k++)
+                        {
+                            keep = n[k] != c;
+                        }
+                        n[count++] = keep ? c : -1;
+                    }
+                }
+            }
+        }
+    }
+
     Vec3 toCube(Point p)
     {
         const float px = p.x + 0.5f;

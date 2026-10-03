@@ -130,6 +130,20 @@ deliberately one step (Snake, Life). Check `/api/v1/stats` on the cube.
   reading). `Canvas::push()` uses `drawRowRGB888()`, which only exists in the
   elliotmatson fork of the HUB75 library (`row-writer` branch). Draw only
   what changes where you can; `/api/v1/stats` reports tick and push times.
+- **Every task loop must block.** A loop that paces itself with
+  `vTaskDelayUntil` stops yielding once a pass overruns its slot -- which
+  happens during flash writes, when the caches stall -- and starves the idle
+  task on its core until the task watchdog fires. During an update that
+  watchdog's backtrace, printed mid-write, panicked the cube ("Cache disabled
+  but cached memory region accessed", reset reason "interrupt watchdog"). Sleep
+  a minimum each pass, as `Updates::animationLoop` and `Renderer::loop` do.
+- **Never flash `firmware.factory.bin` to a cube that is set up.** The merged
+  image's padding covers NVS (0x9000-0xDFFF) and wipes WiFi, settings and the
+  Spotify login. Update with the upload card or ArduinoOTA; over USB write only
+  `boot_app0.bin` at 0xe000 and `firmware.bin` at 0x10000. The factory image is
+  for blank boards.
+- `/api/v1/stats` includes `reset_reason`: the first thing to check after an
+  unexpected restart, since opening the serial port resets the board.
 - **ESP-DASH card order.** The frontend sorts cards by `Widget::_index`, which
   the library leaves uninitialized. Global/member cards get 0 (zero-initialized
   storage); cards made with `new` get heap garbage and shuffle every boot. Call

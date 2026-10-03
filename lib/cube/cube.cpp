@@ -502,12 +502,17 @@ void Cube::initAPI()
         {
             strftime(localTime, sizeof(localTime), "%Y-%m-%d %H:%M:%S %Z", &now);
         }
-        char body[512];
+        static const char *const REASONS[] = {"unknown", "power-on", "external", "software", "panic", "interrupt watchdog",
+                                              "task watchdog", "other watchdog", "deep sleep", "brownout", "sdio", "usb",
+                                              "jtag", "efuse", "power glitch", "cpu lockup"};
+        const int reason = int(esp_reset_reason());
+        const char *resetReason = reason >= 0 && reason < int(sizeof(REASONS) / sizeof(REASONS[0])) ? REASONS[reason] : "unknown";
+        char body[600];
         snprintf(body, sizeof(body),
-                 "{\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
+                 "{\"reset_reason\":\"%s\",\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
                  "\"push_avg_us\":%u,\"push_max_us\":%u,\"free_internal\":%u,\"largest_internal\":%u,"
                  "\"free_psram\":%u,\"uptime_s\":%lu}",
-                 localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
+                 resetReason, localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
                  s.tickAvgUs, s.tickMaxUs, s.pushAvgUs, s.pushMaxUs,
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),

@@ -80,7 +80,13 @@ namespace
     const char *WORD = "UPDATE";
     const int16_t ROW_SPACING = 16;
     const int16_t WORD_GAP = 12;
-    const uint32_t FRAME_MS = 40;
+    const uint32_t FRAME_MS = 50;
+    // Slept after every frame, however long it took. Flash writes stall the
+    // caches, so during an update a frame can overrun its slot; a task that
+    // then never blocks starves the idle task on its core until the task
+    // watchdog fires -- and the watchdog's own backtrace, printed mid-write,
+    // panicked the cube.
+    const uint32_t MIN_REST_MS = 10;
 
     // "UPDATE" in rows across a face, each row scrolling the opposite way to
     // the one above it. `pixelsPerSecond` sets the speed; `firstLeft` the
@@ -123,21 +129,23 @@ void Updates::startAnimation()
     animationStartMs = millis();
     progressPermille = 0;
     animating = true;
-    // Core 1 (the render task's, idle while an update runs), low priority:
-    // the update itself always comes first.
+    // Core 1, which the render task leaves idle during an update and AsyncTCP
+    // no longer uses (CONFIG_ASYNC_TCP_RUNNING_CORE=0), above the ordinary
+    // background tasks so it stays smooth. The upload itself runs on core 0.
     xTaskCreatePinnedToCore(
         [](void *self)
         { static_cast<Updates *>(self)->animationLoop(); },
-        "Update screen", 4096, this, 1, &animationTask, 1);
+        "Update screen", 4096, this, 6, &animationTask, 1);
 }
 
 void Updates::animationLoop()
 {
-    TickType_t wake = xTaskGetTickCount();
     while (animating)
     {
+        const uint32_t start = millis();
         drawFrame();
-        vTaskDelayUntil(&wake, pdMS_TO_TICKS(FRAME_MS));
+        const uint32_t spent = millis() - start;
+        vTaskDelay(pdMS_TO_TICKS(spent + MIN_REST_MS < FRAME_MS ? FRAME_MS - spent : MIN_REST_MS));
     }
     xSemaphoreGive(animationDone);
     vTaskDelete(NULL);

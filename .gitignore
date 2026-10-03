@@ -10,3 +10,6 @@ managed_components
 # sdkconfig.<env> is derived from it on every build.
 sdkconfig.*
 !sdkconfig.defaults
+
+# Claude Code agent worktrees
+.claude/worktrees/

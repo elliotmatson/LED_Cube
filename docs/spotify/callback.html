@@ -9,9 +9,11 @@
   the client secret held on the cube, and nothing here stores or sends it
   anywhere else.
 
-  The cube says where it is in the OAuth state: "<random>.<host>". Only private
-  IPv4 addresses and .local names are accepted, so this page cannot be used to
-  bounce someone to an arbitrary site.
+  The cube says where it is in the OAuth state: "<32 hex digits>.<host>". Only
+  that exact format, and only private IPv4 addresses and .local names, are
+  accepted, so this page cannot be used to bounce someone to an arbitrary site.
+  The cube itself checks the whole state, accepts it once, and only within ten
+  minutes of issuing it.
 
   Published by .github/workflows/docs.yml at /spotify/callback.html. That URL
   is SPOTIFY_REDIRECT_URI in lib/cube/config.h, and must also be listed as a
@@ -43,7 +45,8 @@
       var detail = document.getElementById("detail");
       var params = new URLSearchParams(window.location.search);
       var state = params.get("state") || "";
-      var host = state.slice(state.indexOf(".") + 1);
+      var match = /^[0-9a-f]{32}\.(.+)$/.exec(state);
+      var host = match ? match[1] : "";
 
       function isPrivateHost(h) {
         if (/^[a-z0-9-]+\.local$/i.test(h)) return true;
@@ -56,7 +59,7 @@
                (o[0] === 192 && o[1] === 168);
       }
 
-      if (state.indexOf(".") < 0 || !isPrivateHost(host)) {
+      if (!match || !isPrivateHost(host)) {
         message.textContent = "This login did not come from an LED Cube.";
         detail.textContent = "Start again from the cube's /spotify page.";
         return;

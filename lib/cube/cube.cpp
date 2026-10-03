@@ -20,9 +20,15 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                crashMe(dashboard, "Crash Cube"),
                timezoneDropdown(dashboard, "Time Zone", timezones::dropdownOptions()),
                tickerInput(dashboard, "Ticker Message", "Shown by the Ticker pattern"),
+               spotifyStatus(dashboard, "Spotify", dash::Status::NONE),
+               spotifyLogin(dashboard, "Log in to Spotify"),
+               spotifyClientId(dashboard, "Spotify Client ID", "From developer.spotify.com"),
+               spotifyClientSecret(dashboard, "Spotify Client Secret", "Saved; type to replace"),
+               spotifyLogout(dashboard, "Log out of Spotify"),
                updates(dashboard),
                systemTab(dashboard, "System"),
-               developerTab(dashboard, "Development")
+               developerTab(dashboard, "Development"),
+               spotifyTab(dashboard, "Spotify")
 {
     fwVersion.setValue(FW_VERSION);
 }
@@ -137,6 +143,48 @@ void Cube::init()
     // it back (see verifyRollbackLater() in main.cpp). A no-op unless this is
     // the first boot after an update.
     esp_ota_mark_app_valid_cancel_rollback();
+}
+
+/**
+ * Switches to the pattern with this id. With onlyIfShowing, restarts it only
+ * if it is already the current one (to pick up changed settings).
+ */
+void Cube::showPattern(const char *id, bool onlyIfShowing)
+{
+    if (onlyIfShowing && settings.pattern() != id)
+    {
+        return;
+    }
+    for (size_t i = 0; i < std::size(patternList); i++)
+    {
+        if (patternList[i]->getId() == id)
+        {
+            renderer.requestPattern(i);
+            return;
+        }
+    }
+}
+
+void Cube::refreshSpotifyStatus()
+{
+    const Spotify::Account a = Spotify::account();
+    const std::string error = Spotify::lastError();
+    if (a.clientId.empty() || !a.hasSecret)
+    {
+        spotifyStatus.setFeedback("Enter your Spotify app's Client ID and Secret below", dash::Status::WARNING);
+    }
+    else if (!error.empty())
+    {
+        spotifyStatus.setFeedback(error.c_str(), dash::Status::DANGER);
+    }
+    else if (!a.linked)
+    {
+        spotifyStatus.setFeedback("Not logged in - use Log in to Spotify", dash::Status::INFO);
+    }
+    else
+    {
+        spotifyStatus.setFeedback("Logged in", dash::Status::SUCCESS);
+    }
 }
 
 /// The saved time zone, or the default if none is saved or it is unknown.
@@ -327,6 +375,49 @@ void Cube::initUI()
     this->latchSlider.setValue(settings.latchBlanking());
     this->use20MHzToggle.setValue(settings.use20MHz());
     this->timezoneDropdown.setValue(currentTimezone().name);
+    // Spotify account setup. The secret is never sent back to the browser:
+    // the card only shows whether one is saved.
+    spotifyLogin.setValue("/spotify");
+    spotifyClientId.setValue(Spotify::account().clientId.c_str());
+    spotifyClientId.onChange([this](const std::optional<dash::string> &value)
+                             {
+            std::string id = value ? std::string(value->c_str()) : std::string();
+            while (!id.empty() && isspace((unsigned char)id.back()))
+                id.pop_back();
+            while (!id.empty() && isspace((unsigned char)id.front()))
+                id.erase(id.begin());
+            Spotify::setClientId(id);
+            spotifyClientId.setValue(id.c_str());
+            showPattern("spotify", true);
+            refreshSpotifyStatus(); });
+    spotifyClientSecret.setValue(Spotify::account().hasSecret ? "saved" : "");
+    spotifyClientSecret.onChange([this](const std::optional<const char *> &value)
+                                 {
+            std::string secret = value && *value ? std::string(*value) : std::string();
+            while (!secret.empty() && isspace((unsigned char)secret.back()))
+                secret.pop_back();
+            Spotify::setClientSecret(secret);
+            spotifyClientSecret.setValue(secret.empty() ? "" : "saved");
+            showPattern("spotify", true);
+            refreshSpotifyStatus(); });
+    spotifyLogout.onPush([this]()
+                         {
+            Spotify::logOut();
+            showPattern("spotify", true);
+            refreshSpotifyStatus(); });
+    for (dash::Widget *w : std::initializer_list<dash::Widget *>{&spotifyStatus, &spotifyLogin, &spotifyClientId, &spotifyClientSecret, &spotifyLogout})
+    {
+        w->setTab(spotifyTab);
+    }
+    // Status is worked out from NVS whenever a browser loads the dashboard.
+    dashboard.onBeforeUpdate([this](bool changesOnly)
+                             {
+        if (!changesOnly)
+        {
+            refreshSpotifyStatus();
+        } });
+    refreshSpotifyStatus();
+
     Ticker::setMessage(settings.tickerText());
     tickerInput.setValue(settings.tickerText().c_str());
     tickerInput.onChange([this](const std::optional<dash::string> &value)
@@ -454,6 +545,25 @@ void Cube::initAPI()
             }
         }
         request->send(404, "application/json", "{\"error\": \"no pattern with that id\"}"); });
+
+    // Spotify account state, for diagnosing a login without a serial console.
+    sprintf(uri, "%s/v1/spotify", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        const Spotify::Account a = Spotify::account();
+        JsonDocument doc;
+        doc["client_id_set"] = !a.clientId.empty();
+        doc["client_secret_set"] = a.hasSecret;
+        doc["linked"] = a.linked;
+        doc["error"] = Spotify::lastError();
+        String body;
+        serializeJson(doc, body);
+        request->send(200, "application/json", body); });
+
+    // Login pages. When Spotify hands back a code, show the Spotify pattern:
+    // its worker exchanges the code for a token.
+    Spotify::registerRoutes(server, [this]()
+                            { showPattern("spotify"); });
 
     // The Ticker pattern's custom message. POST text=<message> (empty to
     // clear); GET returns it.

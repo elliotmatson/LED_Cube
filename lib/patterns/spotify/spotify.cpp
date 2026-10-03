@@ -22,22 +22,174 @@ static String encodedRedirectUri()
     }
     return out;
 }
-const char *webpageTemplate =
-    R"(
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta http-equiv="X-UA-Compatible" content="IE=edge">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        </head>
-        <body>
-          <div>
-          <a href="https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&state=%s">spotify Auth</a>
-          </div>
-        </body>
-      </html>
-      )";
+namespace
+{
+    // NVS keys, namespace "spotify".
+    const char *K_ID = "SPOTIFY_ID";
+    const char *K_SECRET = "SPOTIFY_SECRET";
+    const char *K_TOKEN = "SPOTIFY_TOKEN";
+
+    // Login state shared by the routes (AsyncTCP task) and the worker.
+    // The callback must not block on the token request's TLS handshake, so it
+    // hands the code to the worker through pendingCode.
+    portMUX_TYPE loginMux = portMUX_INITIALIZER_UNLOCKED;
+    char pendingCode[512] = "";
+    // "<32 hex>.<cube IP>": random per /spotify visit, checked on /callback/,
+    // good for one use within STATE_LIFETIME_MS. The relay page sends the
+    // browser back to the IP.
+    char oauthState[64] = "";
+    uint32_t stateIssuedMs = 0;
+    const uint32_t STATE_LIFETIME_MS = 10 * 60 * 1000;
+
+    SemaphoreHandle_t errorLock()
+    {
+        static SemaphoreHandle_t lock = xSemaphoreCreateMutex();
+        return lock;
+    }
+    std::string lastErrorText;
+
+    const char *PAGE_STYLE =
+        "<meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:10vh auto;padding:0 16px}"
+        "a.button{display:inline-block;background:#1db954;color:#fff;padding:.6em 1.2em;border-radius:2em;text-decoration:none}"
+        "p.muted{color:#777}</style>";
+}
+
+Spotify::Account Spotify::account()
+{
+    Preferences prefs;
+    Account a;
+    if (prefs.begin("spotify", true))
+    {
+        a.clientId = prefs.getString(K_ID, "").c_str();
+        a.hasSecret = prefs.getString(K_SECRET, "").length() > 0;
+        a.linked = prefs.getString(K_TOKEN, "").length() > 0;
+        prefs.end();
+    }
+    return a;
+}
+
+void Spotify::setClientId(const std::string &id)
+{
+    Preferences prefs;
+    if (prefs.begin("spotify"))
+    {
+        prefs.putString(K_ID, id.c_str());
+        // A token belongs to the app it was issued for.
+        prefs.remove(K_TOKEN);
+        prefs.end();
+    }
+    setLastError("");
+}
+
+void Spotify::setClientSecret(const std::string &secret)
+{
+    Preferences prefs;
+    if (prefs.begin("spotify"))
+    {
+        prefs.putString(K_SECRET, secret.c_str());
+        prefs.end();
+    }
+    setLastError("");
+}
+
+void Spotify::logOut()
+{
+    Preferences prefs;
+    if (prefs.begin("spotify"))
+    {
+        prefs.remove(K_TOKEN);
+        prefs.end();
+    }
+    setLastError("");
+}
+
+std::string Spotify::lastError()
+{
+    xSemaphoreTake(errorLock(), portMAX_DELAY);
+    std::string copy = lastErrorText;
+    xSemaphoreGive(errorLock());
+    return copy;
+}
+
+void Spotify::setLastError(const std::string &error)
+{
+    xSemaphoreTake(errorLock(), portMAX_DELAY);
+    lastErrorText = error;
+    xSemaphoreGive(errorLock());
+    if (!error.empty())
+    {
+        ESP_LOGW("Spotify", "%s", error.c_str());
+    }
+}
+
+void Spotify::registerRoutes(AsyncWebServer &server, std::function<void()> show)
+{
+    server.on("/spotify", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
+        const Account a = account();
+        String page = String("<!doctype html><title>Spotify - LED Cube</title>") + PAGE_STYLE + "<h1>Spotify</h1>";
+        if (a.clientId.empty() || !a.hasSecret)
+        {
+            page += "<p>This cube needs your Spotify app's <b>Client ID</b> and <b>Client Secret</b> first. "
+                    "Enter them on the cube's dashboard, Spotify tab.</p>"
+                    "<p class=muted>Setting up the Spotify app: "
+                    "<a href='https://github.com/" REPO_URL "#spotify'>setup guide</a>.</p>";
+            request->send(200, "text/html", page);
+            return;
+        }
+        char state[sizeof(oauthState)];
+        snprintf(state, sizeof(state), "%08lx%08lx%08lx%08lx.%s", (unsigned long)esp_random(), (unsigned long)esp_random(),
+                 (unsigned long)esp_random(), (unsigned long)esp_random(), WiFi.localIP().toString().c_str());
+        portENTER_CRITICAL(&loginMux);
+        strlcpy(oauthState, state, sizeof(oauthState));
+        stateIssuedMs = millis();
+        portEXIT_CRITICAL(&loginMux);
+        String url = String("https://accounts.spotify.com/authorize?client_id=") + a.clientId.c_str() +
+                     "&response_type=code&redirect_uri=" + encodedRedirectUri() + "&scope=" + scope + "&state=" + state;
+        page += a.linked ? "<p>A Spotify account is linked. Logging in again replaces it.</p>"
+                         : "<p>Link your Spotify account so the cube can show what is playing.</p>";
+        page += "<p><a class=button href='" + url + "'>Log in with Spotify</a></p>"
+                "<p class=muted>This link works once, for ten minutes.</p>";
+        request->send(200, "text/html", page); });
+
+    server.on("/callback/", HTTP_GET, [show](AsyncWebServerRequest *request)
+              {
+        if (request->hasArg("error"))
+        {
+            // e.g. access_denied when the user cancels on Spotify's page
+            request->send(400, "text/plain", "Spotify login was cancelled (" + request->arg("error") + ").");
+            return;
+        }
+        bool stateOk;
+        portENTER_CRITICAL(&loginMux);
+        stateOk = oauthState[0] != '\0' && millis() - stateIssuedMs < STATE_LIFETIME_MS &&
+                  request->hasArg("state") && request->arg("state") == oauthState;
+        if (stateOk)
+        {
+            oauthState[0] = '\0'; // one use
+        }
+        portEXIT_CRITICAL(&loginMux);
+        if (!stateOk)
+        {
+            request->send(400, "text/plain", "Login link expired or not from this cube. Start again at /spotify.");
+            return;
+        }
+        if (!request->hasArg("code") || request->arg("code").length() >= sizeof(pendingCode))
+        {
+            request->send(400, "text/plain", "Spotify did not return a login code.");
+            return;
+        }
+        String code = request->arg("code");
+        portENTER_CRITICAL(&loginMux);
+        strlcpy(pendingCode, code.c_str(), sizeof(pendingCode));
+        portEXIT_CRITICAL(&loginMux);
+        show();
+        String page = String("<!doctype html><title>Spotify - LED Cube</title>") + PAGE_STYLE +
+                      "<h1>Logging in</h1><p>The cube is finishing the login with Spotify and will show what is "
+                      "playing in a few seconds. You can close this page.</p>";
+        request->send(200, "text/html", page); });
+}
 
 Spotify::Spotify()
 {
@@ -73,10 +225,6 @@ void Spotify::begin(PatternServices *services)
     playing = NowPlaying();
     player = PlayerState();
 
-    // Registered for as long as the pattern runs, whether or not a token is
-    // stored, so a revoked token can be replaced by logging in again.
-    startOauthWebServer();
-
     running = true;
     xTaskCreate(
         [](void *o)
@@ -102,10 +250,6 @@ void Spotify::end()
             vTaskDelete(workerTask);
         }
         workerTask = nullptr;
-    }
-    if (pattern && !handlers.empty())
-    {
-        stopOauthWebServer();
     }
     delete panel0;
     delete panel1;
@@ -244,23 +388,30 @@ void Spotify::poll()
 
 int Spotify::setupCredentials()
 {
-    // Get Spotify Credentials
+    // Credentials compiled in from secrets.h are defaults for a cube that has
+    // none: they no longer overwrite what was entered on the dashboard.
 #ifdef SPOTIFY_CLIENT_ID
-    spotifyPrefs.putString("SPOTIFY_ID", SPOTIFY_CLIENT_ID);
+    if (spotifyPrefs.getString(K_ID, "").length() == 0)
+    {
+        spotifyPrefs.putString(K_ID, SPOTIFY_CLIENT_ID);
+    }
 #endif
 #ifdef SPOTIFY_CLIENT_SECRET
-    spotifyPrefs.putString("SPOTIFY_SECRET", SPOTIFY_CLIENT_SECRET);
+    if (spotifyPrefs.getString(K_SECRET, "").length() == 0)
+    {
+        spotifyPrefs.putString(K_SECRET, SPOTIFY_CLIENT_SECRET);
+    }
 #endif
     // Reset credentials if needed
 #ifdef SPOTIFY_RESET_OAUTH
-    spotifyPrefs.remove("SPOTIFY_ID");
-    spotifyPrefs.remove("SPOTIFY_SECRET");
+    spotifyPrefs.remove(K_ID);
+    spotifyPrefs.remove(K_SECRET);
 #endif
 #ifdef SPOTIFY_RESET_TOKEN
-    spotifyPrefs.remove("SPOTIFY_TOKEN");
+    spotifyPrefs.remove(K_TOKEN);
 #endif
-    spotifyPrefs.getString("SPOTIFY_ID", "").toCharArray(spotifyID, 33);
-    spotifyPrefs.getString("SPOTIFY_SECRET", "").toCharArray(spotifySecret, 33);
+    spotifyPrefs.getString(K_ID, "").toCharArray(spotifyID, 33);
+    spotifyPrefs.getString(K_SECRET, "").toCharArray(spotifySecret, 33);
 
     if (spotifyID[0] == '\0' || spotifySecret[0] == '\0')
     {
@@ -275,79 +426,25 @@ int Spotify::setupCredentials()
     client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
     spotify->lateInit(spotifyID, spotifySecret);
 
-    if (spotifyPrefs.getString("SPOTIFY_TOKEN", "").equals(""))
+    if (spotifyPrefs.getString(K_TOKEN, "").equals(""))
     {
         ESP_LOGE(__func__, "No token found");
         return -1;
     } else {
         ESP_LOGI(__func__, "Token found");
-        spotify->setRefreshToken(spotifyPrefs.getString("SPOTIFY_TOKEN").c_str());
+        spotify->setRefreshToken(spotifyPrefs.getString(K_TOKEN).c_str());
         setStatus(noPlayback);
     }
     ESP_LOGI(__func__, "Refreshing Access Tokens");
     if (!spotify->refreshAccessToken())
     {
-        ESP_LOGI(__func__, "Failed to get access tokens");
+        // Revoked, expired, or issued to a different client ID.
+        setLastError("Spotify did not accept the saved login; log in again at /spotify.");
+        setStatus(refreshToken);
+        return -1;
     }
+    setLastError("");
     return 1;
-}
-
-void Spotify::startOauthWebServer()
-{
-    ESP_LOGI(__func__, "Setting up Spotify login handlers");
-    handlers.push_back(&pattern->server->on("/spotify", HTTP_GET, [this](AsyncWebServerRequest *request)
-                                            {
-                    // Random, then where the relay page should send the browser
-                    // back to. The IP rather than cube.local: the relay accepts
-                    // either, but not every client resolves mDNS.
-                    snprintf(oauthState, sizeof(oauthState), "%08lx%08lx.%s", (unsigned long)esp_random(), (unsigned long)esp_random(), WiFi.localIP().toString().c_str());
-                    String spotifyId = spotifyPrefs.getString("SPOTIFY_ID");
-                    if (spotifyId.length() == 0)
-                    {
-                        request->send(503, "text/plain", "This cube has no Spotify client ID configured.");
-                        return;
-                    }
-                    char webpage[1000];
-                    snprintf(webpage, sizeof(webpage), webpageTemplate, spotifyId.c_str(), encodedRedirectUri().c_str(), scope, oauthState);
-                    request->send(200, "text/html", webpage); }));
-    handlers.push_back(&pattern->server->on("/callback/", HTTP_GET, [this](AsyncWebServerRequest *request)
-                                            {
-                    ESP_LOGI(__func__, "got callback request");
-                    if (request->hasArg("error"))
-                    {
-                        // e.g. access_denied when the user cancels on Spotify's page
-                        request->send(400, "text/plain", "Spotify login was cancelled (" + request->arg("error") + ").");
-                        return;
-                    }
-                    if (oauthState[0] == '\0' || !request->hasArg("state") || request->arg("state") != oauthState)
-                    {
-                        request->send(400, "text/plain", "Login link expired or not from this cube. Start again at /spotify.");
-                        return;
-                    }
-                    if (!request->hasArg("code") || request->arg("code").length() >= sizeof(pendingCode))
-                    {
-                        request->send(400, "text/plain", "Spotify did not return a login code.");
-                        return;
-                    }
-                    oauthState[0] = '\0'; // one use
-                    String code = request->arg("code");
-                    portENTER_CRITICAL(&codeMux);
-                    strlcpy(pendingCode, code.c_str(), sizeof(pendingCode));
-                    portEXIT_CRITICAL(&codeMux);
-                    request->send(200, "text/plain", "Logging the cube in to Spotify. You can close this page."); }));
-    ESP_LOGI(__func__, "Visit http://cube.local/spotify to log in");
-}
-
-void Spotify::stopOauthWebServer()
-{
-    ESP_LOGI(__func__, "Removing HTTP server handlers");
-    for (AsyncCallbackWebHandler *handler : handlers)
-    {
-        pattern->server->removeHandler(handler);
-    }
-    // removeHandler() destroys them; keeping the pointers would remove freed
-    // handlers on the next stop.
-    handlers.clear();
 }
 
 /**
@@ -357,10 +454,10 @@ void Spotify::stopOauthWebServer()
 void Spotify::exchangePendingCode()
 {
     char code[sizeof(pendingCode)];
-    portENTER_CRITICAL(&codeMux);
+    portENTER_CRITICAL(&loginMux);
     strlcpy(code, pendingCode, sizeof(code));
     pendingCode[0] = '\0';
-    portEXIT_CRITICAL(&codeMux);
+    portEXIT_CRITICAL(&loginMux);
     if (code[0] == '\0' || spotify == nullptr)
     {
         return;
@@ -369,13 +466,14 @@ void Spotify::exchangePendingCode()
     const char *refreshToken = spotify->requestAccessTokens(code, encodedRedirectUri().c_str());
     if (refreshToken == NULL)
     {
-        ESP_LOGE(__func__, "Spotify rejected the login code");
+        setLastError("Spotify rejected the login code. Check the Client Secret, and that the app lists the cube's redirect URI.");
         return;
     }
     // The token is a long-lived credential: stored, never logged.
-    spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
+    spotifyPrefs.putString(K_TOKEN, refreshToken);
     spotify->setRefreshToken(refreshToken);
     ESP_LOGI(__func__, "Logged in to Spotify");
+    setLastError("");
     setStatus(noPlayback);
 }
 
@@ -435,11 +533,11 @@ void Spotify::drawStatus(PatternStatus s)
     {
     case oauth:
         panel0->setCursor(0, 0);
-        panel0->print("No OAuth\nCredentials");
+        panel0->print("Set up\nSpotify on\nthe cube's\ndashboard");
         break;
     case refreshToken:
         panel0->setCursor(0, 0);
-        panel0->print("Not logged\nin...\n\ncube.local\n/spotify");
+        panel0->print("Log in at\n\ncube.local\n/spotify");
         break;
     default:
         break;

@@ -39,6 +39,12 @@
 // (http is allowed for 127.0.0.1 alone), which the cube cannot serve, so this is
 // a relay page on GitHub Pages (docs/spotify/callback.html) that forwards to the
 // cube. Must match a redirect URI registered in the Spotify app's dashboard.
+//
+// The cube uses Spotify's authorization-code flow with a client secret: a
+// login code is useless without the secret, which only the cube holds. So the
+// secret must never be compiled into a published build (CI release builds
+// have no secrets.h; keep it that way). Users enter their own app's Client ID
+// and Secret on the dashboard.
 #ifndef SPOTIFY_REDIRECT_URI
   #define SPOTIFY_REDIRECT_URI "https://elliotmatson.github.io/LED_Cube/spotify/callback.html"
 #endif

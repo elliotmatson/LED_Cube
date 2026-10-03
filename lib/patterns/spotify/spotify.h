@@ -127,20 +127,21 @@ private:
     const GFXfont *font = nullptr;
     int16_t x = 0;     // left margin
     int16_t y = 0;     // cursor (baseline for GFX fonts, top for the default)
-    uint16_t color = 0xFFFF;
+    color::RGB color = {255, 255, 255};
     int16_t bandTop = 0, bandHeight = 0;
     int16_t width = 0;
     int16_t offset = 0;
     bool scrolls = false;
     uint32_t pauseUntil = 0;
   };
-  void setMarquee(Marquee &m, const String &text, const GFXfont *font, int16_t x, int16_t y, int16_t bandTop, int16_t bandHeight, uint16_t color);
+  void setMarquee(Marquee &m, const String &text, const GFXfont *font, int16_t x, int16_t y, int16_t bandTop, int16_t bandHeight, color::RGB color);
   void drawMarquee(Marquee &m);
   void stepMarquee(Marquee &m, uint32_t now);
   void drawAmbient(bool playing);
   void pickArtPalette();
   void startArtFade();
   void stepArtFade(uint32_t now);
+  void stepText(const NowPlaying &np, bool newPlaying, uint32_t now);
   color::RGB paletteAt(int i, uint32_t now) const;
 
   // Render side
@@ -184,6 +185,21 @@ private:
   uint8_t *shownArt = nullptr; // kept to redraw after a status change
   int shownArtSize = 0;
   Marquee lines[3]; // track, artists, album
+  // Track changes fade the old text out, then the new text in.
+  enum class TextFade : uint8_t
+  {
+    NONE,
+    OUT,
+    IN,
+  };
+  TextFade textFade = TextFade::NONE;
+  uint32_t textFadeStartMs = 0;
+  uint8_t textLevel = 255; // what drawMarquee() scales the text colour by
+  bool textShown = false;  // something is on face 1 to fade out
+  NowPlaying pendingInfo;
+  // The cloud's brightness, gliding to full (playing) or dim (paused).
+  uint16_t ambientLevel = 0;
+  uint32_t ambientLevelMs = 0;
   bool shownPlaying = false;
 
   // Top face: a slow noise cloud in the album art's colours. Colours are

@@ -1,5 +1,7 @@
 #include "cube_geometry.h"
 
+#include <math.h>
+
 namespace cube
 {
     Point faceToChain(int faceIndex, int rotation, int16_t x, int16_t y)
@@ -174,6 +176,49 @@ namespace cube
             return 111.7173f - 0.8660254f * x;
         }
         return 109.1192f - 0.8660254f * x;
+    }
+
+    float projectYf(int16_t x, int16_t y)
+    {
+        if (x < FACE_SIZE)
+        {
+            return (130 - x - y) * 0.5f;
+        }
+        if (x < 2 * FACE_SIZE)
+        {
+            return y - x * 0.5f;
+        }
+        return x * 0.5f + y - 128;
+    }
+
+    Point unproject(float X, float Y)
+    {
+        const float k = 0.8660254f;
+        // Each face's projection solved for (x, y); the first face whose
+        // solution lands on it wins. Rounded to the nearest pixel.
+        {
+            const float a = X / k, b = 130 - 2 * Y; // x - y, x + y
+            const float x = (a + b) * 0.5f, y = (b - a) * 0.5f;
+            if (x > -0.5f && x < FACE_SIZE - 0.5f && y > -0.5f && y < FACE_SIZE - 0.5f)
+            {
+                return Point{int16_t(lroundf(x)), int16_t(lroundf(y))};
+            }
+        }
+        {
+            const float x = (111.7173f - X) / k, y = Y + x * 0.5f;
+            if (x > FACE_SIZE - 0.5f && x < 2 * FACE_SIZE - 0.5f && y > -0.5f && y < FACE_SIZE - 0.5f)
+            {
+                return Point{int16_t(lroundf(x)), int16_t(lroundf(y))};
+            }
+        }
+        {
+            const float x = (109.1192f - X) / k, y = Y + 128 - x * 0.5f;
+            if (x > 2 * FACE_SIZE - 0.5f && x < CHAIN_WIDTH - 0.5f && y > -0.5f && y < FACE_SIZE - 0.5f)
+            {
+                return Point{int16_t(lroundf(x)), int16_t(lroundf(y))};
+            }
+        }
+        return NO_POINT;
     }
 
     int16_t projectY(int16_t x, int16_t y)

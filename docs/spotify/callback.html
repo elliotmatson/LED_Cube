@@ -1,0 +1,79 @@
+<!doctype html>
+<!--
+  Spotify login relay for the LED Cube.
+
+  Spotify only accepts HTTPS redirect URIs (plain http is allowed for 127.0.0.1
+  and nothing else), and the cube can only serve http on the local network. So
+  Spotify redirects here, to GitHub Pages, and this page sends the browser on to
+  the cube with the same query string. The authorization code is useless without
+  the client secret held on the cube, and nothing here stores or sends it
+  anywhere else.
+
+  The cube says where it is in the OAuth state: "<random>.<host>". Only private
+  IPv4 addresses and .local names are accepted, so this page cannot be used to
+  bounce someone to an arbitrary site.
+
+  Published by .github/workflows/docs.yml at /spotify/callback.html. That URL
+  is SPOTIFY_REDIRECT_URI in lib/cube/config.h, and must also be listed as a
+  redirect URI in the Spotify app's dashboard.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>LED Cube Spotify Login</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #fff; --fg: #1a1a1a; --muted: #666; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #121212; --fg: #eee; --muted: #aaa; } }
+    body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif;
+           max-width: 32rem; margin: 15vh auto; padding: 0 16px; }
+    p.muted { color: var(--muted); }
+    a { color: #1db954; }
+  </style>
+</head>
+<body>
+  <h1>LED Cube</h1>
+  <p id="message">Sending you back to your cube&hellip;</p>
+  <p class="muted" id="detail"></p>
+  <noscript><p>This page needs JavaScript to hand the login back to your cube.</p></noscript>
+  <script>
+    (function () {
+      var message = document.getElementById("message");
+      var detail = document.getElementById("detail");
+      var params = new URLSearchParams(window.location.search);
+      var state = params.get("state") || "";
+      var host = state.slice(state.indexOf(".") + 1);
+
+      function isPrivateHost(h) {
+        if (/^[a-z0-9-]+\.local$/i.test(h)) return true;
+        var m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+        if (!m) return false;
+        var o = m.slice(1).map(Number);
+        if (o.some(function (n) { return n > 255; })) return false;
+        return o[0] === 10 ||
+               (o[0] === 172 && o[1] >= 16 && o[1] <= 31) ||
+               (o[0] === 192 && o[1] === 168);
+      }
+
+      if (state.indexOf(".") < 0 || !isPrivateHost(host)) {
+        message.textContent = "This login did not come from an LED Cube.";
+        detail.textContent = "Start again from the cube's /spotify page.";
+        return;
+      }
+
+      // Same query string, including code or error, on to the cube.
+      var target = "http://" + host + "/callback/" + window.location.search;
+      // Keep the code out of this page's history entry.
+      window.history.replaceState(null, "", window.location.pathname);
+      var link = document.createElement("a");
+      link.href = target;
+      link.textContent = "Continue to the cube";
+      detail.textContent = "If nothing happens, make sure you are on the same network as the cube, then ";
+      detail.appendChild(link);
+      detail.appendChild(document.createTextNode("."));
+      window.location.replace(target);
+    })();
+  </script>
+</body>
+</html>

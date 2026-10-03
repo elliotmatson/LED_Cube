@@ -2,21 +2,18 @@
 #define CLOCK_H
 
 #include <Arduino.h>
-#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "cube_utils.h"
 
 class Clock : public Pattern
 {
 public:
     Clock();
-    void init(PatternServices *pattern);
-    void start();
-    void stop();
-    ~Clock();
+    void begin(PatternServices *services) override;
+    void tick() override;
+    uint32_t frameInterval() const override { return 1000; }
 
 private:
     struct tm timeinfo;
-    void show();
 };
 
 #endif

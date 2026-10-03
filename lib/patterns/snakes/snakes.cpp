@@ -7,47 +7,38 @@ SnakeGame::SnakeGame()
   data.name = "Snake";
 }
 
-SnakeGame::~SnakeGame(){
-  stop();
+SnakeGame::~SnakeGame()
+{
+  end();
 }
 
-void SnakeGame::init(PatternServices *pattern)
+void SnakeGame::begin(PatternServices *services)
 {
-  this->pattern = pattern;
+  this->pattern = services;
+  this->frameCount = 0;
   this->len = 3;
   this->n_snakes = 25;
   this->n_food = 200;
-  this->board = (std::pair<uint8_t, uint16_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(uint8_t *), MALLOC_CAP_SPIRAM);
+  this->board = (std::pair<uint8_t, uint16_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(*this->board), MALLOC_CAP_SPIRAM);
   for (int i = 0; i < PANEL_HEIGHT; i++)
   {
     this->board[i] = (std::pair<uint8_t, uint16_t> *)heap_caps_malloc(PANEL_WIDTH * PANELS_NUMBER * sizeof(std::pair<uint8_t, uint16_t>), MALLOC_CAP_SPIRAM);
   }
   this->snakes = (Snake *)heap_caps_malloc(n_snakes * sizeof(Snake), MALLOC_CAP_SPIRAM);
   reset();
-} 
-
-void SnakeGame::start()
-{
-  xTaskCreate(
-      [](void *o)
-      { static_cast<SnakeGame *>(o)->show(); }, // This is disgusting, but it works
-      "Snake - Refresh",                        // Name of the task (for debugging)
-      8000,                                     // Stack size (bytes)
-      this,                                     // Parameter to pass
-      1,                                        // Task priority
-      &refreshTask                              // Task handle
-  );
 }
 
-void SnakeGame::stop()
+void SnakeGame::tick()
 {
-  if (refreshTask)
-  {
-    vTaskDelete(refreshTask);
-    refreshTask = nullptr;
-  }
-  // Cleared after freeing, so a second stop() (or the destructor after a
-  // stop()) does not free them again.
+  this->update();
+  this->draw();
+  frameCount++;
+}
+
+void SnakeGame::end()
+{
+  // Cleared after freeing, so end() twice (or the destructor after an end())
+  // does not free them again.
   if (this->board)
   {
     for (int i = 0; i < PANEL_HEIGHT; i++)
@@ -320,14 +311,4 @@ void SnakeGame::place_food(){
     col = random(PANEL_WIDTH * PANELS_NUMBER);
   } while(this->board[row][col].first != SPACE_ID);
   this->board[row][col].first = FOOD_ID;
-}
-
-void SnakeGame::show(){
-  while(true){
-    this->update();
-    this->draw();
-
-    frameCount++;
-    vTaskDelay(1 / portTICK_PERIOD_MS);
-  }
 }

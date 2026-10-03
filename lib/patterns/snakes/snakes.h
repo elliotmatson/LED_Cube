@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include <utility>
 #include "cube_utils.h"
-#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 const uint8_t FOOD_ID = 254;
 const uint8_t SPACE_ID = 255;
@@ -99,13 +98,14 @@ struct Snake{
 class SnakeGame: public Pattern{
     public:
         SnakeGame();
-        void init(PatternServices *pattern);
-        void start();
-        void stop();
         ~SnakeGame();
+        void begin(PatternServices *services) override;
+        void tick() override;
+        void end() override;
+        // Each tick redraws all 12,288 pixels; this mostly just yields.
+        uint32_t frameInterval() const override { return 16; }
 
       private:
-        unsigned long frameCount;
         uint8_t len; // Starting length of all snakes
         Snake * snakes = nullptr; // Array of all snakes in the game
         std::pair<uint8_t,uint16_t> ** board = nullptr; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
@@ -116,7 +116,6 @@ class SnakeGame: public Pattern{
         void reset();
         void update();
         void draw();
-        void show();
         void place_food();
         void spawn_snake(uint8_t i);
         enum SnakeType {

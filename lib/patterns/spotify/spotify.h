@@ -2,13 +2,10 @@
 #define SPOTIFY_H
 
 #include <Arduino.h>
-#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <SpotifyArduino.h>
 #include <TJpg_Decoder.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <WiFi.h>
 #include <Preferences.h>
 
@@ -23,7 +20,6 @@
 
 #define BLANK_AFTER_PAUSE_MS 300000
 #define SPOTIFY_REQUEST_INTERVAL_MS 1000
-#define PROGRESS_REFRESH_MS 100
 
 //#define SPOTIFY_RESET_OAUTH
 //#define SPOTIFY_RESET_TOKEN
@@ -34,65 +30,117 @@ extern const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
 
 enum PatternStatus
 {
-  unknown, // before init(); lets the first changeStatus() always draw
+  unknown, // nothing drawn yet
   oauth,
   refreshToken,
   noPlayback,
   playback
 };
 
+/**
+ * Now playing on Spotify: album art on face 2, track details, a progress bar
+ * and playback state on face 1.
+ *
+ * Split in two, because every Spotify call is an HTTPS request of a second or
+ * more:
+ * - a worker task (begin() to end()) talks to Spotify and keeps a copy of
+ *   what it learned, under stateMutex;
+ * - tick(), in the render task, draws from that copy and never blocks on the
+ *   network.
+ * end() asks the worker to stop and waits for it, rather than deleting it
+ * mid-request.
+ */
 class Spotify : public Pattern
 {
 public:
   Spotify();
-  void init(PatternServices *pattern);
-  void start();
-  void stop();
   ~Spotify();
+  void begin(PatternServices *services) override;
+  void tick() override;
+  void end() override;
+  uint32_t frameInterval() const override { return 100; }
 
 private:
-  void refreshInfo();
-  bool displayImageOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap);
-  int displayImage();
-  void displayInfo();
-  void displayProgress();
-  void displayPlayback();
+  // What the worker learned about the current item. Owned copies: the
+  // library's structs point into a JSON document freed when its callback
+  // returns.
+  struct NowPlaying
+  {
+    String trackUri;
+    String albumUri;
+    String trackName;
+    String albumName;
+    String artists;
+    long progressMs = 0;
+    long durationMs = 0;
+    bool isPlaying = false;
+    uint32_t receivedAtMs = 0;
+  };
+  struct PlayerState
+  {
+    bool isPlaying = false;
+    bool shuffle = false;
+    RepeatOptions repeat = repeat_off;
+  };
+
+  // Worker side
+  void worker();
+  int setupCredentials();
+  void exchangePendingCode();
+  void poll();
+  void setStatus(PatternStatus s);
   void startOauthWebServer();
   void stopOauthWebServer();
-  void exchangePendingCode();
-  int setupCredentials();
-  void changeStatus(PatternStatus status);
 
-  SinglePanel *panel0 = nullptr;
-  SinglePanel *panel1 = nullptr;
-  SinglePanel *panel2 = nullptr;
+  // Render side
+  void drawStatus(PatternStatus s);
+  void drawInfo(const NowPlaying &np);
+  void drawProgress(const NowPlaying &np);
+  void drawPlayback(const PlayerState &pb);
+  bool drawArtPixels(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap);
+
+  SinglePanel *panel0 = nullptr; // album art, physical face 2 rotated 180
+  SinglePanel *panel1 = nullptr; // details, physical face 1 rotated 180
   NetworkClientSecure client;
   SpotifyArduino *spotify = nullptr;
   Preferences spotifyPrefs;
-
-  TaskHandle_t progressTask = nullptr;
-
-  String previousTrack;
-  String previousAlbum;
-  long lastPlaying = 0;
-  long lastUpdate = 0;
-
-  CurrentlyPlaying currentlyPlaying{};
-  PlayerDetails playerDetails{};
-  PatternStatus patternStatus = unknown;
-  std::vector<AsyncCallbackWebHandler *> handlers;
-
-  // The OAuth callback runs in the AsyncTCP task, which must not block on the
-  // token request's TLS handshake. It hands the code to the refresh task here.
-  portMUX_TYPE codeMux = portMUX_INITIALIZER_UNLOCKED;
-  char pendingCode[512] = "";
-  // Random per /spotify visit and checked on /callback/, so a link from
-  // elsewhere cannot log the cube in to someone else's account.
-  // "<16 hex>.<host>": the relay page sends the browser back to <host>.
-  char oauthState[64] = "";
-
   char spotifyID[33];
   char spotifySecret[33];
+  uint32_t lastPlayingMs = 0;
+
+  // Worker lifecycle
+  TaskHandle_t workerTask = nullptr;
+  SemaphoreHandle_t workerDone = nullptr;
+  volatile bool running = false;
+
+  // Shared between worker and tick(), under stateMutex. Versions count
+  // changes, so tick() redraws only what changed.
+  SemaphoreHandle_t stateMutex = nullptr;
+  PatternStatus status = unknown;
+  NowPlaying playing;
+  uint32_t playingVersion = 0;
+  PlayerState player;
+  uint32_t playerVersion = 0;
+  uint8_t *art = nullptr; // JPEG bytes, malloc'd by the library
+  int artSize = 0;
+  uint32_t artVersion = 0;
+
+  // Render-side state
+  PatternStatus drawnStatus = unknown;
+  uint32_t drawnPlayingVersion = 0;
+  uint32_t drawnPlayerVersion = 0;
+  uint32_t drawnArtVersion = 0;
+  uint8_t *shownArt = nullptr; // kept to redraw after a status change
+  int shownArtSize = 0;
+
+  // The OAuth callback runs in the AsyncTCP task, which must not block on the
+  // token request's TLS handshake. It hands the code to the worker here.
+  portMUX_TYPE codeMux = portMUX_INITIALIZER_UNLOCKED;
+  char pendingCode[512] = "";
+  // "<16 hex>.<host>": random per /spotify visit and checked on /callback/;
+  // the relay page sends the browser back to <host>.
+  char oauthState[64] = "";
+  std::vector<AsyncCallbackWebHandler *> handlers;
 };
 
 #endif

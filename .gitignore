@@ -5,5 +5,8 @@ lib/cube/secrets.h
 include/secrets.h
 .DS_Store
 build
-sdkconfig.*.old
 managed_components
+# Generated per-env configs. sdkconfig.defaults is the source of truth;
+# sdkconfig.<env> is derived from it on every build.
+sdkconfig.*
+!sdkconfig.defaults

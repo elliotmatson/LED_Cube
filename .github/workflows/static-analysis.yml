@@ -1,0 +1,23 @@
+# Runs pio check and reports it on the pull request: inline annotations, a job
+# summary, and a comment updated in place.
+name: static-analysis
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  analysis:
+    uses: elliotmatson/pio-actions/.github/workflows/static-analysis.yml@v1
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      # Defects below this are reported inline and in the comment, but do not
+      # gate the merge.
+      fail-on: high
+      # Matches build-release.yml. Without it pio check cannot resolve the
+      # platform and reports "No defects" having checked nothing.
+      pio-version: latest
+    secrets:
+      gh-token: ${{ secrets.GH_PAT }}

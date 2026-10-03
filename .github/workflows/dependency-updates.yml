@@ -1,0 +1,48 @@
+# Dependabot has no PlatformIO ecosystem and Renovate no native manager, so
+# platformio.ini is updated by a dedicated action. Same setup as hub and lp-p2p.
+name: dependency-updates
+
+on:
+  schedule:
+    # Mondays, early. Bumps land before the week's work starts.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      cooldown:
+        description: Days a release must have been out before it is proposed.
+        type: string
+        default: "3"
+
+jobs:
+  update:
+    name: Check for dependency updates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The updater sets its own remote URL carrying the token below. Left
+          # on, checkout's credential header would override that and the push
+          # would authenticate as the workflow token instead -- which cannot
+          # see the private ESP-DASH-Pro, and whose pull requests never start CI.
+          persist-credentials: false
+
+      - name: Check for dependency updates
+        # Fork of VIPnytt/platformio-dependency-updater. Upstream hardcodes the
+        # workflow token; the fork makes it an input and fixes matching of
+        # registry names containing spaces (Adafruit GFX Library, NeoPixel).
+        uses: elliotmatson/platformio-dependency-updater@cc-v1
+        with:
+          # Needs Contents: read/write and Pull requests: read/write. Read alone
+          # produces a green run that silently opens nothing.
+          token: ${{ secrets.GH_PAT }}
+          # Rewrite ^ and ~ constraints as exact versions, so the firmware is
+          # reproducible from platformio.ini alone.
+          pin-ranges: true
+          cooldown: ${{ inputs.cooldown || '3' }}
+          labels: dependencies,platformio
+          open-pull-requests-limit: 5

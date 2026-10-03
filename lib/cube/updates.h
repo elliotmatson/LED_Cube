@@ -56,8 +56,18 @@ private:
     void initFirmwareUpload();
     firmware_image::Expected expectedImage();
     void verifyWrittenImage();
-    void showBanner(const char *text);
-    void drawProgress(unsigned int progress, unsigned int total);
+    // The update screen: "UPDATE" tiled and scrolling a different way on each
+    // face, the percentage on top, and a line tracing the cube's edges as
+    // progress. Drawn on its own canvas while the renderer is stopped.
+    void startAnimation();
+    void stopAnimation();
+    void setProgress(float fraction);
+    void drawFrame();
+    void drawEdgeProgress(int steps);
+    void animationLoop();
+    /// Stops the animation and brings the pattern back after a failed update.
+    void abandon();
+    void onProgress(unsigned int progress, unsigned int total);
     void fadeOut();
     void checkForUpdates();
     bool findFirmwareRelease(String &tag, String &firmwareUrl);
@@ -74,6 +84,16 @@ private:
     // The upload that owns the Update object, or null. Set only after its
     // image passed the checks and Update.begin() succeeded.
     AsyncWebServerRequest *updateRequest = nullptr;
+
+    // The update screen runs in its own task, so drawing it never slows the
+    // update: the update paths only record progress (in permille).
+    Canvas canvas;
+    bool canvasReady = false;
+    uint32_t animationStartMs = 0;
+    volatile uint16_t progressPermille = 0;
+    volatile bool animating = false;
+    TaskHandle_t animationTask = nullptr;
+    SemaphoreHandle_t animationDone = nullptr;
 
     TaskHandle_t otaTask = nullptr;
     TaskHandle_t githubTask = nullptr;

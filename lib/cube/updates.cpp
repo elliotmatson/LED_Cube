@@ -3,6 +3,9 @@
 #include <esp_app_desc.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <Fonts/FreeSansBold12pt7b.h>
+
+#include "LEMONMILK_Medium7pt7b.h"
 
 // The cube's custom app descriptor, placed right after the standard one in
 // every image (ESP-IDF's .rodata_custom_desc). Its cookie is the "signature"
@@ -72,43 +75,172 @@ void Updates::verifyWrittenImage()
     }
 }
 
-/// A word on all three faces while an update runs.
-void Updates::showBanner(const char *text)
+namespace
 {
-    panels->fillScreenRGB888(0, 0, 0);
-    panels->setFont(NULL);
-    panels->setCursor(6, 21);
-    panels->setTextColor(0xFFFF);
-    panels->setTextSize(3);
-    panels->print(text);
+    const char *WORD = "UPDATE";
+    const int16_t ROW_SPACING = 16;
+    const int16_t WORD_GAP = 12;
+    const uint32_t FRAME_MS = 40;
+
+    // "UPDATE" in rows across a face, each row scrolling the opposite way to
+    // the one above it. `pixelsPerSecond` sets the speed; `firstLeft` the
+    // direction of the top row.
+    void tile(SinglePanel &face, int16_t wordWidth, uint32_t ms, int pixelsPerSecond, bool firstLeft, uint16_t color)
+    {
+        const int period = wordWidth + WORD_GAP;
+        const int travel = int((uint64_t(ms) * pixelsPerSecond / 1000) % period);
+        face.setFont(&LEMONMILK_Medium7pt7b);
+        face.setTextSize(1);
+        face.setTextWrap(false);
+        face.setTextColor(color);
+        for (int row = 0; row <= cube::FACE_SIZE / ROW_SPACING; row++)
+        {
+            const bool left = ((row & 1) == 0) == firstLeft;
+            const int y = row * ROW_SPACING + 11;
+            // Start each row somewhere different so the words do not line up.
+            const int start = (row * period / 3 + (left ? period - travel : travel)) % period;
+            for (int x = start - period; x < cube::FACE_SIZE; x += period)
+            {
+                face.setCursor(int16_t(x), int16_t(y));
+                face.print(WORD);
+            }
+        }
+        face.setFont(NULL);
+    }
 }
 
-/// Progress as a line tracing the edges of all three faces.
-void Updates::drawProgress(unsigned int progress, unsigned int total)
+void Updates::startAnimation()
 {
-    ESP_LOGI("Updates", "Progress: %u%%", total ? (progress * 100) / total : 0);
+    canvasReady = canvas.begin();
+    if (!canvasReady || animationTask)
+    {
+        return;
+    }
+    if (!animationDone)
+    {
+        animationDone = xSemaphoreCreateBinary();
+    }
+    animationStartMs = millis();
+    progressPermille = 0;
+    animating = true;
+    // Core 1 (the render task's, idle while an update runs), low priority:
+    // the update itself always comes first.
+    xTaskCreatePinnedToCore(
+        [](void *self)
+        { static_cast<Updates *>(self)->animationLoop(); },
+        "Update screen", 4096, this, 1, &animationTask, 1);
+}
+
+void Updates::animationLoop()
+{
+    TickType_t wake = xTaskGetTickCount();
+    while (animating)
+    {
+        drawFrame();
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(FRAME_MS));
+    }
+    xSemaphoreGive(animationDone);
+    vTaskDelete(NULL);
+}
+
+void Updates::stopAnimation()
+{
+    if (!animationTask)
+    {
+        return;
+    }
+    animating = false;
+    xSemaphoreTake(animationDone, pdMS_TO_TICKS(500));
+    animationTask = nullptr;
+}
+
+void Updates::abandon()
+{
+    stopAnimation();
+    renderer->resume();
+}
+
+void Updates::setProgress(float fraction)
+{
+    fraction = fraction < 0 ? 0 : (fraction > 1 ? 1 : fraction);
+    progressPermille = uint16_t(fraction * 1000);
+}
+
+/// One frame of the update screen.
+void Updates::drawFrame()
+{
+    if (!canvasReady)
+    {
+        return;
+    }
+    const uint32_t t = millis() - animationStartMs;
+    const float fraction = progressPermille / 1000.0f;
+
+    canvas.fillScreen(0);
+    SinglePanel top(canvas, 0, 0);
+    SinglePanel right(canvas, 1, 2); // upright, as the patterns use them
+    SinglePanel left(canvas, 2, 2);
+    int16_t x1, y1;
+    uint16_t w, h;
+    top.setFont(&LEMONMILK_Medium7pt7b);
+    top.getTextBounds(WORD, 0, 11, &x1, &y1, &w, &h);
+    const int16_t wordWidth = int16_t(w) + x1;
+    const uint16_t dim = Canvas::color565(0, 85, 115);
+
+    // Rows alternate direction on every face; the faces differ in speed and
+    // in which way their top row goes.
+    tile(top, wordWidth, t, 22, true, dim);
+    tile(right, wordWidth, t, 30, false, dim);
+    tile(left, wordWidth, t, 30, true, dim);
+
+    // The percentage, large, over the top face.
+    char percent[6];
+    snprintf(percent, sizeof(percent), "%d%%", int(fraction * 100 + 0.5f));
+    top.setFont(&FreeSansBold12pt7b);
+    top.getTextBounds(percent, 0, 40, &x1, &y1, &w, &h);
+    const int16_t px = (cube::FACE_SIZE - int16_t(w)) / 2 - x1;
+    top.fillRect(px + x1 - 3, y1 - 3, w + 6, h + 6, 0);
+    top.setTextColor(0xFFFF);
+    top.setCursor(px, 40);
+    top.print(percent);
+    top.setFont(NULL);
+
+    drawEdgeProgress(int(fraction * 512));
+    canvas.push(*panels);
+}
+
+/// The progress line: 512 steps around the cube's edges, as before.
+void Updates::drawEdgeProgress(int i)
+{
+    Canvas &c = canvas;
+    const uint16_t white = 0xFFFF;
+    c.drawFastHLine(128, 0, constrain(i, 0, 64), white);
+    c.drawFastVLine(191, 0, constrain(i - 64, 0, 64), white);
+
+    c.drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), white);
+    c.drawFastHLine(0, 0, constrain(i - 192, 0, 64), white);
+
+    c.drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), white);
+    c.drawFastHLine(64, 0, constrain(i - 320, 0, 64), white);
+
+    c.drawFastVLine(127, 0, constrain(i - 384, 0, 64), white);
+    c.drawFastVLine(128, 0, constrain(i - 384, 0, 64), white);
+
+    c.drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), white);
+    c.drawFastHLine(128, 63, constrain(i - 448, 0, 64), white);
+    c.drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), white);
+    c.drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), white);
+}
+
+/// Progress from ArduinoOTA or the GitHub updater.
+void Updates::onProgress(unsigned int progress, unsigned int total)
+{
+    ESP_LOGD("Updates", "Progress: %u%%", total ? (progress * 100) / total : 0);
     if (settings->signedFirmwareOnly() && progress == total)
     {
         verifyWrittenImage();
     }
-
-    int i = map(progress, 0, total, 0, 512);
-    panels->drawFastHLine(128, 0, constrain(i, 0, 64), 0xFFFF);
-    panels->drawFastVLine(191, 0, constrain(i - 64, 0, 64), 0xFFFF);
-
-    panels->drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), 0xFFFF);
-    panels->drawFastHLine(0, 0, constrain(i - 192, 0, 64), 0xFFFF);
-
-    panels->drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), 0xFFFF);
-    panels->drawFastHLine(64, 0, constrain(i - 320, 0, 64), 0xFFFF);
-
-    panels->drawFastVLine(127, 0, constrain(i - 384, 0, 64), 0xFFFF);
-    panels->drawFastVLine(128, 0, constrain(i - 384, 0, 64), 0xFFFF);
-
-    panels->drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), 0xFFFF);
-    panels->drawFastHLine(128, 63, constrain(i - 448, 0, 64), 0xFFFF);
-    panels->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
-    panels->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF);
+    setProgress(total ? float(progress) / total : 0);
 }
 
 /// Dims the panels to black before the restart into new firmware.
@@ -139,17 +271,17 @@ void Updates::setOta(bool ota)
                      {
                 ESP_LOGI("Updates", "ArduinoOTA update starting");
                 renderer->stop();
-                showBanner("OTA"); })
+                startAnimation(); })
             .onEnd([this]()
                    { fadeOut(); })
             .onProgress([this](unsigned int progress, unsigned int total)
-                        { drawProgress(progress, total); })
+                        { onProgress(progress, total); })
             .onError([this](ota_error_t error)
                      {
                 ESP_LOGE("Updates", "ArduinoOTA error %u", error);
                 // The pattern was stopped in onStart; nothing will reboot
                 // into new firmware now, so bring it back.
-                renderer->resume(); });
+                abandon(); });
         ArduinoOTA.begin();
         xTaskCreate(
             [](void *self)
@@ -183,11 +315,11 @@ void Updates::setGithub(bool github)
                            {
             ESP_LOGI("Updates", "GitHub update starting");
             renderer->stop();
-            showBanner("GHA"); });
+            startAnimation(); });
         httpUpdate.onEnd([this]()
                          { fadeOut(); });
         httpUpdate.onProgress([this](unsigned int progress, unsigned int total)
-                              { drawProgress(progress, total); });
+                              { onProgress(progress, total); });
         xTaskCreate(
             [](void *self)
             { static_cast<Updates *>(self)->checkForUpdates(); },
@@ -233,6 +365,7 @@ void Updates::initFirmwareUpload()
             if (!Update.end(true))
             {
                 ESP_LOGE(__func__, "Update.end failed: %s", Update.errorString());
+                abandon();
                 firmwareUploadStatus.setFeedback(Update.errorString(), dash::Status::DANGER);
                 dashboard->sendUpdates();
                 request->send(400, "text/plain", Update.errorString());
@@ -240,6 +373,8 @@ void Updates::initFirmwareUpload()
             }
 
             ESP_LOGI(__func__, "Firmware update staged, restarting");
+            setProgress(1.0f);
+            fadeOut();
             firmwareUploadStatus.setFeedback("Update complete - restarting", dash::Status::SUCCESS);
             dashboard->sendUpdates();
             AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "Update complete, restarting");
@@ -288,6 +423,8 @@ void Updates::initFirmwareUpload()
                     return;
                 }
                 updateRequest = request;
+                renderer->stop();
+                startAnimation();
                 // A client that leaves mid-upload never reaches the completion
                 // handler; without this the update would stay owned by a dead
                 // request and every later upload would get a 409.
@@ -298,6 +435,7 @@ void Updates::initFirmwareUpload()
                         ESP_LOGW(__func__, "Firmware upload disconnected, aborting");
                         Update.abort();
                         updateRequest = nullptr;
+                        abandon();
                         firmwareUploadStatus.setFeedback("Upload interrupted - firmware unchanged", dash::Status::WARNING);
                         dashboard->sendUpdates();
                     } });
@@ -315,8 +453,15 @@ void Updates::initFirmwareUpload()
                 dashboard->sendUpdates();
                 Update.abort();
                 updateRequest = nullptr;
+                abandon();
                 request->send(400, "text/plain", Update.errorString());
                 return;
+            }
+            // contentLength() counts the multipart framing too, so this runs
+            // a little short of 100% until the end.
+            if (request->contentLength() > 0)
+            {
+                setProgress(float(index + len) / request->contentLength());
             }
             if (final)
             {
@@ -346,7 +491,7 @@ void Updates::checkForUpdates()
             case HTTP_UPDATE_FAILED:
                 ESP_LOGE(__func__, "Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
                 // onStart may already have stopped the pattern.
-                renderer->resume();
+                abandon();
                 break;
 
             case HTTP_UPDATE_NO_UPDATES:

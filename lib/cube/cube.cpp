@@ -287,9 +287,10 @@ bool Cube::initWifi()
 
     wifiManager.setHostname("cube");
     wifiManager.setClass("invert");
-    // Give up on the portal after a while and run patterns offline, rather
-    // than leaving the hotspot up indefinitely.
-    wifiManager.setConfigPortalTimeout(WIFI_PORTAL_TIMEOUT);
+    // Non-blocking, so the portal is driven by the loop below. WiFiManager's
+    // own blocking loop only calls yield(), which never lets the idle task on
+    // this core run, and the task watchdog fires for as long as it is up.
+    wifiManager.setConfigPortalBlocking(false);
     wifiManager.setAPCallback([this, apPassword](WiFiManager *myWiFiManager)
                               {
             dma_display->fillScreen(BLACK);
@@ -302,8 +303,20 @@ bool Cube::initWifi()
     bool status = wifiManager.autoConnect("Cube", apPassword);
     if (!status)
     {
-        ESP_LOGW(__func__, "No WiFi after %d s of setup portal, continuing offline", WIFI_PORTAL_TIMEOUT);
-        dma_display->fillScreen(BLACK);
+        // The portal is up. Give up after a while and run patterns offline,
+        // rather than leaving the hotspot up indefinitely.
+        const uint32_t portalStart = millis();
+        while (!(status = wifiManager.process()))
+        {
+            if (millis() - portalStart > WIFI_PORTAL_TIMEOUT * 1000UL)
+            {
+                ESP_LOGW(__func__, "No WiFi after %d s of setup portal, continuing offline", WIFI_PORTAL_TIMEOUT);
+                wifiManager.stopConfigPortal();
+                dma_display->fillScreen(BLACK);
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
     }
 
     // Set up NTP
@@ -505,9 +518,10 @@ void Cube::initFirmwareUpload()
         {
             if (updateRequest != request)
             {
-                // Rejected while the body arrived, and answered then -- or a
-                // POST with no file in it at all.
-                if (!request->isSent())
+                // Rejected while the body arrived -- that send() only queued
+                // the response, so isSent() is still false here and the queued
+                // one must not be replaced -- or a POST with no file at all.
+                if (request->getResponse() == nullptr)
                 {
                     request->send(400, "text/plain", "No firmware file in the request");
                 }

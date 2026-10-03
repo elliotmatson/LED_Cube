@@ -32,6 +32,14 @@ jobs:
       - name: Install doxygen-awesome-css
         run: git clone https://github.com/jothepro/doxygen-awesome-css.git
 
+      # The Spotify login relay (see the comment in the page). Its URL is
+      # SPOTIFY_REDIRECT_URI in lib/cube/config.h. Doxygen writes into
+      # docs/html without clearing it, so this can go in first.
+      - name: Add the Spotify login relay
+        run: |
+          mkdir -p docs/html/spotify
+          cp docs/spotify/callback.html docs/html/spotify/callback.html
+
       - name: Generate Doxygen documentation
         run: doxygen Doxyfile
 

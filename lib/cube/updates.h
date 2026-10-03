@@ -11,6 +11,7 @@
 #include <HTTPUpdate.h>
 #include <NetworkClientSecure.h>
 #include <Update.h>
+#include <esp_ota_ops.h>
 
 #include "config.h"
 #include "firmware_image.h"
@@ -29,11 +30,39 @@ struct CubePartition
 };
 
 /**
+ * Writes an app image to the next OTA partition through ESP-IDF's OTA API in
+ * sequential-write mode: each 4 KB sector is erased just before it is
+ * written. Arduino's Update erases 64 KB blocks instead, and an erase pauses
+ * both cores -- about 200 ms per block against about 45 ms per sector -- which
+ * is what made the update screen stutter. esp_ota_end() checks the image
+ * (chip, segments, hash) before it can be made bootable.
+ */
+class OtaWriter
+{
+public:
+    bool begin();
+    bool write(const uint8_t *data, size_t len);
+    /// Verifies the image and makes it the boot partition.
+    bool finish();
+    void abort();
+    bool active() const { return handle != 0; }
+    size_t written() const { return bytes; }
+    const char *error() const { return esp_err_to_name(err); }
+
+private:
+    esp_ota_handle_t handle = 0;
+    const esp_partition_t *partition = nullptr;
+    esp_err_t err = ESP_OK;
+    size_t bytes = 0;
+};
+
+/**
  * The three ways firmware reaches the cube, and what they share:
  *
  * - the dashboard's upload card, streamed into the inactive OTA slot and
  *   checked before a byte is written;
- * - ArduinoOTA (`pio run -t upload`), when switched on;
+ * - ArduinoOTA (`pio run -t upload`), when switched on -- this one still
+ *   goes through Arduino's Update, so its update screen stutters more;
  * - the GitHub updater, polling the repository's releases hourly.
  *
  * All three accept only images firmware_image::check() passes. ArduinoOTA and
@@ -71,6 +100,7 @@ private:
     void fadeOut();
     void checkForUpdates();
     bool findFirmwareRelease(String &tag, String &firmwareUrl);
+    bool downloadAndInstall(const String &url);
     void checkForOTA();
 
     ESPDash *dashboard;
@@ -84,6 +114,7 @@ private:
     // The upload that owns the Update object, or null. Set only after its
     // image passed the checks and Update.begin() succeeded.
     AsyncWebServerRequest *updateRequest = nullptr;
+    OtaWriter cardWriter; // the upload card's image in progress
 
     // The update screen runs in its own task, so drawing it never slows the
     // update: the update paths only record progress (in permille).

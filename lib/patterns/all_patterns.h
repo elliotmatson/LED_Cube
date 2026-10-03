@@ -9,9 +9,14 @@
 #include "spotify/spotify.h"
 #include "clock/clock.h"
 #include "game_of_life/game_of_life.h"
+#include "ripples/ripples.h"
+#include "matrix_rain/matrix_rain.h"
+#include "nebula/nebula.h"
 
 
-// Array of all patterns
-extern Pattern *patternList[5];
+// Array of all patterns. The count is checked against the list in
+// all_patterns.cpp at compile time.
+#define PATTERN_COUNT 8
+extern Pattern *patternList[PATTERN_COUNT];
 
 #endif

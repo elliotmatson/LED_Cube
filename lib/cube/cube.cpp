@@ -257,6 +257,10 @@ bool Cube::initWifi()
             leds.setPixelColor(2, 0, 0, 255);
             leds.show(); });
 
+    // Modem sleep (the Arduino default) dozes between beacons, so packets wait
+    // for the next DTIM wake: pings of 1-3 s and a sluggish dashboard, though
+    // bulk transfers stay fast. The cube is on mains power; stay awake.
+    WiFi.setSleep(false);
     bool status = wifiManager.autoConnect("Cube", apPassword);
     if (!status)
     {

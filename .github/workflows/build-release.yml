@@ -1,110 +1,53 @@
+# Thin caller for the shared firmware workflow. Toolchain setup, the PlatformIO
+# pin, version macros, renaming, artifacts and releases all live in
+# elliotmatson/pio-actions, so a fix lands once instead of being copied into
+# each repo and drifting.
 name: build-release
-
-env:
-  GH_TOKEN:  ${{ secrets.GH_PAT }}
 
 on:
   workflow_dispatch:
     inputs:
-      release-version:
-        type: string
-        description: Firmware Version
-        default: 'vX.X.X'
-        required: true
       release-type:
         type: choice
-        description: Production or Development?
-        options: 
-        - 'production'
-        - 'development'
-        - 'build only'
-        default: 'development'
+        description: Stable Release, Beta Release, or Build?
+        options:
+          - stable
+          - beta
+          - build
+        default: build
+      release-version:
+        type: string
+        description: Firmware Version (ignored for Build)
+        default: "vX.X.X"
+        required: true
   pull_request:
-    
-jobs:
-  build-esp32s3:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v5
-    - name: Cache pip and platformio
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/pip
-          ~/.platformio/.cache
-        key: ${{ runner.os }}-pio
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.14' 
-    - name: Install PlatformIO
-      run: pip install --upgrade platformio
-    - name: Set version var
-      run: echo "PLATFORMIO_BUILD_FLAGS=-DFW_VERSION='\"${{ inputs.release-version }}\"' -DREPO_PATH='\"$GITHUB_REPOSITORY\"'" >> $GITHUB_ENV
-      if: github.event_name	== 'workflow_dispatch'
-    - name: Setup git for private libraries
-      run: gh auth setup-git 
-    - name: Run PlatformIO
-      run: pio run -e esp32-s3-devkitc-1
-    - name: Rename firmware
-      run: cp .pio/build/esp32-s3-devkitc-1/firmware.bin esp32s3.bin
-    - name: Cache Build
-      if: github.event_name == 'workflow_dispatch'
-      uses: actions/cache@v4
-      with:
-        path: 'esp32s3.bin'
-        key: ${{ runner.os }}-${{ github.run_id }}
 
-  archive-esp32s3:
-    needs: build-esp32s3
-    runs-on: ubuntu-latest
+jobs:
+  firmware:
+    uses: elliotmatson/pio-actions/.github/workflows/build-release.yml@v1
     permissions:
+      # write for the release job; the build jobs narrow themselves to read.
       contents: write
-    steps:
-    - name: Get Cached Build
-      if: github.event_name == 'workflow_dispatch'
-      uses: actions/cache@v4
-      with:
-        path: 'esp32s3.bin'
-        key: ${{ runner.os }}-${{ github.run_id	 }}
-    - name: Archive Build
-      uses: actions/upload-artifact@v4
-      with:
-        name: 'build'
-        path: 'esp32s3.bin'
-        
-  release:
-    needs:
-      - build-esp32s3
-    if: (github.event_name == 'workflow_dispatch' && inputs.release-type != 'build only')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-    - name: Get Cached Build
-      if: github.event_name == 'workflow_dispatch'
-      uses: actions/cache@v4
-      with:
-        path: 'esp32s3.bin'
-        key: ${{ runner.os }}-${{ github.run_id	 }}
-    - name: Development Release
-      uses: ncipollo/release-action@v1
-      if: inputs.release-type == 'development'
-      with:
-        artifacts: '*.bin'
-        generateReleaseNotes: true
-        tag: ${{ inputs.release-version }}
-        token: ${{ secrets.GITHUB_TOKEN }}
-        prerelease: true
-        makeLatest: false
-    - name: Production Release
-      uses: ncipollo/release-action@v1
-      if: inputs.release-type == 'production'
-      with:
-        artifacts: '*.bin'
-        generateReleaseNotes: true
-        tag: ${{ inputs.release-version }}
-        token: ${{ secrets.GITHUB_TOKEN }}
+      # Lets the size diff post its comment on pull requests.
+      pull-requests: write
+    with:
+      release-type: ${{ inputs.release-type || 'build' }}
+      release-version: ${{ inputs.release-version || '' }}
+      envs: default
+      # pioarduino 55.03.312 requires PlatformIO Core >= 6.2.0; the shared
+      # default is still pinned to 6.1.19 for repos on older platforms.
+      pio-version: latest
+      # Cubes running firmware from before the move to pio-actions update from
+      # /releases/latest/download/esp32s3.bin, a name the shared workflow no
+      # longer produces. Publishing the app image under the old name as well
+      # lets them make the jump; newer firmware finds its image through the
+      # releases API instead. Drop this once no cube runs the old updater.
+      # Runs before the workflow stages dist/, which only adds to it.
+      post-build-run: mkdir -p dist && cp -v ".pio/build/$PIO_ENV/firmware.bin" dist/esp32s3.bin
+      # GitHub-hosted for now. Switching to a self-hosted runner is this one
+      # line (a single label -- the input is a string).
+      # runs-on: platformio
+    secrets:
+      # ESP-DASH-Pro is a private repository (its license forbids publishing
+      # the source), so cloning it needs a token that can read it.
+      gh-token: ${{ secrets.GH_PAT }}

@@ -1,0 +1,9 @@
+# GitHub Actions only. platformio.ini is handled by
+# .github/workflows/dependency-updates.yml, since Dependabot has no PlatformIO
+# ecosystem. This replaces renovate.json, which only ever bumped actions too.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

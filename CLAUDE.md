@@ -72,8 +72,20 @@ continuous across all three seams.
   about `https_server.crt` or `rmaker_*` certs, a new component has slipped
   in: add it to that list rather than embedding its certs.
 - **Patterns own FreeRTOS tasks.** Each pattern's `start()` creates a task and
-  `stop()` deletes it. Clear the handle after deleting and never call
-  `stop()` on a pattern that is not running.
+  `stop()` deletes it; `stop()` must check the handle and clear it. Never
+  call a pattern's `start()`/`stop()` directly: go through
+  `Cube::startPattern` / `stopPattern` / `resumePattern`, which serialize on
+  a mutex and track whether anything is running. Web handlers call
+  `Cube::requestPattern`, which only queues the switch -- they run in the
+  AsyncTCP task and must not block.
+- **Rollback.** A freshly updated image is confirmed at the end of
+  `Cube::init()` (`verifyRollbackLater()` in `main.cpp` stops the Arduino
+  core doing it at boot). Anything that can hang before that point will
+  roll the update back on the next reset.
+- **Firmware upload checks.** The upload card rejects images whose app
+  descriptor `project_name` differs from the running one (`LED_Cube`, from
+  the root `CMakeLists.txt`). Renaming the project means the first update
+  across the rename has to go over USB or ArduinoOTA.
 
 ## CI
 

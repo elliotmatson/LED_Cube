@@ -33,6 +33,8 @@
 #include "esp_partition.h"
 
 #include "config.h"
+#include "settings.h"
+#include "timezones.h"
 #include "cube_utils.h"
 #include "all_patterns.h"
 
@@ -43,23 +45,6 @@
 // get ESP-IDF Certificate Bundle
 extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
 extern const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
-
-// Preferences struct for storing and loading in nvs
-struct CubePrefs
-{
-    uint8_t brightness = 255;
-    bool development = 0;
-    bool ota = 0;
-    bool github = 1;
-    bool signedFWOnly = 1;
-    uint8_t latchBlanking = 1;
-    bool use20MHz = 0;
-    u_int8_t patternIndex = 0;
-    void print(String prefix)
-    {
-        ESP_LOGI(__func__, "%s\nBrightness: %d\nDevelopment: %d\nOTA: %d\nGithub: %d\nSigned FW Only: %d\n", prefix.c_str(), brightness, development, ota, github, signedFWOnly);
-    }
-};
 
 // Partition struct for verifying firmware is intended for cube
 struct CubePartition
@@ -80,7 +65,7 @@ private:
     Adafruit_NeoPixel leds;
     AsyncWebServer server;
     WiFiManager wifiManager;
-    CubePrefs cubePrefs;
+    Settings settings;
     Canvas canvas;
     // Owned by the render task once it starts: only renderLoop() changes it.
     Pattern *currentPattern = nullptr;
@@ -136,6 +121,7 @@ private:
     dash::PushButtonCard rebootButton;
     dash::PushButtonCard resetWifiButton;
     dash::PushButtonCard crashMe;
+    dash::DropdownCard<> timezoneDropdown;
     dash::FileUploadCard<> firmwareUploadCard;
     dash::FeedbackCard<> firmwareUploadStatus;
     dash::Tab systemTab;
@@ -146,7 +132,6 @@ private:
     TaskHandle_t checkForOTATask = nullptr;
     TaskHandle_t printMemTask = nullptr;
     TaskHandle_t renderTask = nullptr;
-    Preferences prefs;
 
     // Functions
     void showDebug();
@@ -158,7 +143,6 @@ private:
     void setOTA(bool ota);
     void setGHUpdate(bool github);
     void setSignedFWOnly(bool signedFWOnly);
-    bool initPrefs();
     void initUpdates();
     bool initDisplay();
     bool initWifi();
@@ -168,12 +152,12 @@ private:
     void checkForUpdates();
     bool findFirmwareRelease(String &tag, String &firmwareUrl);
     void checkForOTA();
-    void updatePrefs();
     void printMem();
     void stopPattern();
     void resumePattern();
     void requestPattern(size_t index);
     void renderLoop();
+    const timezones::Zone &currentTimezone();
 };
 
 #endif

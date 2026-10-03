@@ -2,6 +2,7 @@
 
 Plasma::Plasma()
 {
+  data.id = "plasma";
   data.name = "Plasma";
 }
 

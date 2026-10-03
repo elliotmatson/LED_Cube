@@ -41,6 +41,7 @@ const char *webpageTemplate =
 
 Spotify::Spotify()
 {
+    data.id = "spotify";
     data.name = "Spotify";
 }
 

@@ -20,6 +20,7 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                rebootButton(dashboard, "Reboot Cube"),
                resetWifiButton(dashboard, "Reset Wifi"),
                crashMe(dashboard, "Crash Cube"),
+               timezoneDropdown(dashboard, "Time Zone", timezones::dropdownOptions()),
                firmwareUploadCard(dashboard, "Update Firmware", ".bin"),
                firmwareUploadStatus(dashboard, "Update Status", dash::Status::NONE),
                systemTab(dashboard, "System"),
@@ -37,7 +38,7 @@ void Cube::init()
     leds.fill(leds.Color(255, 0, 0), 0, 0);
     leds.show(); // Initialize all pixels to 'off'
     Serial.begin(115200);
-    if (initPrefs())
+    if (settings.begin())
     {
         leds.setPixelColor(0, 0, 255, 0);
         leds.show();
@@ -91,16 +92,28 @@ void Cube::init()
                      {
                         ESP_LOGI("Cube", "Pattern requested: %s", name.c_str());
                         this->requestPattern(i); });
+        // ESP-DASH sorts cards by index, and a Widget's index is not
+        // initialized: cards allocated here got heap garbage and came up in a
+        // different order every boot. After the brightness slider (index 0).
+        card->setIndex(10 + i);
         patterns[pattern->getName()] = pattern;
         i++;
     }
-    size_t startIndex = cubePrefs.patternIndex;
-    // An index saved by firmware with more patterns, or a reordered list,
-    // matches nothing.
-    if (startIndex >= std::size(patternList))
+    // Saved by id, so adding or reordering patterns does not change which one
+    // a cube comes back to. Firmware before that saved a position.
+    std::string savedPattern = settings.pattern();
+    int legacyIndex = settings.legacyPatternIndex();
+    if (savedPattern.empty() && legacyIndex >= 0 && size_t(legacyIndex) < std::size(patternList))
     {
-        ESP_LOGW("Cube", "Saved pattern index %d is out of range, using %s", cubePrefs.patternIndex, patternList[0]->getName().c_str());
-        startIndex = 0;
+        savedPattern = patternList[legacyIndex]->getId();
+    }
+    size_t startIndex = 0;
+    for (size_t p = 0; p < std::size(patternList); p++)
+    {
+        if (patternList[p]->getId() == savedPattern)
+        {
+            startIndex = p;
+        }
     }
     dashboard.sendUpdates();
 
@@ -228,11 +241,7 @@ void Cube::renderLoop()
                 currentPattern->begin(&patternServices);
                 running = true;
                 nextFrame = millis();
-                if (cubePrefs.patternIndex != cmd.index)
-                {
-                    cubePrefs.patternIndex = cmd.index;
-                    updatePrefs();
-                }
+                settings.setPattern(currentPattern->getId());
                 dashboard.sendUpdates();
                 break;
             case RenderCommand::STOP:
@@ -303,26 +312,18 @@ void Cube::renderLoop()
     }
 }
 
-// Initialize Preferences Library
-bool Cube::initPrefs()
+/// The saved time zone, or the default if none is saved or it is unknown.
+const timezones::Zone &Cube::currentTimezone()
 {
-    bool status = prefs.begin("cube");
-
-    if ((!prefs.isKey("cubePrefs")) || (prefs.getBytesLength("cubePrefs") != sizeof(CubePrefs)))
-    {
-        this->cubePrefs.print("No valid preferences found, creating new");
-        prefs.putBytes("cubePrefs", &cubePrefs, sizeof(CubePrefs));
-    }
-    prefs.getBytes("cubePrefs", &cubePrefs, sizeof(CubePrefs));
-    this->cubePrefs.print("Loaded Preferences");
-    return status;
+    const timezones::Zone *zone = timezones::find(settings.timezone().c_str());
+    return zone ? *zone : timezones::DEFAULT_ZONE;
 }
 
 // Initialize update methods, setup check tasks
 void Cube::initUpdates()
 {
-    this->setOTA(this->cubePrefs.ota);
-    this->setGHUpdate(this->cubePrefs.github);
+    this->setOTA(settings.ota());
+    this->setGHUpdate(settings.github());
 }
 
 // Initialize display driver
@@ -332,7 +333,7 @@ bool Cube::initDisplay()
     ESP_LOGI(__func__, "Configuring HUB_75");
     HUB75_I2S_CFG::i2s_pins _pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
     HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANELS_NUMBER, _pins);
-    if (cubePrefs.use20MHz)
+    if (settings.use20MHz())
     {
         mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_20M;
     }
@@ -342,7 +343,7 @@ bool Cube::initDisplay()
     }
     mxconfig.clkphase = false;
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-    dma_display->setLatBlanking(cubePrefs.latchBlanking);
+    dma_display->setLatBlanking(settings.latchBlanking());
 
     // Allocate memory and start DMA display
     if (dma_display->begin())
@@ -353,7 +354,7 @@ bool Cube::initDisplay()
     {
         ESP_LOGE(__func__, "****** !KABOOM! I2S memory allocation failed ***********");
     }
-    setBrightness(this->cubePrefs.brightness);
+    setBrightness(settings.brightness());
     return status;
 }
 
@@ -407,36 +408,13 @@ bool Cube::initWifi()
         }
     }
 
-    // Set up NTP
-    long gmtOffset_sec = 0;
-    int daylightOffset_sec = 0;
-
-    // get GMT offset from public API
-    WiFiClient client;
-    HTTPClient http;
-    http.begin(client, "http://worldtimeapi.org/api/ip");
-    int httpCode = http.GET();
-    if (httpCode > 0)
-    {
-        if (httpCode == HTTP_CODE_OK)
-        {
-            String payload = http.getString();
-            JsonDocument doc;
-            deserializeJson(doc, payload);
-            gmtOffset_sec = doc["raw_offset"].as<int>();
-            daylightOffset_sec = doc["dst_offset"].as<int>();
-        }
-    }
-    http.end();
-
-    // Set time via NTP
-    configTime(gmtOffset_sec, daylightOffset_sec, NTP_SERVER);
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo))
-    {
-        ESP_LOGE(__func__, "Failed to obtain time");
-    }
-    ESP_LOGI(__func__, "Time set: %s", asctime(&timeinfo));
+    // Time zone from the dashboard setting; the clock itself from NTP, in
+    // the background. This used to ask worldtimeapi.org for the offset over
+    // plain HTTP at boot, which failed often (leaving the cube on UTC) and
+    // never followed a daylight-saving change until the next reboot -- a
+    // POSIX TZ rule does both. Nothing waits for the first sync: patterns
+    // that show the time check getLocalTime() themselves.
+    configTzTime(currentTimezone().posix, NTP_SERVER);
 
     // Set up web server
     this->server.begin();
@@ -482,25 +460,25 @@ void Cube::initUI()
     latchSlider.onChange([&](int value)
                                {
             this->dma_display->setLatBlanking(value);
-            this->cubePrefs.latchBlanking = value;
-            this->updatePrefs();
+            settings.setLatchBlanking(value);
             this->latchSlider.setValue(value);
             this->dashboard.sendUpdates(); });
     use20MHzToggle.onChange([&](bool state)
                                   {
-            this->cubePrefs.use20MHz = state;
-            this->updatePrefs();
+            settings.setUse20MHz(state);
             this->use20MHzToggle.setValue(state);
             this->dashboard.sendUpdates(); });
     rebootButton.onPush([&]()
                                 {
             ESP_LOGI(__func__,"Rebooting...");
+            settings.flush();
             ESP.restart();
             this->dashboard.sendUpdates(); });
     resetWifiButton.onPush([&]()
                                    {
             ESP_LOGI(__func__,"Resetting WiFi...");
             wifiManager.resetSettings();
+            settings.flush();
             ESP.restart();
             this->dashboard.sendUpdates(); });
     crashMe.onPush([&]()
@@ -509,13 +487,27 @@ void Cube::initUI()
             int *p = NULL;
             *p = 80;
             this->dashboard.sendUpdates(); });
-    this->otaToggle.setValue(this->cubePrefs.ota);
-    this->developmentToggle.setValue(this->cubePrefs.development);
-    this->GHUpdateToggle.setValue(this->cubePrefs.github);
-    this->brightnessSlider.setValue(this->cubePrefs.brightness);
-    this->signedFWOnlyToggle.setValue(this->cubePrefs.signedFWOnly);
-    this->latchSlider.setValue(this->cubePrefs.latchBlanking);
-    this->use20MHzToggle.setValue(this->cubePrefs.use20MHz);
+    timezoneDropdown.onChange([this](const dash::string &name)
+                              {
+            const timezones::Zone *zone = timezones::find(name.c_str());
+            if (zone == nullptr)
+            {
+                return;
+            }
+            settings.setTimezone(zone->name);
+            setenv("TZ", zone->posix, 1);
+            tzset();
+            timezoneDropdown.setValue(zone->name);
+            dashboard.sendUpdates(); });
+    this->otaToggle.setValue(settings.ota());
+    this->developmentToggle.setValue(settings.development());
+    this->GHUpdateToggle.setValue(settings.github());
+    this->brightnessSlider.setValue(settings.brightness());
+    this->signedFWOnlyToggle.setValue(settings.signedFirmwareOnly());
+    this->latchSlider.setValue(settings.latchBlanking());
+    this->use20MHzToggle.setValue(settings.use20MHz());
+    this->timezoneDropdown.setValue(currentTimezone().name);
+    this->timezoneDropdown.setTab(systemTab);
 
     this->rebootButton.setTab(systemTab);
     this->resetWifiButton.setTab(systemTab);
@@ -633,6 +625,7 @@ void Cube::initFirmwareUpload()
             AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "Update complete, restarting");
             response->addHeader("Connection", "close");
             request->send(response);
+            settings.flush();
             // Long enough for the response and the dashboard update to go out.
             xTaskCreate(
                 [](void *)
@@ -657,7 +650,7 @@ void Cube::initFirmwareUpload()
                     request->send(400, "text/plain", "Only .bin files are accepted");
                     return;
                 }
-                const char *problem = checkFirmwareImage(data, len, cubePrefs.signedFWOnly);
+                const char *problem = checkFirmwareImage(data, len, settings.signedFirmwareOnly());
                 if (problem)
                 {
                     ESP_LOGE(__func__, "Rejecting %s: %s", filename.c_str(), problem);
@@ -762,12 +755,18 @@ void Cube::initAPI()
         portENTER_CRITICAL(&statsMux);
         s = renderStats;
         portEXIT_CRITICAL(&statsMux);
-        char body[400];
+        char localTime[32] = "unset";
+        struct tm now;
+        if (getLocalTime(&now, 0))
+        {
+            strftime(localTime, sizeof(localTime), "%Y-%m-%d %H:%M:%S %Z", &now);
+        }
+        char body[512];
         snprintf(body, sizeof(body),
-                 "{\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
+                 "{\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
                  "\"push_avg_us\":%u,\"push_max_us\":%u,\"free_internal\":%u,\"largest_internal\":%u,"
                  "\"free_psram\":%u,\"uptime_s\":%lu}",
-                 s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
+                 localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
                  s.tickAvgUs, s.tickMaxUs, s.pushAvgUs, s.pushMaxUs,
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
@@ -783,22 +782,20 @@ void Cube::initAPI()
 // set brightness of display
 void Cube::setBrightness(uint8_t brightness)
 {
-    this->cubePrefs.brightness = brightness;
-    this->updatePrefs();
+    settings.setBrightness(brightness);
     dma_display->setBrightness8(brightness);
 }
 
 // get brightness of display
 uint8_t Cube::getBrightness()
 {
-    return this->cubePrefs.brightness;
+    return settings.brightness();
 }
 
 // set OTA enabled/disabled
 void Cube::setOTA(bool ota)
 {
-    cubePrefs.ota = ota;
-    this->updatePrefs();
+    settings.setOta(ota);
     if (ota)
     {
         ESP_LOGI(__func__, "Starting OTA");
@@ -824,6 +821,7 @@ void Cube::setOTA(bool ota)
             .onEnd([&]()
                    {
                     ESP_LOGI(__func__,"End"); 
+                    settings.flush();
                     for(int i = getBrightness(); i > 0; i=i-3) {
                         dma_display->setBrightness8(max(i, 0));
                     } })
@@ -831,7 +829,7 @@ void Cube::setOTA(bool ota)
                         { 
                     ESP_LOGI(__func__,"Progress: %u%%\r", total ? (progress * 100) / total : 0);
 
-                    if (this->cubePrefs.signedFWOnly && progress == total)
+                    if (settings.signedFirmwareOnly() && progress == total)
                     {
                         CubePartition newCubePartition;
                         esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
@@ -908,8 +906,7 @@ void Cube::setOTA(bool ota)
  */
 void Cube::setGHUpdate(bool github)
 {
-    cubePrefs.github = github;
-    this->updatePrefs();
+    settings.setGithub(github);
     if (github)
     {
         ESP_LOGI(__func__, "Github Update enabled...");
@@ -926,6 +923,7 @@ void Cube::setGHUpdate(bool github)
         httpUpdate.onEnd([&]()
                          { 
             ESP_LOGI(__func__,"End"); 
+            settings.flush();
             for(int i = getBrightness(); i > 0; i=i-3) {
                 dma_display->setBrightness8(max(i, 0));
             } });
@@ -933,7 +931,7 @@ void Cube::setGHUpdate(bool github)
                               { 
             ESP_LOGI(__func__,"Progress: %u%%\r", total ? (progress * 100) / total : 0);
 
-            if (this->cubePrefs.signedFWOnly && progress == total)
+            if (settings.signedFirmwareOnly() && progress == total)
             {
                 CubePartition newCubePartition;
                 esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
@@ -987,23 +985,15 @@ void Cube::setGHUpdate(bool github)
 // set dev mode
 void Cube::setDevelopment(bool development)
 {
-    cubePrefs.development = development;
-    this->updatePrefs();
+    settings.setDevelopment(development);
 }
 
 // set signedFWOnly
 void Cube::setSignedFWOnly(bool signedFWOnly)
 {
-    cubePrefs.signedFWOnly = signedFWOnly;
-    this->updatePrefs();
+    settings.setSignedFirmwareOnly(signedFWOnly);
 }
 
-// update preferences stored in NVS
-void Cube::updatePrefs()
-{
-    this->cubePrefs.print("Updating Preferences...");
-    prefs.putBytes("cubePrefs", &cubePrefs, sizeof(CubePrefs));
-}
 
 // shows debug info on display
 void Cube::showDebug()
@@ -1014,7 +1004,7 @@ void Cube::showDebug()
     dma_display->setTextSize(1);
     dma_display->printf("%s\nH%s\nS%s\nSER: %s\nH: %d\nP: %d",
                         WiFi.localIP().toString().c_str(),
-                        prefs.getString("HW").c_str(),
+                        settings.hardware().c_str(),
                         FW_VERSION,
                         serial.c_str(),
                         ESP.getFreeHeap(),
@@ -1175,7 +1165,7 @@ bool Cube::findFirmwareRelease(String &tag, String &firmwareUrl)
         return false;
     }
 
-    const bool development = this->cubePrefs.development;
+    const bool development = settings.development();
     String apiUrl = String("https://api.github.com/repos/") + REPO_URL +
                     (development ? "/releases?per_page=10" : "/releases/latest");
     ESP_LOGI(__func__, "Checking %s", apiUrl.c_str());

@@ -6,6 +6,7 @@
 
 GameOfLife::GameOfLife()
 {
+    data.id = "game_of_life";
     data.name = "Game of Life";
 }
 

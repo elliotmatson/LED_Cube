@@ -34,7 +34,12 @@ generated from it on every build and is gitignored. To change a setting, run
 `pio run -t menuconfig`, then `pio run -t save-defconfig`, and diff before
 committing — save-defconfig strips comments.
 
-`lib/cube/config.h` holds pins, panel geometry and build identity.
+`lib/cube/config.h` holds pins, panel geometry and build identity. Runtime
+settings live in `lib/cube/settings.*`: one NVS key each in namespace `cube`,
+clamped on load, written 2 s after the last change (call `settings.flush()`
+before a deliberate restart). The old `cubePrefs` blob is imported once and
+removed. The selected pattern is saved by `Pattern::getId()`, so give a new
+pattern an id and never change an existing one.
 `FW_VERSION`, `FW_TYPE` and `REPO_URL` default to `"DEV"` and this repo; CI
 injects the real values. A `"DEV"` build never auto-updates from GitHub, so a
 locally flashed image is not replaced by the latest release.
@@ -50,6 +55,7 @@ lib/cube/                    the Cube class: display, WiFi, prefs, dashboard, AP
 lib/cube_utils/              Pattern base class; SinglePanel/BottomPanels views (one ChainView base)
 lib/cube_geometry/           hardware-free: face mappings, seam stepping, 3D surface mapping, projection
 lib/life/                    hardware-free Game of Life step
+lib/timezones/               hardware-free named time zones -> POSIX TZ rules
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts
@@ -63,7 +69,7 @@ across the two side faces. `lib/cube_geometry` (namespace `cube`) has
 for a pixel's 3D position on the cube surface, and `cube::projectX/Y`, an
 isometric projection continuous across the seams.
 
-`lib/cube_geometry` and `lib/life` include nothing from Arduino or ESP-IDF, so
+`lib/cube_geometry`, `lib/life` and `lib/timezones` include nothing from Arduino or ESP-IDF, so
 `[env:native]` can test them on the host. Keep it that way, and put new pure
 logic in libraries like these so it can be tested too. The board env takes its
 settings from `[esp32_base]` rather than `[env]`, which would leak the
@@ -100,6 +106,10 @@ namespace.
 - **Pushing is the expensive part.** About 2 us a pixel in the HUB75 library,
   so a full 192x64 frame costs ~24 ms. Draw only what changes where you can;
   `/api/v1/stats` reports tick and push times for the running pattern.
+- **ESP-DASH card order.** The frontend sorts cards by `Widget::_index`, which
+  the library leaves uninitialized. Global/member cards get 0 (zero-initialized
+  storage); cards made with `new` get heap garbage and shuffle every boot. Call
+  `setIndex()` on anything you allocate.
 - **Rollback.** A freshly updated image is confirmed at the end of
   `Cube::init()` (`verifyRollbackLater()` in `main.cpp` stops the Arduino
   core doing it at boot). Anything that can hang before that point will

@@ -1,0 +1,20 @@
+# Host-side unit tests (test/, [env:native]): cube geometry and Game of Life.
+name: test
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  tests:
+    uses: elliotmatson/pio-actions/.github/workflows/test.yml@v1
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      # The host environment. The board env is deliberately excluded -- it
+      # would try to run on hardware that is not attached.
+      envs: native
+      # Matches the other workflows. The native env does not need it, but one
+      # PlatformIO version across the repo's CI is one less thing to reason about.
+      pio-version: latest

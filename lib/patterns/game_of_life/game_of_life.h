@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "cube_utils.h"
+#include "life.h"
 
 // a game of life pattern that runs on all 3 sides of the cube
 
@@ -17,8 +18,10 @@ class GameOfLife: public Pattern{
 
     private:
         void show();
-        bool currentFrame[64][64];
-        bool nextFrame[64][64];
+        void seed();
+        // Row-major, one byte per cell (lib/life's layout).
+        uint8_t currentFrame[64 * 64];
+        uint8_t nextFrame[64 * 64];
 };
 
 #endif

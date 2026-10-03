@@ -11,13 +11,10 @@
 #include "virtual_displays.h"
 #include "config.h"
 
-// MACROS
-// Calculates precise projected X values of a pixel
-#define PROJ_CALC_X(x, y) ((x < 64) ? (0.8660254 * (x - y)) : ((x < 128) ? (111.7173 - 0.8660254 * x) : (109.1192 - 0.8660254 * x)))
-// Calculates less precise, but faster projected X values of a pixel
-#define PROJ_CALC_INT_X(x, y) ((x < 64) ? ((7 * (x - y)) >> 3) : ((x < 128) ? (112 - ((7 * x) >> 3)) : (109 - ((7 * x) >> 3))))
-// Calculates precise projected Y values of a pixel
-#define PROJ_CALC_Y(x, y) ((x < 64) ? ((130 - x - y) >> 1) : ((x < 128) ? (y - (x >> 1)) : ((x >> 1) + y - 128)))
+// Seam adjacency, face mappings, the 3D surface mapping and the isometric
+// projection (formerly the PROJ_CALC_* macros) live in lib/cube_geometry,
+// where they are unit tested.
+#include "cube_geometry.h"
 
 // RGB 565 COLORS
 #define BLACK 0x0000

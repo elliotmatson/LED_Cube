@@ -2,644 +2,207 @@
 #define VIRTUAL_DISPLAYS_H
 
 #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
+#include "cube_geometry.h"
 
-struct VirtualCoords
+/**
+ * An Adafruit_GFX surface drawn onto part of the HUB75 chain through a fixed
+ * coordinate mapping. Subclasses supply map(); everything else -- clipping,
+ * fills, fast lines, sprites -- is shared.
+ *
+ * map() is a pure function of (x, y), so two tasks drawing on the same view
+ * no longer race on a shared "current coordinates" member. Drawing is still
+ * not synchronized with anything else (the GFX cursor and text state are
+ * per-view), so a view should be drawn from one task.
+ */
+class ChainView : public Adafruit_GFX
 {
-    int16_t x;
-    int16_t y;
-    int16_t virt_row; // chain of panels row
-    int16_t virt_col; // chain of panels col
+public:
+    MatrixPanel_I2S_DMA *display;
+    int16_t virtualResX;
+    int16_t virtualResY;
 
-    VirtualCoords() : x(0), y(0)
+    ChainView(MatrixPanel_I2S_DMA &disp, int16_t w, int16_t h)
+        : Adafruit_GFX(w, h), display(&disp), virtualResX(w), virtualResY(h) {}
+    virtual ~ChainView() = default;
+
+    /// The chain pixel for view pixel (x, y), or an invalid point when (x, y)
+    /// is outside the view. Must be affine (a rotation and translation), which
+    /// is what lets fast lines map their two end points.
+    virtual cube::Point map(int16_t x, int16_t y) const = 0;
+
+    void drawPixel(int16_t x, int16_t y, uint16_t color) override
     {
+        cube::Point p = map(x, y);
+        if (p.valid())
+        {
+            display->drawPixel(p.x, p.y, color);
+        }
+    }
+
+    void drawPixelRGB888(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b)
+    {
+        cube::Point p = map(x, y);
+        if (p.valid())
+        {
+            display->drawPixelRGB888(p.x, p.y, r, g, b);
+        }
+    }
+
+    void fillScreen(uint16_t color) override { fillRect(0, 0, virtualResX, virtualResY, color); }
+    void fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b)
+    {
+        // Row by row in 24-bit colour, rather than through fillScreen's 565.
+        for (int16_t y = 0; y < virtualResY; y++)
+        {
+            drawFastHLine(0, y, virtualResX, r, g, b);
+        }
+    }
+    void clearScreen() { fillScreen(0); }
+
+    uint16_t color444(uint8_t r, uint8_t g, uint8_t b) { return display->color444(r, g, b); }
+    uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return display->color565(r, g, b); }
+    void flipDMABuffer() { display->flipDMABuffer(); }
+
+    // Clipped to the view, then drawn as one fast line on the chain. These
+    // used to skip clipping, so a line or a GFX fillRect near an edge spilled
+    // onto the neighbouring panel.
+    void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) override
+    {
+        uint8_t r, g, b;
+        display->color565to888(color, r, g, b);
+        drawFastHLine(x, y, w, r, g, b);
+    }
+    void drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t r, uint8_t g, uint8_t b)
+    {
+        int16_t x0 = x, x1 = x + w - 1;
+        if (w <= 0 || y < 0 || y >= virtualResY || !clip(x0, x1, virtualResX))
+        {
+            return;
+        }
+        drawChainSegment(map(x0, y), map(x1, y), r, g, b);
+    }
+    void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override
+    {
+        uint8_t r, g, b;
+        display->color565to888(color, r, g, b);
+        drawFastVLine(x, y, h, r, g, b);
+    }
+    void drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b)
+    {
+        int16_t y0 = y, y1 = y + h - 1;
+        if (h <= 0 || x < 0 || x >= virtualResX || !clip(y0, y1, virtualResY))
+        {
+            return;
+        }
+        drawChainSegment(map(x, y0), map(x, y1), r, g, b);
+    }
+
+    /// 1-bit sprites, one row per array element, most significant bit on the
+    /// left. `fill` paints the unset bits black. Width at most 8 (or 16).
+    void drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill = false)
+    {
+        drawSprite(sprite, nullptr, w > 8 ? 8 : w, x, y, h, r, g, b, fill);
+    }
+    void drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill = false)
+    {
+        uint8_t r, g, b;
+        display->color565to888(color, r, g, b);
+        drawSprite8(sprite, x, y, w, h, r, g, b, fill);
+    }
+    void drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill = false)
+    {
+        drawSprite(nullptr, sprite, w > 16 ? 16 : w, x, y, h, r, g, b, fill);
+    }
+    void drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill = false)
+    {
+        uint8_t r, g, b;
+        display->color565to888(color, r, g, b);
+        drawSprite16(sprite, x, y, w, h, r, g, b, fill);
+    }
+
+private:
+    static bool clip(int16_t &lo, int16_t &hi, int16_t size)
+    {
+        if (lo < 0)
+            lo = 0;
+        if (hi > size - 1)
+            hi = size - 1;
+        return lo <= hi;
+    }
+
+    void drawChainSegment(cube::Point a, cube::Point b, uint8_t r, uint8_t g, uint8_t bl)
+    {
+        if (!a.valid() || !b.valid())
+        {
+            return;
+        }
+        if (a.y == b.y)
+        {
+            display->drawFastHLine(a.x < b.x ? a.x : b.x, a.y, abs(b.x - a.x) + 1, r, g, bl);
+        }
+        else
+        {
+            display->drawFastVLine(a.x, a.y < b.y ? a.y : b.y, abs(b.y - a.y) + 1, r, g, bl);
+        }
+    }
+
+    void drawSprite(const uint8_t *rows8, const uint16_t *rows16, uint16_t w, int16_t x, int16_t y, uint16_t h,
+                    uint8_t r, uint8_t g, uint8_t b, bool fill)
+    {
+        const int bits = rows8 ? 8 : 16;
+        for (int16_t j = 0; j < h; j++)
+        {
+            const uint16_t row = rows8 ? rows8[j] : rows16[j];
+            for (int16_t i = 0; i < w; i++)
+            {
+                if ((row >> (bits - 1 - i)) & 1)
+                {
+                    drawPixelRGB888(x + i, y + j, r, g, b);
+                }
+                else if (fill)
+                {
+                    drawPixelRGB888(x + i, y + j, 0, 0, 0);
+                }
+            }
+        }
     }
 };
 
-class SinglePanel : public Adafruit_GFX
+/// One 64x64 face, rotated in quarter turns (see cube::faceToChain).
+class SinglePanel : public ChainView
 {
 public:
-    int16_t virtualResX;
-    int16_t virtualResY;
-
-    MatrixPanel_I2S_DMA *display;
-
     SinglePanel(MatrixPanel_I2S_DMA &disp, int panel, int rotate)
-        : Adafruit_GFX(disp.getCfg().mx_width, disp.getCfg().mx_height)
-    {
-        this->display = &disp;
+        : ChainView(disp, cube::FACE_SIZE, cube::FACE_SIZE), _panel(panel), _rotate(rotate & 3) {}
 
-        virtualResX = disp.getCfg().mx_width;
-        virtualResY = disp.getCfg().mx_height;
+    /// @param rotate 0 = none, 1 = 90 degrees, 2 = 180, 3 = 270. Does not
+    /// redraw what is already on the face.
+    void setRotation(int rotate) { _rotate = rotate & 3; }
 
-        if (panel < disp.getCfg().chain_length)
-        {
-            _panel = panel;
-        }
+    cube::Point map(int16_t x, int16_t y) const override { return cube::faceToChain(_panel, _rotate, x, y); }
 
-        if (rotate < 4)
-        {
-            _rotate = rotate;
-        }
+private:
+    int _panel;
+    int _rotate;
+};
 
-        coords.x = coords.y = -1; // By default use an invalid co-ordinates that will be rejected by updateMatrixDMABuffer
-    }
-
-    // equivalent methods of the matrix library so it can be just swapped out.
-    virtual void drawPixel(int16_t x, int16_t y, uint16_t color);
-    virtual void fillScreen(uint16_t color); // overwrite adafruit implementation
-    virtual void fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b);
-
-    void clearScreen() { fillScreen(0); }
-    void drawPixelRGB888(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b);
-
-    uint16_t color444(uint8_t r, uint8_t g, uint8_t b) { return display->color444(r, g, b); }
-    uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return display->color565(r, g, b); }
-
-    void flipDMABuffer() { display->flipDMABuffer(); }
-    void setRotation(int rotate);
-    void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
-    void drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t r, uint8_t g, uint8_t b);
-    void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
-    void drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b);
-
-    void drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill = false);
-    void drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill = false);
-    void drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill = false);
-    void drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill = false);
-
-protected:
-    virtual VirtualCoords getCoords(int16_t &x, int16_t &y);
-    VirtualCoords coords;
-
-    int _panel = 0;
-    int _rotate = 0;
-
-}; // end Class header
-
-/// @brief  Calculate virtual->real co-ordinate mapping to underlying single chain of panels connected to ESP32.
-///         Updates the private class member variable 'coords', so no need to use the return value.
-///         Not thread safe, but not a concern for ESP32 sketch anyway... I think.
-/// @param x  Pixel X co-ordinate
-/// @param y  Pixel Y co-ordinate
-/// @return VirtualCoords object
-inline VirtualCoords SinglePanel::getCoords(int16_t &x, int16_t &y)
-{
-    coords.x = coords.y = -1; // By defalt use an invalid co-ordinates that will be rejected by updateMatrixDMABuffer
-
-    // Do we want to rotate?
-    int16_t temp_x = x;
-    switch (_rotate)
-    {
-    case 1:
-        // 90 degrees
-        x = y;
-        y = virtualResY - 1 - temp_x;
-        break;
-    case 2:
-        // 180 degrees
-        x = virtualResX - 1 - x;
-        y = virtualResY - 1 - y;
-        break;
-    case 3:
-        // 270 degrees
-        x = virtualResX - 1 - y;
-        y = temp_x;
-        break;
-    }
-
-    if (x < 0 || x >= virtualResX || y < 0 || y >= virtualResY)
-    { // Co-ordinates go from 0 to X-1 remember! otherwise they are out of range!
-        return coords;
-    }
-
-    // Calculate the real co-ordinates of the pixel on the underlying single chain of panels.
-    coords.x = x + (_panel * virtualResX);
-    coords.y = y;
-
-    return coords;
-}
-
-/// @brief Rotate the display CCW (does not rotate current contents)
-/// @param rotate 0 = No rotation, 1 = 90 degrees, 2 = 180 degrees, 3 = 270 degrees
-inline void SinglePanel::setRotation(int rotate)
-{
-    if (rotate < 4)
-    {
-        _rotate = rotate;
-    }
-}
-
-/// @brief Draw a single pixel
-/// @param x  Pixel X co-ordinate
-/// @param y  Pixel Y co-ordinate
-/// @param color  565 color
-inline void SinglePanel::drawPixel(int16_t x, int16_t y, uint16_t color)
-{ // adafruit virtual void override
-    getCoords(x, y);
-    this->display->drawPixel(coords.x, coords.y, color);
-}
-
-/// @brief  Draw a single pixel
-/// @param x  Pixel X co-ordinate
-/// @param y  Pixel Y co-ordinate
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void SinglePanel::drawPixelRGB888(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b)
-{
-    getCoords(x, y);
-    this->display->drawPixelRGB888(coords.x, coords.y, r, g, b);
-}
-
-/// @brief Fill the screen with a single color
-/// @param color 565 color
-inline void SinglePanel::fillScreen(uint16_t color)
-{ // adafruit virtual void override
-    this->display->fillRect((_panel * virtualResX), 0, this->virtualResX, this->virtualResY, color);
-}
-
-/// @brief  Fill the screen with a single color
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void SinglePanel::fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b)
-{
-#ifdef SPIRAM_FRAMEBUFFER
-    this->display->fillRect((_panel * virtualResX), 0, this->virtualResX, this->virtualResY, this->display->color565(r, g, b));
-#else
-    this->display->fillRect((_panel * virtualResX), 0, this->virtualResX, this->virtualResY, r, g, b);
-#endif
-}
-
-/// @brief Draw a horizontal line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param w  Line width
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void SinglePanel::drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t r, uint8_t g, uint8_t b)
-{
-#ifdef SPIRAM_FRAMEBUFFER
-    switch (_rotate)
-    {
-    case 1:
-        // 90 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + y, virtualResY - 1 - x - w + 1, w, this->display->color565(r, g, b));
-        break;
-    case 2:
-        // 180 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - x - w + 1, virtualResY - 1 - y, w, this->display->color565(r, g, b));
-        break;
-    case 3:
-        // 270 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - y, x, w, this->display->color565(r, g, b));
-        break;
-    default:
-        // 0 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + x, y, w, this->display->color565(r, g, b));
-        break;
-    }
-#else
-    switch (_rotate)
-    {
-    case 1:
-        // 90 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + y, virtualResY - 1 - x - w + 1, w, r, g, b);
-        break;
-    case 2:
-        // 180 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - x - w + 1, virtualResY - 1 - y, w, r, g, b);
-        break;
-    case 3:
-        // 270 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - y, x, w, r, g, b);
-        break;
-    default:
-        // 0 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + x, y, w, r, g, b);
-        break;
-    }
-#endif
-}
-
-/// @brief Draw a horizontal line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param w  Line width
-/// @param color 565 color
-inline void SinglePanel::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawFastHLine(x, y, w, r, g, b);
-}
-
-/// @brief Draw a vertical line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param h  Line height
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void SinglePanel::drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b)
-{
-#ifdef SPIRAM_FRAMEBUFFER
-    switch (_rotate)
-    {
-    case 1:
-        // 90 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + y, virtualResX - 1 - x, h, this->display->color565(r, g, b));
-        break;
-    case 2:
-        // 180 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - x, virtualResY - 1 - y - h + 1, h, this->display->color565(r, g, b));
-        break;
-    case 3:
-        // 270 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - y - h + 1, x, h, this->display->color565(r, g, b));
-        break;
-    default:
-        // 0 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + x, y, h, this->display->color565(r, g, b));
-        break;
-    }
-#else
-    switch (_rotate)
-    {
-    case 1:
-        // 90 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + y, virtualResX - 1 - x, h, r, g, b);
-        break;
-    case 2:
-        // 180 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + virtualResX - 1 - x, virtualResY - 1 - y - h + 1, h, r, g, b);
-        break;
-    case 3:
-        // 270 degrees
-        this->display->drawFastHLine((_panel * virtualResX) + virtualResX - 1 - y - h + 1, x, h, r, g, b);
-        break;
-    default:
-        // 0 degrees
-        this->display->drawFastVLine((_panel * virtualResX) + x, y, h, r, g, b);
-        break;
-    }
-#endif
-}
-
-/// @brief Draw a vertical line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param h  Line height
-/// @param color 565 color
-inline void SinglePanel::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawFastVLine(x, y, h, r, g, b);
-}
-
-/// @brief          Draws a binary sprite to the display
-/// @param sprite   an array of 8 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param r        Red
-/// @param g        Green
-/// @param b        Blue
-/// @param fill     if true, fill the background with black
-inline void SinglePanel::drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill)
-{
-    for (int16_t i = 0; i < w; i++)
-    {
-        for (int16_t j = 0; j < h; j++)
-        {
-            if ((sprite[j] >> (7 - i)) & 1)
-            {
-                this->drawPixelRGB888(x + i, y + j, r, g, b);
-            }
-            else if (fill)
-            {
-                this->drawPixelRGB888(x + i, y + j, 0, 0, 0);
-            }
-        }
-    }
-}
-
-/// @brief          Draws a binary sprite to the display, 565 color overload
-/// @param sprite   an array of 8 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param color    16 bit color value of the sprite
-/// @param fill     if true, fill the background with black
-inline void SinglePanel::drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawSprite8(sprite, x, y, w, h, r, g, b, fill);
-}
-
-/// @brief          Draws a binary sprite to the display
-/// @param sprite   an array of 16 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param r        Red
-/// @param g        Green
-/// @param b        Blue
-/// @param fill     if true, fill the background with black
-inline void SinglePanel::drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill)
-{
-    for (int16_t i = 0; i < w; i++)
-    {
-        for (int16_t j = 0; j < h; j++)
-        {
-            if ((sprite[j] >> (15 - i)) & 1)
-            {
-                this->drawPixelRGB888(x + i, y + j, r, g, b);
-            }
-            else if (fill)
-            {
-                this->drawPixelRGB888(x + i, y + j, 0, 0, 0);
-            }
-        }
-    }
-}
-
-/// @brief          Draws a binary sprite to the display, 565 color overload
-/// @param sprite   an array of 16 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param color    16 bit color value of the sprite
-/// @param fill     if true, fill the background with black
-inline void SinglePanel::drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawSprite16(sprite, x, y, w, h, r, g, b, fill);
-}
-
-class BottomPanels : public Adafruit_GFX
+/// A 128x64 strip across the two side faces (physical faces 2 then 1),
+/// turned 180 degrees so it reads upright: x = 0 is the far edge of face 2,
+/// and the seam between the faces is between x = 63 and 64.
+class BottomPanels : public ChainView
 {
 public:
-    int16_t virtualResX;
-    int16_t virtualResY;
+    explicit BottomPanels(MatrixPanel_I2S_DMA &disp)
+        : ChainView(disp, 2 * cube::FACE_SIZE, cube::FACE_SIZE) {}
 
-    MatrixPanel_I2S_DMA *display;
-
-    BottomPanels(MatrixPanel_I2S_DMA &disp)
-        : Adafruit_GFX(disp.getCfg().mx_width * 2, disp.getCfg().mx_height)
+    cube::Point map(int16_t x, int16_t y) const override
     {
-        this->display = &disp;
-
-        virtualResX = disp.getCfg().mx_width * 2;
-        virtualResY = disp.getCfg().mx_height;
-
-        coords.x = coords.y = -1; // By default use an invalid co-ordinates that will be rejected by updateMatrixDMABuffer
-    }
-
-    // equivalent methods of the matrix library so it can be just swapped out.
-    virtual void drawPixel(int16_t x, int16_t y, uint16_t color);
-    virtual void fillScreen(uint16_t color); // overwrite adafruit implementation
-    virtual void fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b);
-
-    void clearScreen() { fillScreen(0); }
-    void drawPixelRGB888(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b);
-
-    uint16_t color444(uint8_t r, uint8_t g, uint8_t b) { return display->color444(r, g, b); }
-    uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return display->color565(r, g, b); }
-
-    void flipDMABuffer() { display->flipDMABuffer(); }
-    void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
-    void drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t r, uint8_t g, uint8_t b);
-    void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
-    void drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b);
-
-    void drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill = false);
-    void drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill = false);
-    void drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill = false);
-    void drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill = false);
-
-protected:
-    virtual VirtualCoords getCoords(int16_t &x, int16_t &y);
-    VirtualCoords coords;
-}; // end Class header
-
-/// @brief  Calculate virtual->real co-ordinate mapping to underlying single chain of panels connected to ESP32.
-///         Updates the private class member variable 'coords', so no need to use the return value.
-///         Not thread safe, but not a concern for ESP32 sketch anyway... I think.
-/// @param x  Pixel X co-ordinate
-/// @param y  Pixel Y co-ordinate
-/// @return VirtualCoords object
-inline VirtualCoords BottomPanels::getCoords(int16_t &x, int16_t &y)
-{
-    coords.x = coords.y = -1; // By defalt use an invalid co-ordinates that will be rejected by updateMatrixDMABuffer
-
-    // flip 180 degrees
-    x = virtualResX - 1 - x;
-    y = virtualResY - 1 - y;
-
-    if (x < 0 || x >= virtualResX || y < 0 || y >= virtualResY)
-    { // Co-ordinates go from 0 to X-1 remember! otherwise they are out of range!
-        return coords;
-    }
-
-    // Calculate the real co-ordinates of the pixel on the underlying single chain of panels.
-    coords.x = x + this->display->getCfg().mx_width;
-    coords.y = y;
-
-    return coords;
-}
-
-/// @brief Draw a single pixel
-/// @param x  Pixel X co-ordinate
-/// @param y  Pixel Y co-ordinate
-/// @param color  565 color
-inline void BottomPanels::drawPixel(int16_t x, int16_t y, uint16_t color)
-{ // adafruit virtual void override
-    getCoords(x, y);
-    this->display->drawPixel(coords.x, coords.y, color);
-}
-
-/// @brief  Draw a single pixel
-/// @param x  Pixel X co-ordinate
-/// @param y  Pixel Y co-ordinate
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void BottomPanels::drawPixelRGB888(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b)
-{
-    getCoords(x, y);
-    this->display->drawPixelRGB888(coords.x, coords.y, r, g, b);
-}
-
-/// @brief Fill the screen with a single color
-/// @param color 565 color
-inline void BottomPanels::fillScreen(uint16_t color)
-{ // adafruit virtual void override
-    this->display->fillRect(this->display->getCfg().mx_width, 0, this->virtualResX, this->virtualResY, color);
-}
-
-/// @brief  Fill the screen with a single color
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void BottomPanels::fillScreenRGB888(uint8_t r, uint8_t g, uint8_t b)
-{
-#ifdef SPIRAM_FRAMEBUFFER
-    this->display->fillRect(this->display->getCfg().mx_width, 0, this->virtualResX, this->virtualResY, this->display->color565(r, g, b));
-#else
-    this->display->fillRect(this->display->getCfg().mx_width, 0, this->virtualResX, this->virtualResY, r, g, b);
-#endif
-}
-
-/// @brief Draw a horizontal line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param w  Line width
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void BottomPanels::drawFastHLine(int16_t x, int16_t y, int16_t w, uint8_t r, uint8_t g, uint8_t b)
-{
-#ifdef SPIRAM_FRAMEBUFFER
-    this->display->drawFastHLine(virtualResX + this->display->getCfg().mx_width - 1 - x - w + 1, virtualResY - 1 - y, w, this->display->color565(r, g, b));
-#else
-    // 180 degrees
-    this->display->drawFastHLine(virtualResX + this->display->getCfg().mx_width - 1 - x - w + 1, virtualResY - 1 - y, w, r, g, b);
-#endif
-}
-
-/// @brief Draw a horizontal line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param w  Line width
-/// @param color 565 color
-inline void BottomPanels::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawFastHLine(x, y, w, r, g, b);
-}
-
-/// @brief Draw a vertical line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param h  Line height
-/// @param r  Red
-/// @param g  Green
-/// @param b  Blue
-inline void BottomPanels::drawFastVLine(int16_t x, int16_t y, int16_t h, uint8_t r, uint8_t g, uint8_t b)
-{
-#ifdef SPIRAM_FRAMEBUFFER
-    this->display->drawFastVLine(virtualResX + this->display->getCfg().mx_width - 1 - x, virtualResY - 1 - y - h + 1, h, this->display->color565(r, g, b));
-#else
-    this->display->drawFastVLine(virtualResX + this->display->getCfg().mx_width - 1 - x, virtualResY - 1 - y - h + 1, h, r, g, b);
-#endif
-}
-
-/// @brief Draw a vertical line
-/// @param x  Starting pixel X co-ordinate
-/// @param y  Starting pixel Y co-ordinate
-/// @param h  Line height
-/// @param color 565 color
-inline void BottomPanels::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawFastVLine(x, y, h, r, g, b);
-}
-
-/// @brief          Draws a binary sprite to the display
-/// @param sprite   an array of 8 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param r        Red
-/// @param g        Green
-/// @param b        Blue
-/// @param fill     if true, fill the background with black
-inline void BottomPanels::drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill)
-{
-    for (int16_t i = 0; i < w; i++)
-    {
-        for (int16_t j = 0; j < h; j++)
+        if (x < 0 || x >= virtualResX || y < 0 || y >= virtualResY)
         {
-            if ((sprite[j] >> (7 - i)) & 1)
-            {
-                this->drawPixelRGB888(x + i, y + j, r, g, b);
-            }
-            else if (fill)
-            {
-                this->drawPixelRGB888(x + i, y + j, 0, 0, 0);
-            }
+            return cube::NO_POINT;
         }
+        return cube::Point{int16_t(cube::CHAIN_WIDTH - 1 - x), int16_t(cube::CHAIN_HEIGHT - 1 - y)};
     }
-}
-
-/// @brief          Draws a binary sprite to the display, 565 color overload
-/// @param sprite   an array of 8 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param color    16 bit color value of the sprite
-/// @param fill     if true, fill the background with black
-inline void BottomPanels::drawSprite8(const uint8_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawSprite8(sprite, x, y, w, h, r, g, b, fill);
-}
-
-/// @brief          Draws a binary sprite to the display
-/// @param sprite   an array of 16 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param r        Red
-/// @param g        Green
-/// @param b        Blue
-/// @param fill     if true, fill the background with black
-inline void BottomPanels::drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t r, uint8_t g, uint8_t b, bool fill)
-{
-    for (int16_t i = 0; i < w; i++)
-    {
-        for (int16_t j = 0; j < h; j++)
-        {
-            if ((sprite[j] >> (15 - i)) & 1)
-            {
-                this->drawPixelRGB888(x + i, y + j, r, g, b);
-            }
-            else if (fill)
-            {
-                this->drawPixelRGB888(x + i, y + j, 0, 0, 0);
-            }
-        }
-    }
-}
-
-/// @brief          Draws a binary sprite to the display, 565 color overload
-/// @param sprite   an array of 16 bit integers, each bit represents a pixel
-/// @param x        x position to draw the sprite
-/// @param y        y position to draw the sprite
-/// @param w        width of the sprite
-/// @param h        height of the sprite
-/// @param color    16 bit color value of the sprite
-/// @param fill     if true, fill the background with black
-inline void BottomPanels::drawSprite16(const uint16_t *sprite, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t color, bool fill)
-{
-    uint8_t r, g, b;
-    display->color565to888(color, r, g, b);
-    drawSprite16(sprite, x, y, w, h, r, g, b, fill);
-}
+};
 
 #endif

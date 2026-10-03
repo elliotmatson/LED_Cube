@@ -51,8 +51,8 @@ void Plasma::show()
     {
       for (uint8_t j = 0; j < PANEL_HEIGHT; j++)
       {
-        uint8_t x = (PROJ_CALC_INT_X(i, j) + 66);
-        uint8_t y = (PROJ_CALC_Y(i, j) + 66);
+        uint8_t x = (cube::projectX(i, j) + 66);
+        uint8_t y = (cube::projectY(i, j) + 66);
 
         uint8_t r = fast_cos(((x << 3) + (t >> 1) + fast_cos((t2 + (y << 3)))) >> 2);
         uint8_t g = fast_cos(((y << 3) + t + fast_cos(((t3 >> 2) + (x << 3)))) >> 2);

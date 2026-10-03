@@ -42,81 +42,45 @@ void GameOfLife::stop()
     }
 }
 
+void GameOfLife::seed()
+{
+    for (int i = 0; i < 64 * 64; i++)
+    {
+        currentFrame[i] = random(0, 3) == 0;
+    }
+}
+
 void GameOfLife::show()
 {
-    // initialize the pixels
-    for (int x = 0; x < 64; x++)
+    // A population that has not changed for this many generations has
+    // settled into still lifes and blinkers; start again.
+    const int STALE_GENERATIONS = 100;
+    int lastPopulation = -1;
+    int unchanged = 0;
+
+    seed();
+    while (true)
     {
         for (int y = 0; y < 64; y++)
         {
-            currentFrame[x][y] = random(0, 3) == 0;
-        }
-    }
-
-    while (true)
-    {
-        // draw the pixels
-        for (int x = 0; x < 64; x++)
-        {
-            for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++)
             {
-                if (currentFrame[x][y])
-                {
-                  pattern->display->drawPixelRGB888(x, y, 255, 255, 255);
-                } else {
-                  pattern->display->drawPixelRGB888(x, y, 0, 0, 0);
-                }
+                uint8_t v = currentFrame[y * 64 + x] ? 255 : 0;
+                pattern->display->drawPixelRGB888(x, y, v, v, v);
             }
         }
 
-        // update the pixels
-        for (int x = 0; x < 64; x++)
+        int population = life::step(currentFrame, nextFrame, 64, 64);
+        memcpy(currentFrame, nextFrame, sizeof(currentFrame));
+
+        unchanged = (population == lastPopulation) ? unchanged + 1 : 0;
+        lastPopulation = population;
+        if (population == 0 || unchanged >= STALE_GENERATIONS)
         {
-            for (int y = 0; y < 64; y++)
-            {
-                int neighbors = 0;
-                for (int i = -1; i <= 1; i++)
-                {
-                    for (int j = -1; j <= 1; j++)
-                    {
-                        if (i == 0 && j == 0)
-                        {
-                            continue;
-                        }
-                        if (currentFrame[(x + i + 64) % 64][(y + j + 64) % 64])
-                        {
-                            neighbors++;
-                        }
-                    }
-                }
-                if (currentFrame[x][y])
-                {
-                    if (neighbors < 2 || neighbors > 3)
-                    {
-                        nextFrame[x][y] = false;
-                    }
-                }
-                else
-                {
-                    if (neighbors == 3)
-                    {
-                        nextFrame[x][y] = true;
-                    }
-                }
-            }
+            seed();
+            unchanged = 0;
         }
 
-        // set current frame to next frame
-        for (int x = 0; x < 64; x++)
-        {
-            for (int y = 0; y < 64; y++)
-            {
-                currentFrame[x][y] = nextFrame[x][y];
-            }
-        }
-
-
-        // wait for the next frame
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }

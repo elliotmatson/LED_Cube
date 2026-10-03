@@ -41,10 +41,10 @@ open on the LAN (as on hub); phased PRs.
    id, not index. Patterns declare their settings; one layer builds both the
    dashboard cards and `/api/v1/patterns`.
 5. **Split `Cube`** into display, network/time, updates, settings, pattern
-   manager and web UI/API. Time zone from a POSIX TZ string set on the
-   dashboard, replacing the plain-HTTP worldtimeapi.org lookup (fails today, so
-   the clock runs in UTC).
-6. Debounce NVS writes from sliders.
+   manager and web UI/API.
+6. Done in the settings PR: per-key settings with debounced writes and
+   migration, time zone from a dashboard dropdown (POSIX rules, replacing
+   worldtimeapi.org), pattern saved by id, deterministic dashboard card order.
 
 ## Performance
 
@@ -95,8 +95,9 @@ open on the LAN (as on hub); phased PRs.
 
 ## Bugs noticed
 
-- The pattern buttons on the dashboard come up in a different order on each
-  boot.
+- ESP-DASH Pro leaves `Widget::_index` uninitialized, so heap-allocated cards
+  sort randomly (worked around with `setIndex()`). Fix in the ESP-DASH-Pro
+  fork: initialize it to 0.
 
 ## Later
 

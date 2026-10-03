@@ -2,6 +2,7 @@
 
 Clock::Clock()
 {
+  data.id = "clock";
   data.name = "Clock";
 }
 

@@ -4,6 +4,7 @@
 
 SnakeGame::SnakeGame()
 {
+  data.id = "snake";
   data.name = "Snake";
 }
 

@@ -37,7 +37,8 @@ struct PatternServices
 
 struct PatternData
 {
-    std::string name;
+    std::string id;   // stable, saved in settings; never shown
+    std::string name; // shown on the dashboard
 };
 
 /**
@@ -63,6 +64,7 @@ public:
     /// next one straight away (after a one-tick yield), not by catching up.
     virtual uint32_t frameInterval() const { return 33; }
     std::string getName() { return data.name; };
+    std::string getId() { return data.id; };
 
 protected:
     unsigned long frameCount{0};

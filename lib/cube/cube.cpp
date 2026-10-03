@@ -606,7 +606,7 @@ void Cube::initAPI()
 void Cube::setBrightness(uint8_t brightness)
 {
     settings.setBrightness(brightness);
-    dma_display->setBrightness8(brightness);
+    renderer.setBrightness(brightness);
 }
 
 // get brightness of display

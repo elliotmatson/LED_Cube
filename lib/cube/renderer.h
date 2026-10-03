@@ -43,6 +43,10 @@ public:
     bool begin(MatrixPanel_I2S_DMA *panels, AsyncWebServer *server, PatternChanged onChanged);
 
     void requestPattern(size_t index);
+
+    /// The panels' brightness. The renderer owns it so pattern switches can
+    /// fade to and from black without fighting the dashboard slider.
+    void setBrightness(uint8_t value);
     void stop();
     void resume();
     Stats stats();
@@ -60,6 +64,23 @@ private:
     };
 
     void loop();
+    void startPattern(Pattern *pattern);
+    void applyBrightness(uint32_t now);
+
+    // Pattern switches fade out the old pattern, swap at black, and fade in
+    // the new one -- both animating throughout.
+    enum class Fade : uint8_t
+    {
+        NONE,
+        OUT,
+        IN,
+    };
+    Fade fade = Fade::NONE;
+    uint32_t fadeStartMs = 0;
+    size_t pendingIndex = 0;
+    volatile uint8_t brightness = 255;
+    bool running = false;
+    uint32_t nextFrame = 0;
 
     MatrixPanel_I2S_DMA *panels = nullptr;
     Canvas canvas;

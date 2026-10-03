@@ -1,10 +1,16 @@
 #include "renderer.h"
 
 static const uint32_t STATS_INTERVAL_MS = 10000;
+static const uint32_t FADE_MS = 250;
+// While fading, wake at least this often to step the brightness, whatever
+// the pattern's frame interval (Clock ticks every 200 ms).
+static const uint32_t FADE_STEP_MS = 15;
 
 bool Renderer::begin(MatrixPanel_I2S_DMA *panels, AsyncWebServer *server, PatternChanged onChanged)
 {
     this->panels = panels;
+    // setBrightness() may have run before the panels were handed over.
+    panels->setBrightness8(brightness);
     this->onChanged = onChanged;
     bool ok = canvas.begin();
     if (!ok)
@@ -60,6 +66,65 @@ void Renderer::resume()
     xQueueSend(commands, &cmd, 0);
 }
 
+void Renderer::setBrightness(uint8_t value)
+{
+    brightness = value;
+    if (fade == Fade::NONE && panels)
+    {
+        panels->setBrightness8(value);
+    }
+}
+
+void Renderer::applyBrightness(uint32_t now)
+{
+    if (fade == Fade::NONE)
+    {
+        return;
+    }
+    const uint32_t t = now - fadeStartMs;
+    if (fade == Fade::OUT)
+    {
+        if (t < FADE_MS)
+        {
+            panels->setBrightness8(uint8_t(brightness * (FADE_MS - t) / FADE_MS));
+            return;
+        }
+        // Black: swap patterns, and fade the new one in.
+        panels->setBrightness8(0);
+        startPattern(patternList[pendingIndex]);
+        fade = Fade::IN;
+        fadeStartMs = now;
+        return;
+    }
+    if (t < FADE_MS)
+    {
+        panels->setBrightness8(uint8_t(brightness * t / FADE_MS));
+    }
+    else
+    {
+        panels->setBrightness8(brightness);
+        fade = Fade::NONE;
+    }
+}
+
+void Renderer::startPattern(Pattern *pattern)
+{
+    if (running)
+    {
+        current->end();
+    }
+    current = pattern;
+    ESP_LOGI("Render", "Starting pattern %s", current->getName().c_str());
+    canvas.fillScreen(0);
+    current->begin(&services);
+    running = true;
+    nextFrame = millis();
+    if (onChanged)
+    {
+        onChanged(current);
+    }
+}
+
 Renderer::Stats Renderer::stats()
 {
     portENTER_CRITICAL(&statsMux);
@@ -70,8 +135,6 @@ Renderer::Stats Renderer::stats()
 
 void Renderer::loop()
 {
-    bool running = false;
-    uint32_t nextFrame = 0;
     uint32_t statsStart = millis();
     uint32_t frames = 0;
     uint64_t tickTotalUs = 0, pushTotalUs = 0;
@@ -83,6 +146,10 @@ void Renderer::loop()
         if (running)
         {
             int32_t remaining = int32_t(nextFrame - millis());
+            if (fade != Fade::NONE && remaining > int32_t(FADE_STEP_MS))
+            {
+                remaining = FADE_STEP_MS;
+            }
             wait = remaining > 0 ? pdMS_TO_TICKS(remaining) : 0;
         }
 
@@ -92,19 +159,21 @@ void Renderer::loop()
             switch (cmd.type)
             {
             case Command::SWITCH:
-                if (running)
+                pendingIndex = cmd.index;
+                if (running && fade != Fade::OUT)
                 {
-                    current->end();
+                    // Fade the current pattern out first; applyBrightness()
+                    // switches once it is black. A request during the fade
+                    // just changes what comes next.
+                    fade = Fade::OUT;
+                    fadeStartMs = millis();
                 }
-                current = patternList[cmd.index];
-                ESP_LOGI("Render", "Starting pattern %s", current->getName().c_str());
-                canvas.fillScreen(0);
-                current->begin(&services);
-                running = true;
-                nextFrame = millis();
-                if (onChanged)
+                else if (!running)
                 {
-                    onChanged(current);
+                    panels->setBrightness8(0);
+                    startPattern(patternList[pendingIndex]);
+                    fade = Fade::IN;
+                    fadeStartMs = millis();
                 }
                 break;
             case Command::STOP:
@@ -113,21 +182,33 @@ void Renderer::loop()
                     current->end();
                     running = false;
                 }
+                // Updates draw on the panels next, at full brightness.
+                fade = Fade::NONE;
+                panels->setBrightness8(brightness);
                 xSemaphoreGive(ack);
                 break;
             case Command::RESUME:
                 if (!running && current)
                 {
                     // Whatever was drawn on the panels directly is about to
-                    // be covered: start from a clean frame.
+                    // be covered: start from black and fade in.
+                    panels->setBrightness8(0);
                     canvas.fillScreen(0);
                     current->begin(&services);
                     running = true;
                     nextFrame = millis();
+                    fade = Fade::IN;
+                    fadeStartMs = millis();
                 }
                 break;
             }
             continue;
+        }
+
+        applyBrightness(millis());
+        if (!running || int32_t(nextFrame - millis()) > 0)
+        {
+            continue; // woke only to step the fade
         }
 
         // A frame is due.

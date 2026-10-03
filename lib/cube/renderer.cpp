@@ -1,7 +1,8 @@
 #include "renderer.h"
 
 static const uint32_t STATS_INTERVAL_MS = 10000;
-static const uint32_t FADE_MS = 250;
+static const uint32_t FADE_OUT_MS = 300;
+static const uint32_t FADE_IN_MS = 600;
 // While fading, wake at least this often to step the brightness, whatever
 // the pattern's frame interval (Clock ticks every 200 ms).
 static const uint32_t FADE_STEP_MS = 15;
@@ -75,6 +76,15 @@ void Renderer::setBrightness(uint8_t value)
     }
 }
 
+// The eye is far more sensitive to steps near black than near full, so a
+// linear ramp looks like a jump. Squaring the fraction spreads the change
+// out perceptually.
+static uint8_t eased(uint8_t target, uint32_t t, uint32_t duration)
+{
+    const uint32_t f = t >= duration ? 256 : t * 256 / duration;
+    return uint8_t(target * f * f >> 16);
+}
+
 void Renderer::applyBrightness(uint32_t now)
 {
     if (fade == Fade::NONE)
@@ -84,21 +94,24 @@ void Renderer::applyBrightness(uint32_t now)
     const uint32_t t = now - fadeStartMs;
     if (fade == Fade::OUT)
     {
-        if (t < FADE_MS)
+        if (t < FADE_OUT_MS)
         {
-            panels->setBrightness8(uint8_t(brightness * (FADE_MS - t) / FADE_MS));
+            panels->setBrightness8(eased(brightness, FADE_OUT_MS - t, FADE_OUT_MS));
             return;
         }
         // Black: swap patterns, and fade the new one in.
         panels->setBrightness8(0);
         startPattern(patternList[pendingIndex]);
         fade = Fade::IN;
-        fadeStartMs = now;
         return;
     }
-    if (t < FADE_MS)
+    if (awaitingFirstFrame)
     {
-        panels->setBrightness8(uint8_t(brightness * t / FADE_MS));
+        return; // the fade in starts once there is something to see
+    }
+    if (t < FADE_IN_MS)
+    {
+        panels->setBrightness8(eased(brightness, t, FADE_IN_MS));
     }
     else
     {
@@ -118,6 +131,7 @@ void Renderer::startPattern(Pattern *pattern)
     canvas.fillScreen(0);
     current->begin(&services);
     running = true;
+    awaitingFirstFrame = true;
     nextFrame = millis();
     if (onChanged)
     {
@@ -173,7 +187,6 @@ void Renderer::loop()
                     panels->setBrightness8(0);
                     startPattern(patternList[pendingIndex]);
                     fade = Fade::IN;
-                    fadeStartMs = millis();
                 }
                 break;
             case Command::STOP:
@@ -196,9 +209,9 @@ void Renderer::loop()
                     canvas.fillScreen(0);
                     current->begin(&services);
                     running = true;
+                    awaitingFirstFrame = true;
                     nextFrame = millis();
                     fade = Fade::IN;
-                    fadeStartMs = millis();
                 }
                 break;
             }
@@ -217,6 +230,13 @@ void Renderer::loop()
         uint32_t t1 = micros();
         canvas.push(*panels);
         uint32_t t2 = micros();
+        if (awaitingFirstFrame)
+        {
+            // Time the fade in from the first frame actually on the panels,
+            // not from begin(), which can take a while (tables, PSRAM).
+            awaitingFirstFrame = false;
+            fadeStartMs = millis();
+        }
 
         frames++;
         tickTotalUs += t1 - t0;

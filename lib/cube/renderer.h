@@ -78,6 +78,7 @@ private:
     Fade fade = Fade::NONE;
     uint32_t fadeStartMs = 0;
     size_t pendingIndex = 0;
+    bool awaitingFirstFrame = false;
     volatile uint8_t brightness = 255;
     bool running = false;
     uint32_t nextFrame = 0;

@@ -10,6 +10,7 @@ static const char *K_LATCH = "latch";
 static const char *K_20MHZ = "use20MHz";
 static const char *K_PATTERN = "pattern";
 static const char *K_TIMEZONE = "timezone";
+static const char *K_TICKER = "ticker";
 static const char *K_LEGACY = "cubePrefs";
 
 static const uint64_t FLUSH_DELAY_US = 2 * 1000 * 1000;
@@ -42,6 +43,7 @@ bool Settings::begin()
     _use20MHz = _prefs.getBool(K_20MHZ, _use20MHz);
     _pattern = _prefs.getString(K_PATTERN, "").c_str();
     _timezone = _prefs.getString(K_TIMEZONE, "").c_str();
+    _tickerText = _prefs.getString(K_TICKER, "").c_str();
     if (_prefs.isKey("HW"))
     {
         _hardware = _prefs.getString("HW").c_str();
@@ -118,6 +120,7 @@ SETTER(setLatchBlanking(uint8_t value), _latchBlanking, LATCH, clampLatch(value)
 SETTER(setUse20MHz(bool value), _use20MHz, CLOCK_20MHZ, value)
 SETTER(setPattern(const std::string &id), _pattern, PATTERN, id)
 SETTER(setTimezone(const std::string &name), _timezone, TIMEZONE, name)
+SETTER(setTickerText(const std::string &text), _tickerText, TICKER, text)
 
 #undef SETTER
 
@@ -125,6 +128,14 @@ std::string Settings::pattern() const
 {
     xSemaphoreTake(_lock, portMAX_DELAY);
     std::string copy = _pattern;
+    xSemaphoreGive(_lock);
+    return copy;
+}
+
+std::string Settings::tickerText() const
+{
+    xSemaphoreTake(_lock, portMAX_DELAY);
+    std::string copy = _tickerText;
     xSemaphoreGive(_lock);
     return copy;
 }
@@ -160,6 +171,8 @@ void Settings::flush()
         _prefs.putString(K_PATTERN, _pattern.c_str());
     if (dirty & TIMEZONE)
         _prefs.putString(K_TIMEZONE, _timezone.c_str());
+    if (dirty & TICKER)
+        _prefs.putString(K_TICKER, _tickerText.c_str());
     if (dirty)
     {
         log("Saved settings");

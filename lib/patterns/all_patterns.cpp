@@ -12,4 +12,9 @@ Pattern *patternList[] = {
     new Ripples(),
     new MatrixRain(),
     new Nebula(),
+    new Wireframes(),
+    new RubiksCube(),
+    new FallingSand(),
+    new PlaneSweep(),
+    new Ticker(),
 };

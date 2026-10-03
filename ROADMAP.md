@@ -87,8 +87,11 @@ open on the LAN (as on hub); phased PRs.
 - Done: Ripples (rings from the shared corner plus raindrops, 12 ms tick),
   Matrix Rain (over the edges and down the sides, 1 ms), Nebula (3D Perlin
   noise around the cube, 20 ms at quarter-resolution sampling).
-- Still to do: plane sweeps, falling sand toward the shared corner, rotating
-  wireframes, Rubik's scramble/solve, information/scrolling text.
+- Done: Wireframes (solids floating in the isometric view, via
+  cube::unproject), Rubik's Cube (scramble and solve, stickers placed in 3D),
+  Falling Sand (poured from the top face, piling on the sides), Plane Sweep,
+  Ticker (custom message, time and date across the side faces; message from
+  the dashboard or /api/v1/ticker).
 - Nebula is the SIMD/fixed-point candidate: its tick is noise evaluation.
 
 ## Spotify (deferred until the plan above is done)

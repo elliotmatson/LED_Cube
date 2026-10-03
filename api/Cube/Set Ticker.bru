@@ -1,0 +1,15 @@
+meta {
+  name: Set Ticker
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseURL}}/v1/ticker
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  text: Hello from the cube
+}

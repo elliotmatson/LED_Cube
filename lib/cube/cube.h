@@ -79,6 +79,7 @@ private:
     dash::PushButtonCard resetWifiButton;
     dash::PushButtonCard crashMe;
     dash::DropdownCard<> timezoneDropdown;
+    dash::InputCard<dash::string> tickerInput;
     Updates updates; // owns the firmware upload cards
     dash::Tab systemTab;
     dash::Tab developerTab;

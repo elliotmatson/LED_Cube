@@ -94,31 +94,20 @@ open on the LAN (as on hub); phased PRs.
   the dashboard or /api/v1/ticker).
 - Nebula is the SIMD/fixed-point candidate: its tick is noise evaluation.
 
-## Spotify (deferred until the plan above is done)
+## Spotify
 
-- **Client ID on the dashboard**, so release builds (which have no `secrets.h`)
-  can log in.
-- **PKCE run in the browser on the relay page.** The browser redeems the code with
-  its own verifier and hands the refresh token to the cube in the URL fragment;
-  no client secret on the cube. Needs the fork to persist rotated refresh
-  tokens. Until then the client secret must stay: with the relay forwarding to
-  any private host, a code is only safe because it cannot be redeemed without
-  the secret.
-- Relay hardening: state expiry (~10 min), 128-bit state, strict state format
-  check on the relay page; comment in `config.h` that the secret must never ship
-  in published builds.
-- Setup guide: creating the Spotify app (development mode: Premium owner,
-  5 allowlisted users), registering the relay redirect URI.
-- Optional: a Home Assistant "now playing" pattern as a source-agnostic
-  alternative.
-- Check Chrome's Local Network Access rules against the relay's https → LAN
-  navigation.
-
-## Bugs noticed
-
-- ESP-DASH Pro leaves `Widget::_index` uninitialized, so heap-allocated cards
-  sort randomly (worked around with `setIndex()`). Fix in the ESP-DASH-Pro
-  fork: initialize it to 0.
+- Done (spotify-setup PR): client ID and secret on the dashboard's Spotify
+  tab (secrets.h only a default), status card and `/api/v1/spotify`, log
+  out, permanent `/spotify` and `/callback/` routes (login works from any
+  pattern), 128-bit state valid once for ten minutes, strict state format
+  on the relay page, README setup guide.
+- Decided: keep the client-secret flow. Browser-side PKCE would deliver the
+  refresh token itself to whatever host a crafted link names, where today a
+  stolen code is useless without the secret.
+- Merge the Spotify fork PR (elliotmatson/spotify-api-arduino-psram#2) once
+  a real login has worked, and re-pin to its main.
+- Optional: a Home Assistant "now playing" pattern; check Chrome's Local
+  Network Access rules against the relay's https -> LAN navigation.
 
 ## Later
 

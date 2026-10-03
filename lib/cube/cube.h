@@ -80,9 +80,15 @@ private:
     dash::PushButtonCard crashMe;
     dash::DropdownCard<> timezoneDropdown;
     dash::InputCard<dash::string> tickerInput;
+    dash::FeedbackCard<> spotifyStatus;
+    dash::LinkCard<> spotifyLogin;
+    dash::InputCard<dash::string> spotifyClientId;
+    dash::PasswordCard spotifyClientSecret;
+    dash::PushButtonCard spotifyLogout;
     Updates updates; // owns the firmware upload cards
     dash::Tab systemTab;
     dash::Tab developerTab;
+    dash::Tab spotifyTab;
 
     // FreeRTOS Tasks
     TaskHandle_t printMemTask = nullptr;
@@ -101,6 +107,8 @@ private:
     void initAPI();
     void printMem();
     const timezones::Zone &currentTimezone();
+    void showPattern(const char *id, bool onlyIfShowing = false);
+    void refreshSpotifyStatus();
 };
 
 #endif

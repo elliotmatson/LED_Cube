@@ -8,6 +8,8 @@
 #include <TJpg_Decoder.h>
 #include <WiFi.h>
 #include <Preferences.h>
+#include <functional>
+#include <string>
 
 #include "config.h"
 #include "cube_utils.h"
@@ -60,6 +62,30 @@ public:
   void end() override;
   uint32_t frameInterval() const override { return 100; }
 
+  // Account setup, usable whether or not the pattern is running. Stored in
+  // NVS namespace "spotify". Changes take effect the next time the pattern
+  // begins; Cube restarts it if it is showing.
+  struct Account
+  {
+    std::string clientId;
+    bool hasSecret = false;
+    bool linked = false; // a refresh token is stored
+  };
+  static Account account();
+  static void setClientId(const std::string &id);
+  static void setClientSecret(const std::string &secret);
+  static void logOut();
+  /// The last login or token problem, for the dashboard; empty if none.
+  static std::string lastError();
+
+  /**
+   * Registers the login routes, /spotify and /callback/, for the life of the
+   * firmware -- not just while the pattern runs, so a login can start from
+   * any pattern. `show` is called when Spotify hands back a login code: the
+   * pattern's worker is what exchanges it, so it has to be running.
+   */
+  static void registerRoutes(AsyncWebServer &server, std::function<void()> show);
+
 private:
   // What the worker learned about the current item. Owned copies: the
   // library's structs point into a JSON document freed when its callback
@@ -89,8 +115,6 @@ private:
   void exchangePendingCode();
   void poll();
   void setStatus(PatternStatus s);
-  void startOauthWebServer();
-  void stopOauthWebServer();
 
   // Render side
   void drawStatus(PatternStatus s);
@@ -133,14 +157,7 @@ private:
   uint8_t *shownArt = nullptr; // kept to redraw after a status change
   int shownArtSize = 0;
 
-  // The OAuth callback runs in the AsyncTCP task, which must not block on the
-  // token request's TLS handshake. It hands the code to the worker here.
-  portMUX_TYPE codeMux = portMUX_INITIALIZER_UNLOCKED;
-  char pendingCode[512] = "";
-  // "<16 hex>.<host>": random per /spotify visit and checked on /callback/;
-  // the relay page sends the browser back to <host>.
-  char oauthState[64] = "";
-  std::vector<AsyncCallbackWebHandler *> handlers;
+  static void setLastError(const std::string &error);
 };
 
 #endif

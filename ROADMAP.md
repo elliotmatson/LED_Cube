@@ -30,9 +30,13 @@ open on the LAN (as on hub); phased PRs.
    rate drives patterns through `begin(Context&)` / `tick(Canvas&, dt)` /
    `end()`. No pattern owns or kills a task; I/O-bound patterns (Spotify) get a
    background worker that hands state to `tick` under a lock.
-3. **Double buffering** (`double_buff` + `flipDMABuffer`, colour depth reduced if
-   internal RAM requires it) to remove tearing and Clock's flicker. Measure on
-   hardware.
+3. **Double buffering** (`double_buff` + `flipDMABuffer`). Clock's flicker is
+   already gone (frames reach the panels whole). What remains is tearing while
+   a full-frame push (~24 ms) runs across ~2 panel refreshes. A second DMA
+   buffer at 8-bit colour is another ~98 KB of internal RAM, and only ~86 KB
+   is free, so it means 6-bit colour (~74 KB a buffer, ~37 KB left free) or
+   PSRAM DMA buffers. Needs eyes on the panels to judge whether it is worth it;
+   making the push faster (below) shrinks the tear window either way.
 4. **Pattern registry** with stable string ids; the selected pattern is saved by
    id, not index. Patterns declare their settings; one layer builds both the
    dashboard cards and `/api/v1/patterns`.
@@ -44,8 +48,13 @@ open on the LAN (as on hub); phased PRs.
 
 ## Performance
 
-- **Investigate ESP32-S3 SIMD (PIE, the 128-bit vector extension).** Profile first
-  (frame time per pattern, time in `drawPixelRGB888` / bit-plane packing).
+- **Investigate ESP32-S3 SIMD (PIE, the 128-bit vector extension).** Measured with
+  the render loop (`/api/v1/stats`, 2026-10-03): pushing a full frame costs
+  ~24 ms (~2 us a pixel in the HUB75 library's `drawPixelRGB888`); ticks cost
+  Snake ~9-11 ms, Plasma ~12.7 ms, Game of Life ~5.5 ms. Frame rates: Snake
+  ~29 fps, Plasma ~26, Game of Life 20 (its interval). The push is the first
+  target: write bit planes for a whole row at a time instead of per pixel,
+  then vectorize that.
   Candidates: per-pixel pattern maths (Plasma's field, blends, fades), the
   RGB888 framebuffer to HUB75 bit-plane conversion, image scaling for album
   art. Tools: esp-dsp (already a managed component, with S3-optimized `_aes3`
@@ -83,6 +92,11 @@ open on the LAN (as on hub); phased PRs.
   alternative.
 - Check Chrome's Local Network Access rules against the relay's https → LAN
   navigation.
+
+## Bugs noticed
+
+- The pattern buttons on the dashboard come up in a different order on each
+  boot.
 
 ## Later
 

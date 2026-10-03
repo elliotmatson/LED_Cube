@@ -86,13 +86,20 @@ namespace.
   `platformio.ini` drops them. If a platform bump brings back a build error
   about `https_server.crt` or `rmaker_*` certs, a new component has slipped
   in: add it to that list rather than embedding its certs.
-- **Patterns own FreeRTOS tasks.** Each pattern's `start()` creates a task and
-  `stop()` deletes it; `stop()` must check the handle and clear it. Never
-  call a pattern's `start()`/`stop()` directly: go through
-  `Cube::startPattern` / `stopPattern` / `resumePattern`, which serialize on
-  a mutex and track whether anything is running. Web handlers call
-  `Cube::requestPattern`, which only queues the switch -- they run in the
-  AsyncTCP task and must not block.
+- **One render task drives every pattern.** `Cube::renderLoop()` (core 1)
+  calls a pattern's `begin()` when it is selected, `tick()` every
+  `frameInterval()` ms, and `end()` when switching away; patterns never create
+  or delete the task that draws them. `tick()` draws into the `Canvas`
+  (`patternServices.display`, RGB888 in PSRAM), and the render task pushes the
+  changed span of each row to the HUB75 buffer -- the only writer while a
+  pattern runs. `tick()` must not block: slow I/O goes in a worker the pattern
+  starts in `begin()` and stops cooperatively in `end()` (see Spotify).
+  Other tasks ask for changes through `Cube::requestPattern` (queues, never
+  blocks -- safe from AsyncTCP), `stopPattern` (waits until rendering has
+  stopped, so the caller can draw on the panels directly) and `resumePattern`.
+- **Pushing is the expensive part.** About 2 us a pixel in the HUB75 library,
+  so a full 192x64 frame costs ~24 ms. Draw only what changes where you can;
+  `/api/v1/stats` reports tick and push times for the running pattern.
 - **Rollback.** A freshly updated image is confirmed at the end of
   `Cube::init()` (`verifyRollbackLater()` in `main.cpp` stops the Arduino
   core doing it at boot). Anything that can hang before that point will

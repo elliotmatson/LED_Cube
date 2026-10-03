@@ -51,9 +51,9 @@ public:
 private:
     uint8_t *pixels = nullptr;
     // Per row, the changed span [dirtyFrom, dirtyTo]; empty when from > to.
-    // Pushing costs about 2 us a pixel (the HUB75 library's per-pixel
-    // bit-plane update), so a pattern that draws one face, or one line,
-    // should not pay for all 192 columns.
+    // Pushing costs time per pixel (the HUB75 library's bit-plane update),
+    // so a pattern that draws one face, or one line, should not pay for all
+    // 192 columns.
     int16_t dirtyFrom[cube::CHAIN_HEIGHT];
     int16_t dirtyTo[cube::CHAIN_HEIGHT];
 

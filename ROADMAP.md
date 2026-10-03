@@ -53,9 +53,16 @@ open on the LAN (as on hub); phased PRs.
   the render loop (`/api/v1/stats`, 2026-10-03): pushing a full frame costs
   ~24 ms (~2 us a pixel in the HUB75 library's `drawPixelRGB888`); ticks cost
   Snake ~9-11 ms, Plasma ~12.7 ms, Game of Life ~5.5 ms. Frame rates: Snake
-  ~29 fps, Plasma ~26, Game of Life 20 (its interval). The push is the first
-  target: write bit planes for a whole row at a time instead of per pixel,
-  then vectorize that.
+  ~29 fps, Plasma ~26, Game of Life 20 (its interval).
+  - Done: `drawRowRGB888()` in the elliotmatson fork of the HUB75 library
+    (row pointers looked up once per run) and `-O2`: push 24 -> 17 ms, Plasma
+    34.5 fps, Snake 38.4. The fork is temporary -- draft an upstream PR to
+    mrcodetastic/ESP32-HUB75-MatrixPanel-DMA, then return to upstream.
+  - What is left is memory-bound: ~98k read-modify-writes of 16-bit DMA
+    words per frame. PIE could do eight words per 128-bit load/store
+    (`ee.vld.128` / `ee.andq` / `ee.orq` / `ee.vst.128`), which also cuts bus
+    transactions eightfold; needs 16-byte-aligned runs with scalar edges.
+    Worth it only if a pattern needs more than ~35 fps.
   Candidates: per-pixel pattern maths (Plasma's field, blends, fades), the
   RGB888 framebuffer to HUB75 bit-plane conversion, image scaling for album
   art. Tools: esp-dsp (already a managed component, with S3-optimized `_aes3`

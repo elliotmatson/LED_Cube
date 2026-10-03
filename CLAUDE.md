@@ -107,9 +107,11 @@ namespace.
   Other tasks ask for changes through `Renderer::requestPattern` (queues,
   never blocks -- safe from AsyncTCP), `stop` (waits until rendering has
   stopped, so the caller can draw on the panels directly) and `resume`.
-- **Pushing is the expensive part.** About 2 us a pixel in the HUB75 library,
-  so a full 192x64 frame costs ~24 ms. Draw only what changes where you can;
-  `/api/v1/stats` reports tick and push times for the running pattern.
+- **Pushing is the expensive part.** A full 192x64 frame costs ~17 ms (about
+  1.4 us a pixel: eight read-modify-writes into DMA memory the I2S engine is
+  reading). `Canvas::push()` uses `drawRowRGB888()`, which only exists in the
+  elliotmatson fork of the HUB75 library (`row-writer` branch). Draw only
+  what changes where you can; `/api/v1/stats` reports tick and push times.
 - **ESP-DASH card order.** The frontend sorts cards by `Widget::_index`, which
   the library leaves uninitialized. Global/member cards get 0 (zero-initialized
   storage); cards made with `new` get heap garbage and shuffle every boot. Call

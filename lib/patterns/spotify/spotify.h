@@ -139,6 +139,9 @@ private:
   void stepMarquee(Marquee &m, uint32_t now);
   void drawAmbient(bool playing);
   void pickArtPalette();
+  void startArtFade();
+  void stepArtFade(uint32_t now);
+  color::RGB paletteAt(int i, uint32_t now) const;
 
   // Render side
   void drawStatus(PatternStatus s);
@@ -191,7 +194,20 @@ private:
   };
   Bucket *histogram = nullptr;  // 64 entries, PSRAM
   float *ambient = nullptr;     // 32 x 32 noise samples, PSRAM
+  // The cloud's colours glide from paletteFrom to artPalette over
+  // PALETTE_FADE_MS after the album changes.
   color::RGB artPalette[3] = {{30, 215, 96}, {20, 90, 160}, {120, 40, 160}};
+  color::RGB paletteFrom[3] = {{30, 215, 96}, {20, 90, 160}, {120, 40, 160}};
+  uint32_t paletteFadeStartMs = 0;
+
+  static const int16_t ART_SIZE = 64; // Spotify's smallest image
+  static const int ART_BYTES = ART_SIZE * ART_SIZE * 3;
+  // Album art cross-fades: artTarget is the decoded art, artShown what the
+  // face shows; while fading, each tick draws a blend. 64 x 64 RGB888, PSRAM.
+  uint8_t *artShown = nullptr;
+  uint8_t *artTarget = nullptr;
+  bool artFading = false;
+  uint32_t artFadeStartMs = 0;
   uint32_t ambientStartMs = 0;
   uint32_t frame = 0;
 

@@ -48,7 +48,10 @@ namespace
     }
     std::string lastErrorText;
 
-    const char *PAGE_STYLE =
+    const uint32_t ART_FADE_MS = 600;
+    const uint32_t PALETTE_FADE_MS = 1500;
+
+        const char *PAGE_STYLE =
         "<meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
         "<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:10vh auto;padding:0 16px}"
         "a.button{display:inline-block;background:#1db954;color:#fff;padding:.6em 1.2em;border-radius:2em;text-decoration:none}"
@@ -215,6 +218,9 @@ void Spotify::begin(PatternServices *services)
     spotify = new SpotifyArduino(this->client);
     spotifyPrefs.begin("spotify");
     histogram = static_cast<Bucket *>(heap_caps_calloc(64, sizeof(Bucket), MALLOC_CAP_SPIRAM));
+    artShown = static_cast<uint8_t *>(heap_caps_calloc(ART_BYTES, 1, MALLOC_CAP_SPIRAM));
+    artTarget = static_cast<uint8_t *>(heap_caps_calloc(ART_BYTES, 1, MALLOC_CAP_SPIRAM));
+    artFading = false;
     ambient = static_cast<float *>(heap_caps_malloc(32 * 32 * sizeof(float), MALLOC_CAP_SPIRAM));
     ambientStartMs = millis();
     frame = 0;
@@ -269,8 +275,11 @@ void Spotify::end()
     art = shownArt = nullptr;
     free(histogram);
     free(ambient);
+    free(artShown);
+    free(artTarget);
     histogram = nullptr;
     ambient = nullptr;
+    artShown = artTarget = nullptr;
     artSize = shownArtSize = 0;
     spotifyPrefs.end();
 }
@@ -497,6 +506,8 @@ void Spotify::tick()
     PatternStatus s = status;
     bool newPlaying = playingVersion != drawnPlayingVersion;
     bool newPlayer = playerVersion != drawnPlayerVersion;
+    bool newArt = false;
+    bool refadeArt = false;
     NowPlaying np = playing;
     PlayerState pb = player;
     drawnPlayingVersion = playingVersion;
@@ -508,7 +519,7 @@ void Spotify::tick()
         shownArtSize = artSize;
         art = nullptr;
         drawnArtVersion = artVersion;
-        newPlaying = true; // redraw the art with it
+        newArt = true;
     }
     xSemaphoreGive(stateMutex);
 
@@ -516,26 +527,38 @@ void Spotify::tick()
     {
         drawStatus(s);
         drawnStatus = s;
-        // Everything on screen was just cleared.
+        // Everything on screen was just cleared: the art fades back in.
         newPlaying = newPlayer = true;
+        if (artShown)
+        {
+            memset(artShown, 0, ART_BYTES);
+        }
+        refadeArt = true;
     }
     if (s != playback)
     {
         return;
     }
     const uint32_t now = millis();
+    if (newArt && shownArt && artTarget)
+    {
+        // Decode into artTarget (and the colour histogram), then fade to it.
+        if (histogram)
+        {
+            memset(histogram, 0, 64 * sizeof(Bucket));
+        }
+        TJpgDec.drawJpg(0, 0, shownArt, shownArtSize);
+        pickArtPalette();
+        startArtFade();
+    }
+    else if (refadeArt && shownArt)
+    {
+        startArtFade();
+    }
+    stepArtFade(now);
     if (newPlaying)
     {
         drawInfo(np);
-        if (shownArt)
-        {
-            if (histogram)
-            {
-                memset(histogram, 0, 64 * sizeof(Bucket));
-            }
-            TJpgDec.drawJpg(0, 0, shownArt, shownArtSize);
-            pickArtPalette();
-        }
     }
     else
     {
@@ -587,7 +610,14 @@ bool Spotify::drawArtPixels(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_
         for (int16_t i = 0; i < w; i++)
         {
             const uint8_t *px = &bitmap[(j * w + i) * 3];
-            panel0->drawPixelRGB888(x + i, y, px[0], px[1], px[2]);
+            const int16_t ax = x + i;
+            if (artTarget && ax < ART_SIZE && y < ART_SIZE)
+            {
+                uint8_t *dst = artTarget + (y * ART_SIZE + ax) * 3;
+                dst[0] = px[0];
+                dst[1] = px[1];
+                dst[2] = px[2];
+            }
             if (histogram)
             {
                 Bucket &b = histogram[(px[0] >> 6) * 16 + (px[1] >> 6) * 4 + (px[2] >> 6)];
@@ -679,6 +709,13 @@ void Spotify::pickArtPalette()
     {
         return;
     }
+    // Glide from wherever the colours are now.
+    const uint32_t now = millis();
+    for (int k = 0; k < 3; k++)
+    {
+        paletteFrom[k] = paletteAt(k, now);
+    }
+    paletteFadeStartMs = now;
     // Score each colour bucket by how much of the art it covers, favouring
     // saturated colours over greys; skip near-black. Take the best three,
     // as the average colour of each bucket.
@@ -722,6 +759,63 @@ void Spotify::pickArtPalette()
     }
 }
 
+color::RGB Spotify::paletteAt(int i, uint32_t now) const
+{
+    const uint32_t t = now - paletteFadeStartMs;
+    if (t >= PALETTE_FADE_MS)
+    {
+        return artPalette[i];
+    }
+    return color::lerp(paletteFrom[i], artPalette[i], uint8_t(t * 255 / PALETTE_FADE_MS));
+}
+
+void Spotify::startArtFade()
+{
+    if (!artShown || !artTarget)
+    {
+        return;
+    }
+    // Starting mid-fade: carry on from the blend on screen, not the old art.
+    if (artFading)
+    {
+        const uint32_t t = millis() - artFadeStartMs;
+        const uint32_t k = t >= ART_FADE_MS ? 255 : t * 255 / ART_FADE_MS;
+        for (int i = 0; i < ART_BYTES; i++)
+        {
+            artShown[i] = uint8_t(artShown[i] + ((int(artTarget[i]) - artShown[i]) * int(k)) / 255);
+        }
+    }
+    artFading = true;
+    artFadeStartMs = millis();
+}
+
+/// While fading, draws the blend of artShown and artTarget on face 2.
+void Spotify::stepArtFade(uint32_t now)
+{
+    if (!artFading)
+    {
+        return;
+    }
+    const uint32_t t = now - artFadeStartMs;
+    const int k = t >= ART_FADE_MS ? 255 : int(t * 255 / ART_FADE_MS);
+    for (int16_t y = 0; y < ART_SIZE; y++)
+    {
+        for (int16_t x = 0; x < ART_SIZE; x++)
+        {
+            const int i = (y * ART_SIZE + x) * 3;
+            panel0->drawPixelRGB888(x, y,
+                                    uint8_t(artShown[i] + ((int(artTarget[i]) - artShown[i]) * k) / 255),
+                                    uint8_t(artShown[i + 1] + ((int(artTarget[i + 1]) - artShown[i + 1]) * k) / 255),
+                                    uint8_t(artShown[i + 2] + ((int(artTarget[i + 2]) - artShown[i + 2]) * k) / 255));
+        }
+    }
+    if (k == 255)
+    {
+        memcpy(artShown, artTarget, ART_BYTES);
+        artFading = false;
+    }
+}
+
 void Spotify::drawAmbient(bool playing)
 {
     if (!ambient)
@@ -738,7 +832,8 @@ void Spotify::drawAmbient(bool playing)
             ambient[sy * 32 + sx] = noise::fbm(sx * 0.09f + t, sy * 0.09f - t * 0.6f, t * 0.5f, 2);
         }
     }
-    const color::RGB stops[4] = {{0, 0, 0}, artPalette[0], artPalette[1], artPalette[2]};
+    const uint32_t now = millis();
+    const color::RGB stops[4] = {{0, 0, 0}, paletteAt(0, now), paletteAt(1, now), paletteAt(2, now)};
     const uint8_t level = playing ? 255 : 90; // dim while paused
     for (int16_t y = 0; y < cube::FACE_SIZE; y++)
     {

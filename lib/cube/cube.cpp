@@ -546,6 +546,23 @@ void Cube::initAPI()
         }
         request->send(404, "application/json", "{\"error\": \"no pattern with that id\"}"); });
 
+    // The current frame as raw RGB888 (192 x 64, row-major), for capturing
+    // what the cube shows: scripts/capture_patterns.py turns it into GIFs.
+    // One shared buffer: concurrent captures may see each other's frame.
+    sprintf(uri, "%s/v1/frame", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        static uint8_t *frame = static_cast<uint8_t *>(heap_caps_malloc(Canvas::FRAME_BYTES, MALLOC_CAP_SPIRAM));
+        if (frame == nullptr || !renderer.snapshot(frame, pdMS_TO_TICKS(500)))
+        {
+            request->send(503, "text/plain", "No frame (is a pattern running?)");
+            return;
+        }
+        // Served straight from the buffer, which outlives the response.
+        AsyncWebServerResponse *response = request->beginResponse(200, "application/octet-stream", frame, Canvas::FRAME_BYTES);
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response); });
+
     // Spotify account state, for diagnosing a login without a serial console.
     sprintf(uri, "%s/v1/spotify", API_ENDPOINT);
     server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)

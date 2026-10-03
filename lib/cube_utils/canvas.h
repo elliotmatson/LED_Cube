@@ -61,6 +61,10 @@ public:
     /// with the same value count as changed.
     void push(MatrixPanel_I2S_DMA &panels);
 
+    /// The frame as packed RGB888, row-major, FRAME_BYTES long.
+    const uint8_t *data() const { return pixels; }
+    static constexpr size_t FRAME_BYTES = size_t(cube::CHAIN_WIDTH) * cube::CHAIN_HEIGHT * 3;
+
     /// Makes the next push copy everything, e.g. after something drew on the
     /// panels directly (boot messages, update progress).
     void markAllDirty();

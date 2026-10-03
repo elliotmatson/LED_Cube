@@ -2,12 +2,48 @@
 #define SNAKES_H
 
 #include <Arduino.h>
+#include <random>
 #include <utility>
 #include "cube_utils.h"
 
 const uint8_t FOOD_ID = 254;
 const uint8_t SPACE_ID = 255;
-const uint8_t N_SNAKE_TYPES = 15;
+const uint8_t N_SNAKE_TYPES = 18;
+// Shortest stasis a stasis snake can get; a lognormal amount is added on top.
+const uint8_t STASIS_DURATION_MIN = 10;
+// How far a raycasting snake looks along each heading, in cells. Enough to
+// cross most of a face and turn the corner onto the next.
+const uint8_t RAYCAST_RANGE = 200;
+
+// Snake types. A namespace rather than an enum class so the values still
+// compare directly with Snake::type, and so Snake can name them as well as
+// SnakeGame without putting REGULAR, FAST, ... in the global scope.
+namespace SnakeType
+{
+  enum : uint8_t
+  {
+    REGULAR = 0,
+    GRADIENT = 1,
+    ALTERNATING = 2,
+    GHOST = 3,
+    SPARKLE = 4,
+    PULSING = 5,
+    STROBE = 6,
+    FADE = 7,
+    STATIC_ALTERNATING = 8,
+    SLOW = 9,
+    FAST = 10,
+    TECHNICOLOR = 11,
+    DASHED = 12,
+    EATER_OF_WORLDS = 13,
+    INFINITE = 14,
+    RAYCASTER = 15,  // steers towards the longest clear run
+    DISCO_TURN = 16, // new colour on every turn
+    STASIS = 17,     // freezes instead of dying when boxed in
+    COUNT
+  };
+}
+static_assert(SnakeType::COUNT == N_SNAKE_TYPES, "N_SNAKE_TYPES must match the SnakeType list");
 
 // One step across the cube surface for a snake at (row, col) heading dir,
 // as {row, col}, or {255, 255} at the cube's outer edge. `dir` is updated to
@@ -28,6 +64,11 @@ inline std::pair<uint8_t, uint8_t> check_move(uint8_t row, uint8_t col, uint8_t 
 // direction is 0-3, 0 is up, 1 is right, 2 is down, 3 is left
 struct Snake{
   uint8_t r1, r2, g1, g2, b1, b2, dir, col, row, t, id, type, slow, segment_len;
+  // STASIS: how long this snake may stay frozen, and how much of that is
+  // left (0 when it is moving).
+  uint8_t stasis_len, stasis_left;
+  // EATER_OF_WORLDS: it has prey in sight, so it moves twice a step.
+  bool hunting;
   uint16_t len, respawn_delay;
   bool alive;
   void move(std::pair<uint8_t, uint16_t> ** board, Snake * snakes){
@@ -39,32 +80,57 @@ struct Snake{
       uint8_t heading = i;
       std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, heading);
       // if(new_pos.first == 255 || (board[new_pos.first][new_pos.second].second != 0 && board[new_pos.first][new_pos.second].first != this->id)){
-      if(new_pos.first == 255){ 
+      if(new_pos.first == 255){
         valid_dirs[i] = false;
         n_dirs--;
       } else if(board[new_pos.first][new_pos.second].second != 0){
-        if(this->type != 13 || snakes[board[new_pos.first][new_pos.second].first].type == 13){
+        if(this->type != SnakeType::EATER_OF_WORLDS || snakes[board[new_pos.first][new_pos.second].first].type == SnakeType::EATER_OF_WORLDS){
           valid_dirs[i] = false;
           n_dirs--;
         }
-      } 
+      }
     }
-    
-    
-    // If the snake has no valid moves, the snake is dead :(
-    if(n_dirs == 0){
+
+    if(this->type == SnakeType::STASIS){
+      // Boxed in: freeze rather than die, in the hope that a neighbour's tail
+      // moves out of the way, and die only once the stasis runs out.
+      if(n_dirs == 0){
+        if(this->stasis_left == 0){
+          this->stasis_left = this->stasis_len;
+        } else if(--this->stasis_left == 0){
+          this->die();
+        }
+        return;
+      }
+      this->stasis_left = 0;
+    } else if(n_dirs == 0){
+      // If the snake has no valid moves, the snake is dead :(
       this->die();
       return;
     }
 
-    // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
-    if(random(1000) < 30 * (1.0f/sqrtf(len)) * t || !valid_dirs[this->dir]){
-      do{
-        this->dir = random(4);
-      } while(!valid_dirs[this->dir]);
-      t=0;
+    uint8_t old_dir = this->dir;
+    if(this->type == SnakeType::RAYCASTER){
+      this->dir = raycast(board);
+    } else if(this->type == SnakeType::EATER_OF_WORLDS){
+      this->dir = hunt(board, snakes);
+    } else {
+      // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
+      if(random(100) < 3 * (1.0f/sqrtf(len)) * t || !valid_dirs[this->dir]){
+        do{
+          this->dir = random(4);
+        } while(!valid_dirs[this->dir]);
+        t=0;
+      }
+      t++;
     }
-    t++;
+    // Compared before the move, so turning onto a new face at a seam (which
+    // also changes dir) does not count as a turn.
+    if(this->type == SnakeType::DISCO_TURN && this->dir != old_dir){
+      this->r1 = random(255);
+      this->g1 = random(255);
+      this->b1 = random(255);
+    }
 
     // Move the snake
 
@@ -73,17 +139,17 @@ struct Snake{
     std::pair<uint8_t, uint8_t> new_pos = check_move(this->row, this->col, this->dir);
     std::pair<uint8_t, uint16_t> board_vals = board[new_pos.first][new_pos.second];
     if(board_vals.second != 0){
-      if(this->type == 13 && snakes[board_vals.first].type != 13 && snakes[board_vals.first].alive){ // Eater of worlds
+      if(this->type == SnakeType::EATER_OF_WORLDS && snakes[board_vals.first].type != SnakeType::EATER_OF_WORLDS && snakes[board_vals.first].alive){
         this->len += board_vals.second;
         snakes[board_vals.first].die();
       }
     }
     this->row = new_pos.first;
     this->col = new_pos.second;
-    
+
     if(board[this->row][this->col].first == FOOD_ID){
       this->len+=2;
-    } else if(this->type == 14){ // Infinite
+    } else if(this->type == SnakeType::INFINITE){
       this->len++;
     }
     board[this->row][this->col].second = this->len * this->slow;
@@ -92,6 +158,74 @@ struct Snake{
   void die(){
     this->alive = false;
     this->respawn_delay = this->len * this->slow;
+  }
+
+  // The heading with the longest run of free cells ahead, following the
+  // surface across seams. A free first cell is what makes a heading valid,
+  // so whenever any heading is valid the winner is one of them.
+  uint8_t raycast(std::pair<uint8_t, uint16_t> ** board){
+    uint8_t maxD = 0;
+    uint8_t maxI = 0;
+    for(uint8_t i = 0; i < 4; i++){
+      uint8_t row = this->row, col = this->col, dir = i;
+      uint8_t d = 0;
+      while(d < RAYCAST_RANGE){
+        std::pair<uint8_t, uint8_t> next = check_move(row, col, dir);
+        if(next.first == 255 || board[next.first][next.second].second != 0){
+          break;
+        }
+        row = next.first;
+        col = next.second;
+        d++;
+      }
+      if(d > maxD){
+        maxD = d;
+        maxI = i;
+      }
+    }
+    return maxI;
+  }
+
+  // Eater of Worlds steering: head for the nearest live snake in a straight
+  // line (and set `hunting`, which doubles its speed), otherwise for the
+  // longest clear run. Rays pass over dead bodies and food, which it can
+  // move onto, and stop at the cube's edge or at another eater.
+  uint8_t hunt(std::pair<uint8_t, uint16_t> ** board, Snake * snakes){
+    uint8_t minD = 255;
+    uint8_t minI = 255;
+    uint8_t maxD = 0;
+    uint8_t maxI = 0;
+    for(uint8_t i = 0; i < 4; i++){
+      uint8_t row = this->row, col = this->col, dir = i;
+      uint8_t d = 0;
+      while(d < RAYCAST_RANGE){
+        std::pair<uint8_t, uint8_t> next = check_move(row, col, dir);
+        if(next.first == 255){
+          break;
+        }
+        const std::pair<uint8_t, uint16_t> &cell = board[next.first][next.second];
+        if(cell.second != 0){
+          const Snake &other = snakes[cell.first];
+          if(other.type == SnakeType::EATER_OF_WORLDS){
+            break;
+          }
+          if(other.alive && d < minD){
+            minD = d;
+            minI = i;
+            break;
+          }
+        }
+        row = next.first;
+        col = next.second;
+        d++;
+      }
+      if(d > maxD){
+        maxD = d;
+        maxI = i;
+      }
+    }
+    this->hunting = minI != 255;
+    return this->hunting ? minI : maxI;
   }
 };
 
@@ -115,44 +249,40 @@ class SnakeGame: public Pattern{
         uint16_t n_food;
         float infinite_vals[20] = {1.05f,1.1f,1.15f,1.2f,1.25f,1.3f,1.35f,1.4f,1.45f,1.5f,1.55f,1.6f,1.65f,1.7f,1.75f,1.8f,1.85f,1.9f,1.95f,2.0f};
 
+        // Lognormal rather than uniform for the spawn-time sizes below: mostly
+        // short, with the occasional very long one. float, not double, as in
+        // draw(). The engine is seeded in begin().
+        std::minstd_rand generator;
+        std::lognormal_distribution<float> stasis_distribution{3.68f, 0.672f};  // median ~40 steps
+        std::lognormal_distribution<float> slow_distribution{0.0f, 0.613f};     // median 1 (+2)
+        std::lognormal_distribution<float> segment_distribution{0.693f, 0.672f}; // median 2 (+1)
+        // A sample plus offset as a uint8_t, clamped so a long tail cannot wrap.
+        uint8_t sample(std::lognormal_distribution<float> &dist, uint8_t offset);
+
         void reset();
         void update();
         void draw();
         void place_food();
         void spawn_snake(uint8_t i);
-        enum SnakeType {
-          REGULAR = 0, 
-          GRADIENT = 1, 
-          ALTERNATING = 2, 
-          GHOST = 3, 
-          SPARKLE = 4, 
-          PULSING = 5, 
-          STROBE = 6, 
-          FADE = 7,
-          STATIC_ALTERNATING = 8,
-          SLOW = 9,
-          FAST = 10,
-          TECHNICOLOR = 11,
-          DASHED = 12,
-          EATER_OF_WORLDS = 13,
-          INFINITE = 14,
-        };
         long snake_type_to_rarity[N_SNAKE_TYPES] = {
           100000, // Regular
           3000, // Gradient
           1500, // Alternating
-          100, // Ghost
-          50, // Sparkle
-          100, // Pulsing
+          50, // Ghost
+          40, // Sparkle
+          70, // Pulsing
           10, // Strobe
-          0, // Fade
+          100, // Fade
           1500, // Static Alternating
           500, // Slow
           500, // Fast
-          100, // Technicolor
+          10, // Technicolor
           200, // Dashed
           1, // Eater of Worlds
           1, // Infinite
+          100, // Raycaster
+          50, // Disco Turn
+          100, // Stasis
         };
 };
 

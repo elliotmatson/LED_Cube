@@ -20,6 +20,8 @@ void SnakeGame::begin(PatternServices *services)
   this->len = 3;
   this->n_snakes = 25;
   this->n_food = 200;
+  // Hardware RNG, so each run of the pattern gets different lognormal sizes.
+  this->generator.seed(esp_random());
   this->board = (std::pair<uint8_t, uint16_t> **)heap_caps_malloc(PANEL_HEIGHT * sizeof(*this->board), MALLOC_CAP_SPIRAM);
   for (int i = 0; i < PANEL_HEIGHT; i++)
   {
@@ -83,7 +85,9 @@ void SnakeGame::update(){
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){
         Snake * s = &snakes[this->board[i][j].first];
-        if(s->type != SnakeType::INFINITE || !s->alive){
+        // A living Infinite snake never shrinks, and a stasis snake's body
+        // stays put while it is frozen.
+        if((s->type != SnakeType::INFINITE || !s->alive) && (s->type != SnakeType::STASIS || s->stasis_left == 0)){
           this->board[i][j].second--;
           if(this->board[i][j].second == 0){
             this->board[i][j].first = SPACE_ID;
@@ -104,13 +108,24 @@ void SnakeGame::update(){
       snakes[i].r1 = random(256);
       snakes[i].g1 = random(256);
       snakes[i].b1 = random(256);
+    } else if(snakes[i].type == SnakeType::STASIS && snakes[i].stasis_left == 0){
+      // Both colours wander while it moves, and hold while it is frozen.
+      auto drift = [](uint8_t &c){ c = std::clamp(c + (int)random(41) - 20, 0, 255); };
+      drift(snakes[i].r1);
+      drift(snakes[i].g1);
+      drift(snakes[i].b1);
+      drift(snakes[i].r2);
+      drift(snakes[i].g2);
+      drift(snakes[i].b2);
     }
     if(snakes[i].alive){
       n_alive++;
       if(snakes[i].type != SnakeType::SLOW || frameCount % snakes[i].slow == 0){
         snakes[i].move(board, snakes);
       }
-      if (snakes[i].type == SnakeType::FAST){
+      // An Eater of Worlds with prey in sight (set by its first move) gets
+      // a second move, like a Fast snake.
+      if (snakes[i].alive && (snakes[i].type == SnakeType::FAST || (snakes[i].type == SnakeType::EATER_OF_WORLDS && snakes[i].hunting))){
         snakes[i].move(board, snakes);
       }
     }
@@ -231,6 +246,34 @@ void SnakeGame::draw(){
             g = min((int)(s->g1 * multiplier),255);
             b = min((int)(s->b1 * multiplier),255);
           }
+        } else if(s->type == SnakeType::RAYCASTER){
+          // A blinking head in its colour on a body in the complement.
+          if(this->board[i][j].second == s->len * s->slow){
+            if(frameCount % 20 >= 10){
+              r = min(255, s->r1 + 100);
+              g = min(255, s->g1 + 100);
+              b = min(255, s->b1 + 100);
+            }
+          } else {
+            r = 255 - s->r1;
+            g = 255 - s->g1;
+            b = 255 - s->b1;
+          }
+        } else if(s->type == SnakeType::STASIS){
+          r = (c1_factor * s->r1 + c2_factor * s->r2) / 2;
+          g = (c1_factor * s->g1 + c2_factor * s->g2) / 2;
+          b = (c1_factor * s->b1 + c2_factor * s->b2) / 2;
+          if(s->stasis_left > 0){
+            // Frozen: dim and flickering at first, recovering as the stasis
+            // runs down (stasis_left counts down to 0).
+            float k = 0.2f + 0.8f / s->stasis_left;
+            r *= k;
+            g *= k;
+            b *= k;
+            if(random(s->stasis_len) < s->stasis_left * 2 / 3){
+              r = g = b = 0;
+            }
+          }
         }
         if(s->alive){
           put(j, r, g, b);
@@ -281,10 +324,13 @@ void SnakeGame::spawn_snake(uint8_t i){
 
   snakes[i].slow = 1;
   snakes[i].t = 0;
-  snakes[i].dir = 0;
+  snakes[i].dir = random(4);
   snakes[i].len = this->len;
   snakes[i].id = i;
   snakes[i].segment_len = 1;
+  snakes[i].stasis_len = 0;
+  snakes[i].stasis_left = 0;
+  snakes[i].hunting = false;
 
 
   // Determines the snake type
@@ -297,20 +343,20 @@ void SnakeGame::spawn_snake(uint8_t i){
   for(int j = 0; j < N_SNAKE_TYPES; j++){
     sum += snake_type_to_rarity[j];
     if(typeGen < sum){
-      snakes[i].type = (SnakeType)j;
+      snakes[i].type = j;
       break;
     }
   }
 
-  // Special modification for slow snakes
+  // Per-type sizes
   if(snakes[i].type == SnakeType::SLOW){
-    snakes[i].slow = random(3) + 2;
-  } else if(snakes[i].type == SnakeType::ALTERNATING){
-    snakes[i].segment_len = random(7) + 1;
-  } else if(snakes[i].type == SnakeType::STATIC_ALTERNATING){
-    snakes[i].segment_len = random(7) + 1;
-  } else if(snakes[i].type == SnakeType::DASHED){
-    snakes[i].segment_len = random(7) + 1;
+    snakes[i].slow = sample(slow_distribution, 2);
+  } else if(snakes[i].type == SnakeType::ALTERNATING
+         || snakes[i].type == SnakeType::STATIC_ALTERNATING
+         || snakes[i].type == SnakeType::DASHED){
+    snakes[i].segment_len = sample(segment_distribution, 1);
+  } else if(snakes[i].type == SnakeType::STASIS){
+    snakes[i].stasis_len = sample(stasis_distribution, STASIS_DURATION_MIN);
   }
 
   // Place the new snake and initialize the location
@@ -320,6 +366,11 @@ void SnakeGame::spawn_snake(uint8_t i){
   } while(this->board[snakes[i].row][snakes[i].col].second != 0);
   this->board[snakes[i].row][snakes[i].col].second = this->len * snakes[i].slow;
   this->board[snakes[i].row][snakes[i].col].first = i;
+}
+
+uint8_t SnakeGame::sample(std::lognormal_distribution<float> &dist, uint8_t offset){
+  float v = dist(generator) + offset;
+  return v >= 255.0f ? 255 : (uint8_t)v;
 }
 
 void SnakeGame::place_food(){

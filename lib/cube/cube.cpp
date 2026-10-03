@@ -410,6 +410,37 @@ void Cube::initAPI()
                  (unsigned long)(millis() / 1000));
         request->send(200, "application/json", body); });
 
+    // The patterns, and which one is showing. POST with id=<pattern id> to
+    // switch, as the dashboard buttons do.
+    sprintf(uri, "%s/v1/patterns", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        JsonDocument doc;
+        doc["current"] = settings.pattern();
+        JsonArray list = doc["patterns"].to<JsonArray>();
+        for (Pattern *pattern : patternList)
+        {
+            JsonObject p = list.add<JsonObject>();
+            p["id"] = pattern->getId();
+            p["name"] = pattern->getName();
+        }
+        String body;
+        serializeJson(doc, body);
+        request->send(200, "application/json", body); });
+    server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
+              {
+        const String id = request->hasArg("id") ? request->arg("id") : String();
+        for (size_t i = 0; i < std::size(patternList); i++)
+        {
+            if (id == patternList[i]->getId().c_str())
+            {
+                renderer.requestPattern(i);
+                request->send(202, "application/json", String("{\"requested\":\"") + id + "\"}");
+                return;
+            }
+        }
+        request->send(404, "application/json", "{\"error\": \"no pattern with that id\"}"); });
+
     // redirect to docs on api root request
     server.on(API_ENDPOINT, HTTP_GET, [&](AsyncWebServerRequest *request)
               { request->redirect("https://github.com/elliotmatson/LED_Cube"); });

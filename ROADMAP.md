@@ -67,9 +67,9 @@ open on the LAN (as on hub); phased PRs.
 
 ## Patterns
 
-- Fix existing: Clock (large digits across the side faces via `BottomPanels`),
-  Game of Life (all three faces via seam adjacency, reseed on stagnation),
-  Snakes (carry direction across seams).
+- Done: Clock redesigned (analog dial on top, digits on the right face, date
+  on the left; push 24 ms -> 1.6 ms), Game of Life on all three faces across
+  the seams, Snakes carry direction across seams, `/api/v1/patterns`.
 - New, built on the 3D mapping: 3D noise/fire volume, plane sweeps, falling sand
   toward the shared corner, corner ripples, Matrix rain, rotating wireframes,
   Rubik's scramble/solve, information/scrolling text.

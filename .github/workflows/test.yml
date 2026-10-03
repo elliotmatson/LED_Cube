@@ -1,5 +1,5 @@
 # Host-side unit tests (test/, [env:native]): cube geometry, Game of Life,
-# time zone rules and firmware image checks.
+# time zone rules, firmware image checks and the cube neighbour graph.
 name: test
 
 on:

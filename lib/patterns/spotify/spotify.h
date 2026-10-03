@@ -13,6 +13,8 @@
 
 #include "config.h"
 #include "cube_utils.h"
+#include "color.h"
+#include "noise.h"
 #include "spotify_sprites.h"
 #include "LEMONMILK_Medium7pt7b.h"
 
@@ -60,7 +62,8 @@ public:
   void begin(PatternServices *services) override;
   void tick() override;
   void end() override;
-  uint32_t frameInterval() const override { return 100; }
+  // Fast enough for smooth scrolling text; network work is in the worker.
+  uint32_t frameInterval() const override { return 50; }
 
   // Account setup, usable whether or not the pattern is running. Stored in
   // NVS namespace "spotify". Changes take effect the next time the pattern
@@ -116,6 +119,27 @@ private:
   void poll();
   void setStatus(PatternStatus s);
 
+  // A line of text on face 1 that scrolls when it is wider than the face:
+  // pause, scroll through, loop. Clears and redraws only its own band.
+  struct Marquee
+  {
+    String text;
+    const GFXfont *font = nullptr;
+    int16_t x = 0;     // left margin
+    int16_t y = 0;     // cursor (baseline for GFX fonts, top for the default)
+    uint16_t color = 0xFFFF;
+    int16_t bandTop = 0, bandHeight = 0;
+    int16_t width = 0;
+    int16_t offset = 0;
+    bool scrolls = false;
+    uint32_t pauseUntil = 0;
+  };
+  void setMarquee(Marquee &m, const String &text, const GFXfont *font, int16_t x, int16_t y, int16_t bandTop, int16_t bandHeight, uint16_t color);
+  void drawMarquee(Marquee &m);
+  void stepMarquee(Marquee &m, uint32_t now);
+  void drawAmbient(bool playing);
+  void pickArtPalette();
+
   // Render side
   void drawStatus(PatternStatus s);
   void drawInfo(const NowPlaying &np);
@@ -156,6 +180,20 @@ private:
   uint32_t drawnArtVersion = 0;
   uint8_t *shownArt = nullptr; // kept to redraw after a status change
   int shownArtSize = 0;
+  Marquee lines[3]; // track, artists, album
+  bool shownPlaying = false;
+
+  // Top face: a slow noise cloud in the album art's colours. Colours are
+  // picked from a 4x4x4 histogram filled while the art decodes.
+  struct Bucket
+  {
+    uint32_t count, r, g, b;
+  };
+  Bucket *histogram = nullptr;  // 64 entries, PSRAM
+  float *ambient = nullptr;     // 32 x 32 noise samples, PSRAM
+  color::RGB artPalette[3] = {{30, 215, 96}, {20, 90, 160}, {120, 40, 160}};
+  uint32_t ambientStartMs = 0;
+  uint32_t frame = 0;
 
   static void setLastError(const std::string &error);
 };

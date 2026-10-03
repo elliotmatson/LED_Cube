@@ -214,6 +214,14 @@ void Spotify::begin(PatternServices *services)
     panel1 = new SinglePanel(*pattern->display, 1, 2);
     spotify = new SpotifyArduino(this->client);
     spotifyPrefs.begin("spotify");
+    histogram = static_cast<Bucket *>(heap_caps_calloc(64, sizeof(Bucket), MALLOC_CAP_SPIRAM));
+    ambient = static_cast<float *>(heap_caps_malloc(32 * 32 * sizeof(float), MALLOC_CAP_SPIRAM));
+    ambientStartMs = millis();
+    frame = 0;
+    for (Marquee &m : lines)
+    {
+        m = Marquee();
+    }
     TJpgDec.setJpgScale(1);
     TJpgDec.setCallback([this](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
                         { return this->drawArtPixels(x, y, w, h, bitmap); });
@@ -259,6 +267,10 @@ void Spotify::end()
     free(art);
     free(shownArt);
     art = shownArt = nullptr;
+    free(histogram);
+    free(ambient);
+    histogram = nullptr;
+    ambient = nullptr;
     artSize = shownArtSize = 0;
     spotifyPrefs.end();
 }
@@ -511,19 +523,38 @@ void Spotify::tick()
     {
         return;
     }
+    const uint32_t now = millis();
     if (newPlaying)
     {
         drawInfo(np);
         if (shownArt)
         {
+            if (histogram)
+            {
+                memset(histogram, 0, 64 * sizeof(Bucket));
+            }
             TJpgDec.drawJpg(0, 0, shownArt, shownArtSize);
+            pickArtPalette();
+        }
+    }
+    else
+    {
+        for (Marquee &m : lines)
+        {
+            stepMarquee(m, now);
         }
     }
     if (newPlayer)
     {
         drawPlayback(pb);
+        shownPlaying = pb.isPlaying;
     }
     drawProgress(np);
+    // Every other tick: the cloud moves slowly, and this keeps the push small.
+    if ((frame++ & 1) == 0)
+    {
+        drawAmbient(shownPlaying);
+    }
 }
 
 void Spotify::drawStatus(PatternStatus s)
@@ -557,6 +588,14 @@ bool Spotify::drawArtPixels(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_
         {
             const uint8_t *px = &bitmap[(j * w + i) * 3];
             panel0->drawPixelRGB888(x + i, y, px[0], px[1], px[2]);
+            if (histogram)
+            {
+                Bucket &b = histogram[(px[0] >> 6) * 16 + (px[1] >> 6) * 4 + (px[2] >> 6)];
+                b.count++;
+                b.r += px[0];
+                b.g += px[1];
+                b.b += px[2];
+            }
         }
     }
     return 1;
@@ -564,19 +603,160 @@ bool Spotify::drawArtPixels(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_
 
 void Spotify::drawInfo(const NowPlaying &np)
 {
+    // Same positions and fonts as before; each line now scrolls if it does
+    // not fit, within its own band of rows. The title's baseline is 11: the
+    // old code set the font after the cursor, and GFX moves the cursor down 6
+    // when switching to a custom font. Its glyphs span baseline -12 to +3.
     panel1->fillRect(0, 0, 64, 38, 0x0000);
-    panel1->setTextColor(0xFFFF);
+    setMarquee(lines[0], np.trackName, &LEMONMILK_Medium7pt7b, 0, 11, 0, 15, 0xFFFF);
+    setMarquee(lines[1], np.artists, nullptr, 1, 16, 15, 10, 0xFFFF);
+    setMarquee(lines[2], np.albumName, nullptr, 1, 27, 26, 10, panel1->color565(160, 160, 160));
+}
+
+void Spotify::setMarquee(Marquee &m, const String &text, const GFXfont *font, int16_t x, int16_t y,
+                         int16_t bandTop, int16_t bandHeight, uint16_t color)
+{
+    m.text = text;
+    m.font = font;
+    m.x = x;
+    m.y = y;
+    m.color = color;
+    m.bandTop = bandTop;
+    m.bandHeight = bandHeight;
+    panel1->setFont(font);
     panel1->setTextSize(1);
     panel1->setTextWrap(false);
-    panel1->setCursor(0, 5);
-    panel1->setFont(&LEMONMILK_Medium7pt7b);
-    panel1->println(np.trackName);
+    int16_t x1, y1;
+    uint16_t w, h;
+    panel1->getTextBounds(text.c_str(), 0, y, &x1, &y1, &w, &h);
+    m.width = int16_t(w) + x1;
+    m.scrolls = m.width > cube::FACE_SIZE - x;
+    m.offset = 0;
+    m.pauseUntil = millis() + 2500;
+    drawMarquee(m);
+}
+
+void Spotify::drawMarquee(Marquee &m)
+{
+    // The gap before the text comes round again.
+    const int16_t GAP = 24;
+    panel1->fillRect(0, m.bandTop, cube::FACE_SIZE, m.bandHeight, 0x0000);
+    panel1->setFont(m.font);
+    panel1->setTextSize(1);
+    panel1->setTextWrap(false);
+    panel1->setTextColor(m.color);
+    panel1->setCursor(m.x - m.offset, m.y);
+    panel1->print(m.text);
+    if (m.scrolls)
+    {
+        panel1->setCursor(m.x - m.offset + m.width + GAP, m.y);
+        panel1->print(m.text);
+        if (m.offset >= m.width + GAP)
+        {
+            m.offset = 0; // the second copy is now where the first started
+        }
+    }
     panel1->setFont(NULL);
-    panel1->setCursor(1, 16);
-    panel1->println(np.artists);
-    panel1->setTextColor(panel1->color565(160, 160, 160));
-    panel1->setCursor(1, 27);
-    panel1->println(np.albumName);
+}
+
+void Spotify::stepMarquee(Marquee &m, uint32_t now)
+{
+    if (!m.scrolls || int32_t(now - m.pauseUntil) < 0)
+    {
+        return;
+    }
+    m.offset++;
+    drawMarquee(m);
+    if (m.offset == 0)
+    {
+        m.pauseUntil = now + 2500; // back at the start: pause again
+    }
+}
+
+void Spotify::pickArtPalette()
+{
+    if (!histogram)
+    {
+        return;
+    }
+    // Score each colour bucket by how much of the art it covers, favouring
+    // saturated colours over greys; skip near-black. Take the best three,
+    // as the average colour of each bucket.
+    float score[64];
+    for (int i = 0; i < 64; i++)
+    {
+        const Bucket &b = histogram[i];
+        if (b.count == 0)
+        {
+            score[i] = -1;
+            continue;
+        }
+        const uint8_t r = b.r / b.count, g = b.g / b.count, bl = b.b / b.count;
+        const uint8_t hi = max(r, max(g, bl)), lo = min(r, min(g, bl));
+        score[i] = hi < 40 ? -1 : b.count * (0.25f + float(hi - lo) / 255);
+    }
+    int found = 0;
+    for (int k = 0; k < 3; k++)
+    {
+        int best = -1;
+        for (int i = 0; i < 64; i++)
+        {
+            if (score[i] > 0 && (best < 0 || score[i] > score[best]))
+            {
+                best = i;
+            }
+        }
+        if (best < 0)
+        {
+            break;
+        }
+        const Bucket &b = histogram[best];
+        artPalette[found++] = {uint8_t(b.r / b.count), uint8_t(b.g / b.count), uint8_t(b.b / b.count)};
+        score[best] = -1;
+    }
+    // Monochrome art: fill the rest with brighter versions of what there is.
+    for (int k = found; k < 3; k++)
+    {
+        const color::RGB c = found ? artPalette[k - 1] : color::RGB{30, 215, 96};
+        artPalette[k] = color::lerp(c, {255, 255, 255}, 70);
+    }
+}
+
+void Spotify::drawAmbient(bool playing)
+{
+    if (!ambient)
+    {
+        return;
+    }
+    // Noise sampled at every other pixel and interpolated, as in Nebula; the
+    // top face is the z = 64 plane, so its own (x, y) are the coordinates.
+    const float t = (millis() - ambientStartMs) * 0.00012f;
+    for (int sy = 0; sy < 32; sy++)
+    {
+        for (int sx = 0; sx < 32; sx++)
+        {
+            ambient[sy * 32 + sx] = noise::fbm(sx * 0.09f + t, sy * 0.09f - t * 0.6f, t * 0.5f, 2);
+        }
+    }
+    const color::RGB stops[4] = {{0, 0, 0}, artPalette[0], artPalette[1], artPalette[2]};
+    const uint8_t level = playing ? 255 : 90; // dim while paused
+    for (int16_t y = 0; y < cube::FACE_SIZE; y++)
+    {
+        const int sy0 = y / 2, sy1 = (y & 1) && sy0 < 31 ? sy0 + 1 : sy0;
+        uint8_t *out = pattern->display->rowForWrite(y, 0, cube::FACE_SIZE);
+        for (int16_t x = 0; x < cube::FACE_SIZE; x++)
+        {
+            const int sx0 = x / 2, sx1 = (x & 1) && sx0 < 31 ? sx0 + 1 : sx0;
+            const float n = 0.25f * (ambient[sy0 * 32 + sx0] + ambient[sy0 * 32 + sx1] +
+                                     ambient[sy1 * 32 + sx0] + ambient[sy1 * 32 + sx1]);
+            int v = int((n * 1.1f + 0.45f) * 255);
+            v = v < 0 ? 0 : (v > 255 ? 255 : v);
+            const color::RGB c = color::scale(color::gradient(stops, 4, uint8_t(v)), level);
+            *out++ = c.r;
+            *out++ = c.g;
+            *out++ = c.b;
+        }
+    }
 }
 
 void Spotify::drawProgress(const NowPlaying &np)

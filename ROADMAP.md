@@ -40,8 +40,9 @@ open on the LAN (as on hub); phased PRs.
 4. **Pattern registry** with stable string ids; the selected pattern is saved by
    id, not index. Patterns declare their settings; one layer builds both the
    dashboard cards and `/api/v1/patterns`.
-5. **Split `Cube`** into display, network/time, updates, settings, pattern
-   manager and web UI/API.
+5. Done: `Cube` split into `Renderer` (render task, canvas, switching),
+   `Updates` (all three update paths) and `Settings`; `cube.cpp` keeps
+   startup, display, WiFi/time, dashboard and API (1,282 -> 564 lines).
 6. Done in the settings PR: per-key settings with debounced writes and
    migration, time zone from a dashboard dropdown (POSIX rules, replacing
    worldtimeapi.org), pattern saved by id, deterministic dashboard card order.

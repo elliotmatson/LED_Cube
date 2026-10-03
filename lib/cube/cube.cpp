@@ -502,12 +502,17 @@ void Cube::initAPI()
         {
             strftime(localTime, sizeof(localTime), "%Y-%m-%d %H:%M:%S %Z", &now);
         }
-        char body[512];
+        static const char *const REASONS[] = {"unknown", "power-on", "external", "software", "panic", "interrupt watchdog",
+                                              "task watchdog", "other watchdog", "deep sleep", "brownout", "sdio", "usb",
+                                              "jtag", "efuse", "power glitch", "cpu lockup"};
+        const int reason = int(esp_reset_reason());
+        const char *resetReason = reason >= 0 && reason < int(sizeof(REASONS) / sizeof(REASONS[0])) ? REASONS[reason] : "unknown";
+        char body[600];
         snprintf(body, sizeof(body),
-                 "{\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
+                 "{\"reset_reason\":\"%s\",\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
                  "\"push_avg_us\":%u,\"push_max_us\":%u,\"free_internal\":%u,\"largest_internal\":%u,"
                  "\"free_psram\":%u,\"uptime_s\":%lu}",
-                 localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
+                 resetReason, localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
                  s.tickAvgUs, s.tickMaxUs, s.pushAvgUs, s.pushMaxUs,
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
@@ -545,6 +550,23 @@ void Cube::initAPI()
             }
         }
         request->send(404, "application/json", "{\"error\": \"no pattern with that id\"}"); });
+
+    // The current frame as raw RGB888 (192 x 64, row-major), for capturing
+    // what the cube shows: scripts/capture_patterns.py turns it into GIFs.
+    // One shared buffer: concurrent captures may see each other's frame.
+    sprintf(uri, "%s/v1/frame", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        static uint8_t *frame = static_cast<uint8_t *>(heap_caps_malloc(Canvas::FRAME_BYTES, MALLOC_CAP_SPIRAM));
+        if (frame == nullptr || !renderer.snapshot(frame, pdMS_TO_TICKS(500)))
+        {
+            request->send(503, "text/plain", "No frame (is a pattern running?)");
+            return;
+        }
+        // Served straight from the buffer, which outlives the response.
+        AsyncWebServerResponse *response = request->beginResponse(200, "application/octet-stream", frame, Canvas::FRAME_BYTES);
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response); });
 
     // Spotify account state, for diagnosing a login without a serial console.
     sprintf(uri, "%s/v1/spotify", API_ENDPOINT);

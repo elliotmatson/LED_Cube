@@ -3,6 +3,9 @@
 #include <esp_app_desc.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <Fonts/FreeSansBold12pt7b.h>
+
+#include "LEMONMILK_Medium7pt7b.h"
 
 // The cube's custom app descriptor, placed right after the standard one in
 // every image (ESP-IDF's .rodata_custom_desc). Its cookie is the "signature"
@@ -10,6 +13,65 @@
 // cryptographic signature: it tells cube firmware from other firmware, and
 // does not stop anyone determined.
 const __attribute__((section(".rodata_custom_desc"))) CubePartition cubePartition = {CUBE_MAGIC_COOKIE};
+
+bool OtaWriter::begin()
+{
+    abort();
+    bytes = 0;
+    partition = esp_ota_get_next_update_partition(NULL);
+    if (partition == nullptr)
+    {
+        err = ESP_ERR_NOT_FOUND;
+        return false;
+    }
+    err = esp_ota_begin(partition, OTA_WITH_SEQUENTIAL_WRITES, &handle);
+    if (err != ESP_OK)
+    {
+        handle = 0;
+        return false;
+    }
+    return true;
+}
+
+bool OtaWriter::write(const uint8_t *data, size_t len)
+{
+    if (!handle)
+    {
+        return false;
+    }
+    err = esp_ota_write(handle, data, len);
+    if (err != ESP_OK)
+    {
+        abort();
+        return false;
+    }
+    bytes += len;
+    return true;
+}
+
+bool OtaWriter::finish()
+{
+    if (!handle)
+    {
+        return false;
+    }
+    err = esp_ota_end(handle); // frees the handle whatever the result
+    handle = 0;
+    if (err == ESP_OK)
+    {
+        err = esp_ota_set_boot_partition(partition);
+    }
+    return err == ESP_OK;
+}
+
+void OtaWriter::abort()
+{
+    if (handle)
+    {
+        esp_ota_abort(handle);
+        handle = 0;
+    }
+}
 
 Updates::Updates(ESPDash &dash)
     : dashboard(&dash),
@@ -72,53 +134,199 @@ void Updates::verifyWrittenImage()
     }
 }
 
-/// A word on all three faces while an update runs.
-void Updates::showBanner(const char *text)
+namespace
 {
-    panels->fillScreenRGB888(0, 0, 0);
-    panels->setFont(NULL);
-    panels->setCursor(6, 21);
-    panels->setTextColor(0xFFFF);
-    panels->setTextSize(3);
-    panels->print(text);
+    const char *WORD = "UPDATE";
+    const int16_t ROW_SPACING = 16;
+    const int16_t WORD_GAP = 12;
+    const uint32_t FRAME_MS = 50;
+    // Slept after every frame, however long it took. Flash writes stall the
+    // caches, so during an update a frame can overrun its slot; a task that
+    // then never blocks starves the idle task on its core until the task
+    // watchdog fires -- and the watchdog's own backtrace, printed mid-write,
+    // panicked the cube.
+    const uint32_t MIN_REST_MS = 10;
+
+    // "UPDATE" in rows across a face, each row scrolling the opposite way to
+    // the one above it. `pixelsPerSecond` sets the speed; `firstLeft` the
+    // direction of the top row.
+    void tile(SinglePanel &face, int16_t wordWidth, uint32_t ms, int pixelsPerSecond, bool firstLeft, uint16_t color)
+    {
+        const int period = wordWidth + WORD_GAP;
+        const int travel = int((uint64_t(ms) * pixelsPerSecond / 1000) % period);
+        face.setFont(&LEMONMILK_Medium7pt7b);
+        face.setTextSize(1);
+        face.setTextWrap(false);
+        face.setTextColor(color);
+        for (int row = 0; row <= cube::FACE_SIZE / ROW_SPACING; row++)
+        {
+            const bool left = ((row & 1) == 0) == firstLeft;
+            const int y = row * ROW_SPACING + 11;
+            // Start each row somewhere different so the words do not line up.
+            const int start = (row * period / 3 + (left ? period - travel : travel)) % period;
+            for (int x = start - period; x < cube::FACE_SIZE; x += period)
+            {
+                face.setCursor(int16_t(x), int16_t(y));
+                face.print(WORD);
+            }
+        }
+        face.setFont(NULL);
+    }
 }
 
-/// Progress as a line tracing the edges of all three faces.
-void Updates::drawProgress(unsigned int progress, unsigned int total)
+void Updates::startAnimation()
 {
-    ESP_LOGI("Updates", "Progress: %u%%", total ? (progress * 100) / total : 0);
+    canvasReady = canvas.begin();
+    if (!canvasReady || animationTask)
+    {
+        return;
+    }
+    if (!animationDone)
+    {
+        animationDone = xSemaphoreCreateBinary();
+    }
+    animationStartMs = millis();
+    progressPermille = 0;
+    animating = true;
+    // Core 1, which the render task leaves idle during an update and AsyncTCP
+    // no longer uses (CONFIG_ASYNC_TCP_RUNNING_CORE=0), above the ordinary
+    // background tasks so it stays smooth. The upload itself runs on core 0.
+    xTaskCreatePinnedToCore(
+        [](void *self)
+        { static_cast<Updates *>(self)->animationLoop(); },
+        "Update screen", 4096, this, 6, &animationTask, 1);
+}
+
+void Updates::animationLoop()
+{
+    while (animating)
+    {
+        const uint32_t start = millis();
+        drawFrame();
+        const uint32_t spent = millis() - start;
+        vTaskDelay(pdMS_TO_TICKS(spent + MIN_REST_MS < FRAME_MS ? FRAME_MS - spent : MIN_REST_MS));
+    }
+    xSemaphoreGive(animationDone);
+    vTaskDelete(NULL);
+}
+
+void Updates::stopAnimation()
+{
+    if (!animationTask)
+    {
+        return;
+    }
+    animating = false;
+    xSemaphoreTake(animationDone, pdMS_TO_TICKS(500));
+    animationTask = nullptr;
+}
+
+void Updates::abandon()
+{
+    stopAnimation();
+    renderer->resume();
+}
+
+void Updates::setProgress(float fraction)
+{
+    fraction = fraction < 0 ? 0 : (fraction > 1 ? 1 : fraction);
+    progressPermille = uint16_t(fraction * 1000);
+}
+
+/// One frame of the update screen.
+void Updates::drawFrame()
+{
+    if (!canvasReady)
+    {
+        return;
+    }
+    const uint32_t t = millis() - animationStartMs;
+    const float fraction = progressPermille / 1000.0f;
+
+    canvas.fillScreen(0);
+    SinglePanel top(canvas, 0, 0);
+    SinglePanel right(canvas, 1, 2); // upright, as the patterns use them
+    SinglePanel left(canvas, 2, 2);
+    int16_t x1, y1;
+    uint16_t w, h;
+    top.setFont(&LEMONMILK_Medium7pt7b);
+    top.getTextBounds(WORD, 0, 11, &x1, &y1, &w, &h);
+    const int16_t wordWidth = int16_t(w) + x1;
+    const uint16_t dim = Canvas::color565(0, 85, 115);
+
+    // Rows alternate direction on every face; the faces differ in speed and
+    // in which way their top row goes.
+    tile(top, wordWidth, t, 22, true, dim);
+    tile(right, wordWidth, t, 30, false, dim);
+    tile(left, wordWidth, t, 30, true, dim);
+
+    // The percentage, large, over the top face.
+    char percent[6];
+    snprintf(percent, sizeof(percent), "%d%%", int(fraction * 100 + 0.5f));
+    top.setFont(&FreeSansBold12pt7b);
+    top.getTextBounds(percent, 0, 40, &x1, &y1, &w, &h);
+    const int16_t px = (cube::FACE_SIZE - int16_t(w)) / 2 - x1;
+    top.fillRect(px + x1 - 3, y1 - 3, w + 6, h + 6, 0);
+    top.setTextColor(0xFFFF);
+    top.setCursor(px, 40);
+    top.print(percent);
+    top.setFont(NULL);
+
+    drawEdgeProgress(int(fraction * 512));
+    canvas.push(*panels);
+}
+
+/// The progress line: 512 steps around the cube's edges, as before.
+void Updates::drawEdgeProgress(int i)
+{
+    Canvas &c = canvas;
+    const uint16_t white = 0xFFFF;
+    c.drawFastHLine(128, 0, constrain(i, 0, 64), white);
+    c.drawFastVLine(191, 0, constrain(i - 64, 0, 64), white);
+
+    c.drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), white);
+    c.drawFastHLine(0, 0, constrain(i - 192, 0, 64), white);
+
+    c.drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), white);
+    c.drawFastHLine(64, 0, constrain(i - 320, 0, 64), white);
+
+    c.drawFastVLine(127, 0, constrain(i - 384, 0, 64), white);
+    c.drawFastVLine(128, 0, constrain(i - 384, 0, 64), white);
+
+    c.drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), white);
+    c.drawFastHLine(128, 63, constrain(i - 448, 0, 64), white);
+    c.drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), white);
+    c.drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), white);
+}
+
+/// Progress from ArduinoOTA or the GitHub updater.
+void Updates::onProgress(unsigned int progress, unsigned int total)
+{
+    ESP_LOGD("Updates", "Progress: %u%%", total ? (progress * 100) / total : 0);
     if (settings->signedFirmwareOnly() && progress == total)
     {
         verifyWrittenImage();
     }
-
-    int i = map(progress, 0, total, 0, 512);
-    panels->drawFastHLine(128, 0, constrain(i, 0, 64), 0xFFFF);
-    panels->drawFastVLine(191, 0, constrain(i - 64, 0, 64), 0xFFFF);
-
-    panels->drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), 0xFFFF);
-    panels->drawFastHLine(0, 0, constrain(i - 192, 0, 64), 0xFFFF);
-
-    panels->drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), 0xFFFF);
-    panels->drawFastHLine(64, 0, constrain(i - 320, 0, 64), 0xFFFF);
-
-    panels->drawFastVLine(127, 0, constrain(i - 384, 0, 64), 0xFFFF);
-    panels->drawFastVLine(128, 0, constrain(i - 384, 0, 64), 0xFFFF);
-
-    panels->drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), 0xFFFF);
-    panels->drawFastHLine(128, 63, constrain(i - 448, 0, 64), 0xFFFF);
-    panels->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
-    panels->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF);
+    setProgress(total ? float(progress) / total : 0);
 }
 
 /// Dims the panels to black before the restart into new firmware.
 void Updates::fadeOut()
 {
     settings->flush();
-    for (int i = settings->brightness(); i > 0; i -= 3)
+    // A real fade, about 0.6 s, all the way to black. The old loop had no
+    // delay and stopped one step short of 0, so the last frame stayed faintly
+    // lit until the restart.
+    const int start = settings->brightness();
+    const int STEPS = 30;
+    for (int step = 1; step <= STEPS; step++)
     {
-        panels->setBrightness8(max(i, 0));
+        panels->setBrightness8(uint8_t(start * (STEPS - step) / STEPS));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
+    stopAnimation();
+    panels->clearScreen();
+    panels->setBrightness8(0);
 }
 
 void Updates::setOta(bool ota)
@@ -139,17 +347,17 @@ void Updates::setOta(bool ota)
                      {
                 ESP_LOGI("Updates", "ArduinoOTA update starting");
                 renderer->stop();
-                showBanner("OTA"); })
+                startAnimation(); })
             .onEnd([this]()
                    { fadeOut(); })
             .onProgress([this](unsigned int progress, unsigned int total)
-                        { drawProgress(progress, total); })
+                        { onProgress(progress, total); })
             .onError([this](ota_error_t error)
                      {
                 ESP_LOGE("Updates", "ArduinoOTA error %u", error);
                 // The pattern was stopped in onStart; nothing will reboot
                 // into new firmware now, so bring it back.
-                renderer->resume(); });
+                abandon(); });
         ArduinoOTA.begin();
         xTaskCreate(
             [](void *self)
@@ -179,15 +387,6 @@ void Updates::setGithub(bool github)
             return; // already checking
         }
         ESP_LOGI("Updates", "GitHub updates enabled");
-        httpUpdate.onStart([this]()
-                           {
-            ESP_LOGI("Updates", "GitHub update starting");
-            renderer->stop();
-            showBanner("GHA"); });
-        httpUpdate.onEnd([this]()
-                         { fadeOut(); });
-        httpUpdate.onProgress([this](unsigned int progress, unsigned int total)
-                              { drawProgress(progress, total); });
         xTaskCreate(
             [](void *self)
             { static_cast<Updates *>(self)->checkForUpdates(); },
@@ -208,7 +407,7 @@ void Updates::setGithub(bool github)
 /**
  * Serves the dashboard's firmware upload card. The image is streamed straight
  * into the inactive OTA partition as each chunk arrives; the cube restarts into
- * it once Update.end() has checked it and marked it bootable.
+ * it once OtaWriter::finish() has checked it and marked it bootable.
  */
 void Updates::initFirmwareUpload()
 {
@@ -229,31 +428,34 @@ void Updates::initFirmwareUpload()
             }
             updateRequest = nullptr;
 
-            // end(true) verifies the image and sets the boot partition.
-            if (!Update.end(true))
+            // finish() verifies the image and sets the boot partition.
+            if (!cardWriter.finish())
             {
-                ESP_LOGE(__func__, "Update.end failed: %s", Update.errorString());
-                firmwareUploadStatus.setFeedback(Update.errorString(), dash::Status::DANGER);
+                ESP_LOGE(__func__, "Image rejected: %s", cardWriter.error());
+                abandon();
+                firmwareUploadStatus.setFeedback("The uploaded image is not valid firmware", dash::Status::DANGER);
                 dashboard->sendUpdates();
-                request->send(400, "text/plain", Update.errorString());
+                request->send(400, "text/plain", String("Image rejected: ") + cardWriter.error());
                 return;
             }
 
             ESP_LOGI(__func__, "Firmware update staged, restarting");
+            setProgress(1.0f);
             firmwareUploadStatus.setFeedback("Update complete - restarting", dash::Status::SUCCESS);
             dashboard->sendUpdates();
             AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "Update complete, restarting");
             response->addHeader("Connection", "close");
             request->send(response);
-            settings->flush();
-            // Long enough for the response and the dashboard update to go out.
+            // Fade out and restart from a task of its own, so the response and
+            // the dashboard update go out meanwhile.
             xTaskCreate(
-                [](void *)
+                [](void *self)
                 {
-                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    vTaskDelay(pdMS_TO_TICKS(300));
+                    static_cast<Updates *>(self)->fadeOut();
                     ESP.restart();
                 },
-                "Restart", 2048, nullptr, 1, nullptr);
+                "Restart", 3072, this, 1, nullptr);
         },
         [this](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
         {
@@ -279,15 +481,15 @@ void Updates::initFirmwareUpload()
                     request->send(400, "text/plain", problem);
                     return;
                 }
-                // UPDATE_SIZE_UNKNOWN: contentLength() includes the multipart
-                // framing and overstates the image.
-                if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH))
+                if (!cardWriter.begin())
                 {
-                    ESP_LOGE(__func__, "Update.begin failed: %s", Update.errorString());
-                    request->send(500, "text/plain", Update.errorString());
+                    ESP_LOGE(__func__, "OTA begin failed: %s", cardWriter.error());
+                    request->send(500, "text/plain", cardWriter.error());
                     return;
                 }
                 updateRequest = request;
+                renderer->stop();
+                startAnimation();
                 // A client that leaves mid-upload never reaches the completion
                 // handler; without this the update would stay owned by a dead
                 // request and every later upload would get a 409.
@@ -296,8 +498,9 @@ void Updates::initFirmwareUpload()
                     if (updateRequest == request)
                     {
                         ESP_LOGW(__func__, "Firmware upload disconnected, aborting");
-                        Update.abort();
+                        cardWriter.abort();
                         updateRequest = nullptr;
+                        abandon();
                         firmwareUploadStatus.setFeedback("Upload interrupted - firmware unchanged", dash::Status::WARNING);
                         dashboard->sendUpdates();
                     } });
@@ -308,15 +511,22 @@ void Updates::initFirmwareUpload()
             {
                 return; // rejected above, or another upload owns Update
             }
-            if (len > 0 && Update.write(data, len) != len)
+            if (len > 0 && !cardWriter.write(data, len))
             {
-                ESP_LOGE(__func__, "Update.write failed: %s", Update.errorString());
-                firmwareUploadStatus.setFeedback(Update.errorString(), dash::Status::DANGER);
+                ESP_LOGE(__func__, "OTA write failed: %s", cardWriter.error());
+                firmwareUploadStatus.setFeedback(cardWriter.error(), dash::Status::DANGER);
                 dashboard->sendUpdates();
-                Update.abort();
+                cardWriter.abort();
                 updateRequest = nullptr;
+                abandon();
                 request->send(400, "text/plain", Update.errorString());
                 return;
+            }
+            // contentLength() counts the multipart framing too, so this runs
+            // a little short of 100% until the end.
+            if (request->contentLength() > 0)
+            {
+                setProgress(float(index + len) / request->contentLength());
             }
             if (final)
             {
@@ -335,31 +545,127 @@ void Updates::checkForUpdates()
         if (findFirmwareRelease(tag, firmwareUrl))
         {
             ESP_LOGI(__func__, "Updating %s -> %s from %s", FW_VERSION, tag.c_str(), firmwareUrl.c_str());
-            NetworkClientSecure client;
-            client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
-            // browser_download_url redirects to the release asset CDN.
-            httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-            t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
-
-            switch (ret)
+            if (downloadAndInstall(firmwareUrl))
             {
-            case HTTP_UPDATE_FAILED:
-                ESP_LOGE(__func__, "Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-                // onStart may already have stopped the pattern.
-                renderer->resume();
-                break;
-
-            case HTTP_UPDATE_NO_UPDATES:
-                ESP_LOGI(__func__, "No Update!");
-                break;
-
-            case HTTP_UPDATE_OK:
-                ESP_LOGI(__func__, "Update OK!");
-                break;
+                ESP.restart();
             }
         }
         vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
     }
+}
+
+/**
+ * Downloads a release image and installs it, streaming it into OtaWriter.
+ * The first bytes are checked (firmware_image::check) before anything is
+ * written, the update screen runs while it downloads, and on success the
+ * panels fade out. Returns false -- with the pattern back -- on any failure.
+ */
+bool Updates::downloadAndInstall(const String &url)
+{
+    NetworkClientSecure client;
+    client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
+    HTTPClient http;
+    // browser_download_url redirects to the release asset CDN.
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+    if (!http.begin(client, url))
+    {
+        return false;
+    }
+    const int code = http.GET();
+    if (code != HTTP_CODE_OK)
+    {
+        ESP_LOGW("Updates", "Download failed: HTTP %d", code);
+        http.end();
+        return false;
+    }
+    const int total = http.getSize(); // -1 if the server did not say
+    NetworkClient *stream = http.getStreamPtr();
+
+    const size_t BUFFER = 4096;
+    uint8_t *buf = static_cast<uint8_t *>(malloc(BUFFER));
+    if (!buf)
+    {
+        http.end();
+        return false;
+    }
+    bool ok = false;
+    size_t have = 0;
+    uint32_t lastData = millis();
+    OtaWriter writer;
+    while (http.connected() && (total < 0 || writer.written() + have < size_t(total)))
+    {
+        const size_t room = BUFFER - have;
+        const int avail = stream->available();
+        if (avail <= 0)
+        {
+            if (millis() - lastData > 15000)
+            {
+                ESP_LOGW("Updates", "Download stalled");
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
+        }
+        have += stream->readBytes(buf + have, min(room, size_t(avail)));
+        lastData = millis();
+        if (!writer.active())
+        {
+            // Hold off writing until the image can be checked.
+            if (have < firmware_image::CHECK_BYTES)
+            {
+                continue;
+            }
+            const char *problem = firmware_image::check(buf, have, expectedImage());
+            if (problem)
+            {
+                ESP_LOGE("Updates", "Rejecting release image: %s", problem);
+                break;
+            }
+            if (!writer.begin())
+            {
+                ESP_LOGE("Updates", "OTA begin failed: %s", writer.error());
+                break;
+            }
+            renderer->stop();
+            startAnimation();
+        }
+        if (have == BUFFER || (total >= 0 && writer.written() + have >= size_t(total)))
+        {
+            if (!writer.write(buf, have))
+            {
+                ESP_LOGE("Updates", "OTA write failed: %s", writer.error());
+                break;
+            }
+            have = 0;
+            if (total > 0)
+            {
+                setProgress(float(writer.written()) / total);
+            }
+        }
+    }
+    if (writer.active() && have > 0)
+    {
+        writer.write(buf, have); // the tail, when the size was not known
+    }
+    free(buf);
+    http.end();
+
+    if (writer.active() && (total < 0 || writer.written() == size_t(total)) && writer.finish())
+    {
+        setProgress(1.0f);
+        fadeOut();
+        ok = true;
+    }
+    else
+    {
+        if (writer.active())
+        {
+            writer.abort();
+        }
+        ESP_LOGE("Updates", "GitHub update failed (%u of %d bytes): %s", (unsigned)writer.written(), total, writer.error());
+        abandon();
+    }
+    return ok;
 }
 
 /**

@@ -51,6 +51,15 @@ public:
     void resume();
     Stats stats();
 
+    /**
+     * Copies the next complete frame -- taken right after a push, so never
+     * half-drawn -- into `out` (Canvas::FRAME_BYTES). For capturing what the
+     * cube shows (scripts/capture_patterns.py). Blocks for up to a frame.
+     *
+     * @return false if no pattern is rendering or it timed out.
+     */
+    bool snapshot(uint8_t *out, TickType_t timeout);
+
 private:
     struct Command
     {
@@ -94,6 +103,11 @@ private:
     QueueHandle_t commands = nullptr;
     SemaphoreHandle_t ack = nullptr;
     SemaphoreHandle_t stopCallers = nullptr; // one stop() at a time
+
+    // A pending snapshot: the render task fills it after its next push.
+    uint8_t *volatile snapshotTarget = nullptr;
+    SemaphoreHandle_t snapshotDone = nullptr;
+    SemaphoreHandle_t snapshotCallers = nullptr;
 
     Stats latest;
     portMUX_TYPE statsMux = portMUX_INITIALIZER_UNLOCKED;

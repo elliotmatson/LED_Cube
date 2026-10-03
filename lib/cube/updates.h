@@ -85,14 +85,15 @@ private:
     void initFirmwareUpload();
     firmware_image::Expected expectedImage();
     void verifyWrittenImage();
-    // The update screen: "UPDATE" tiled and scrolling a different way on each
-    // face, the percentage on top, and a line tracing the cube's edges as
-    // progress. Drawn on its own canvas while the renderer is stopped.
+    // The update screen: rows of "UPDATE" across the side faces, moving one
+    // at a time, the percentage on top, and a line round the top face's edge
+    // as progress. Drawn on its own canvas while the renderer is stopped.
     void startAnimation();
     void stopAnimation();
     void setProgress(float fraction);
     void drawFrame();
-    void drawEdgeProgress(int steps);
+    void drawRow(BottomPanels &strip, int r);
+    void drawEdgeProgress(SinglePanel &top, int from, int to);
     void animationLoop();
     /// Stops the animation and brings the pattern back after a failed update.
     void abandon();
@@ -120,7 +121,11 @@ private:
     // update: the update paths only record progress (in permille).
     Canvas canvas;
     bool canvasReady = false;
-    uint32_t animationStartMs = 0;
+    bool firstFrame = true;
+    int16_t rowOffset[4] = {};
+    int nextRow = 0;
+    int shownPercent = -1;
+    int shownEdge = 0;
     volatile uint16_t progressPermille = 0;
     volatile bool animating = false;
     TaskHandle_t animationTask = nullptr;

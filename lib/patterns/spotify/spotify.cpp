@@ -49,7 +49,11 @@ namespace
     std::string lastErrorText;
 
     const uint32_t ART_FADE_MS = 600;
+    const uint32_t TEXT_FADE_OUT_MS = 250;
+    const uint32_t TEXT_FADE_IN_MS = 500;
     const uint32_t PALETTE_FADE_MS = 1500;
+    // Time for the cloud to go from black to full brightness.
+    const uint32_t AMBIENT_FADE_MS = 1000;
 
         const char *PAGE_STYLE =
         "<meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -228,6 +232,11 @@ void Spotify::begin(PatternServices *services)
     {
         m = Marquee();
     }
+    textFade = TextFade::NONE;
+    textLevel = 255;
+    textShown = false;
+    ambientLevel = 0;
+    ambientLevelMs = millis();
     TJpgDec.setJpgScale(1);
     TJpgDec.setCallback([this](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
                         { return this->drawArtPixels(x, y, w, h, bitmap); });
@@ -527,8 +536,12 @@ void Spotify::tick()
     {
         drawStatus(s);
         drawnStatus = s;
-        // Everything on screen was just cleared: the art fades back in.
+        // Everything on screen was just cleared: the art and text fade back in.
         newPlaying = newPlayer = true;
+        textShown = false;
+        textFade = TextFade::NONE;
+        ambientLevel = 0;
+        ambientLevelMs = millis();
         if (artShown)
         {
             memset(artShown, 0, ART_BYTES);
@@ -539,7 +552,6 @@ void Spotify::tick()
     {
         return;
     }
-    const uint32_t now = millis();
     if (newArt && shownArt && artTarget)
     {
         // Decode into artTarget (and the colour histogram), then fade to it.
@@ -555,18 +567,11 @@ void Spotify::tick()
     {
         startArtFade();
     }
+    // After the decode, which takes a few ms: read earlier, `now` would be
+    // before artFadeStartMs, and the fade would finish on its first frame.
+    const uint32_t now = millis();
     stepArtFade(now);
-    if (newPlaying)
-    {
-        drawInfo(np);
-    }
-    else
-    {
-        for (Marquee &m : lines)
-        {
-            stepMarquee(m, now);
-        }
-    }
+    stepText(np, newPlaying, now);
     if (newPlayer)
     {
         drawPlayback(pb);
@@ -638,13 +643,80 @@ void Spotify::drawInfo(const NowPlaying &np)
     // old code set the font after the cursor, and GFX moves the cursor down 6
     // when switching to a custom font. Its glyphs span baseline -12 to +3.
     panel1->fillRect(0, 0, 64, 38, 0x0000);
-    setMarquee(lines[0], np.trackName, &LEMONMILK_Medium7pt7b, 0, 11, 0, 15, 0xFFFF);
-    setMarquee(lines[1], np.artists, nullptr, 1, 16, 15, 10, 0xFFFF);
-    setMarquee(lines[2], np.albumName, nullptr, 1, 27, 26, 10, panel1->color565(160, 160, 160));
+    setMarquee(lines[0], np.trackName, &LEMONMILK_Medium7pt7b, 0, 11, 0, 15, {255, 255, 255});
+    setMarquee(lines[1], np.artists, nullptr, 1, 16, 15, 10, {255, 255, 255});
+    setMarquee(lines[2], np.albumName, nullptr, 1, 27, 26, 10, {160, 160, 160});
+}
+
+/**
+ * Scrolls the text, and fades it: a new track fades the old text out, then
+ * draws the new text and fades it in. Redraws every line on each fading
+ * frame, since the colour changes.
+ */
+void Spotify::stepText(const NowPlaying &np, bool newPlaying, uint32_t now)
+{
+    if (newPlaying)
+    {
+        pendingInfo = np;
+        if (textShown && textFade != TextFade::OUT)
+        {
+            // Out from wherever a fade in had got to.
+            textFade = TextFade::OUT;
+            textFadeStartMs = now - (TEXT_FADE_OUT_MS - uint32_t(textLevel) * TEXT_FADE_OUT_MS / 255);
+        }
+        else if (!textShown)
+        {
+            textLevel = 0;
+            drawInfo(pendingInfo);
+            textShown = true;
+            textFade = TextFade::IN;
+            textFadeStartMs = now;
+        }
+    }
+    for (Marquee &m : lines)
+    {
+        stepMarquee(m, now);
+    }
+    if (textFade == TextFade::NONE)
+    {
+        return;
+    }
+    const uint32_t t = max(int32_t(now - textFadeStartMs), int32_t(0));
+    if (textFade == TextFade::OUT)
+    {
+        if (t < TEXT_FADE_OUT_MS)
+        {
+            textLevel = uint8_t(255 - t * 255 / TEXT_FADE_OUT_MS);
+        }
+        else
+        {
+            textLevel = 0;
+            drawInfo(pendingInfo);
+            textFade = TextFade::IN;
+            textFadeStartMs = now;
+            return;
+        }
+    }
+    else
+    {
+        if (t < TEXT_FADE_IN_MS)
+        {
+            textLevel = uint8_t(t * 255 / TEXT_FADE_IN_MS);
+        }
+        else
+        {
+            textLevel = 255;
+            textFade = TextFade::NONE;
+        }
+    }
+    for (Marquee &m : lines)
+    {
+        drawMarquee(m);
+    }
 }
 
 void Spotify::setMarquee(Marquee &m, const String &text, const GFXfont *font, int16_t x, int16_t y,
-                         int16_t bandTop, int16_t bandHeight, uint16_t color)
+                         int16_t bandTop, int16_t bandHeight, color::RGB color)
 {
     m.text = text;
     m.font = font;
@@ -674,7 +746,8 @@ void Spotify::drawMarquee(Marquee &m)
     panel1->setFont(m.font);
     panel1->setTextSize(1);
     panel1->setTextWrap(false);
-    panel1->setTextColor(m.color);
+    const color::RGB c = color::scale(m.color, textLevel);
+    panel1->setTextColor(panel1->color565(c.r, c.g, c.b));
     panel1->setCursor(m.x - m.offset, m.y);
     panel1->print(m.text);
     if (m.scrolls)
@@ -796,8 +869,8 @@ void Spotify::stepArtFade(uint32_t now)
     {
         return;
     }
-    const uint32_t t = now - artFadeStartMs;
-    const int k = t >= ART_FADE_MS ? 255 : int(t * 255 / ART_FADE_MS);
+    const int32_t t = max(int32_t(now - artFadeStartMs), int32_t(0));
+    const int k = uint32_t(t) >= ART_FADE_MS ? 255 : int(t * 255 / ART_FADE_MS);
     for (int16_t y = 0; y < ART_SIZE; y++)
     {
         for (int16_t x = 0; x < ART_SIZE; x++)
@@ -834,7 +907,17 @@ void Spotify::drawAmbient(bool playing)
     }
     const uint32_t now = millis();
     const color::RGB stops[4] = {{0, 0, 0}, paletteAt(0, now), paletteAt(1, now), paletteAt(2, now)};
-    const uint8_t level = playing ? 255 : 90; // dim while paused
+    // Dim while paused. Glide there: the play state arrives a poll after the
+    // track, and the cloud should not pop in from black either.
+    const uint16_t target = playing ? 255 : 90;
+    const uint32_t step = (now - ambientLevelMs) * 255 / AMBIENT_FADE_MS;
+    if (step > 0)
+    {
+        ambientLevelMs = now;
+        ambientLevel = ambientLevel < target ? min<uint32_t>(target, ambientLevel + step)
+                                             : max<int32_t>(target, int32_t(ambientLevel) - int32_t(step));
+    }
+    const uint8_t level = uint8_t(ambientLevel);
     for (int16_t y = 0; y < cube::FACE_SIZE; y++)
     {
         const int sy0 = y / 2, sy1 = (y & 1) && sy0 < 31 ? sy0 + 1 : sy0;

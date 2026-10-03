@@ -9,6 +9,7 @@
 #include <TJpg_Decoder.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <WiFi.h>
 #include <Preferences.h>
 
 #include "config.h"
@@ -87,7 +88,8 @@ private:
   char pendingCode[512] = "";
   // Random per /spotify visit and checked on /callback/, so a link from
   // elsewhere cannot log the cube in to someone else's account.
-  char oauthState[17] = "";
+  // "<16 hex>.<host>": the relay page sends the browser back to <host>.
+  char oauthState[64] = "";
 
   char spotifyID[33];
   char spotifySecret[33];

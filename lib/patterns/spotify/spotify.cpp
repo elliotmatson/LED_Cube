@@ -1,7 +1,27 @@
 #include "spotify.h"
 
 char scope[] = "user-read-playback-state%20user-modify-playback-state";
-char callbackURI[] = "http%3A%2F%2Fcube.local%2Fcallback%2F";
+
+// SPOTIFY_REDIRECT_URI, percent-encoded for the authorize link and the token
+// request body. Both must carry exactly the same URI.
+static String encodedRedirectUri()
+{
+    String out;
+    for (const char *c = SPOTIFY_REDIRECT_URI; *c; c++)
+    {
+        if (isalnum((unsigned char)*c) || strchr("-_.~", *c))
+        {
+            out += *c;
+        }
+        else
+        {
+            char hex[4];
+            snprintf(hex, sizeof(hex), "%%%02X", (unsigned char)*c);
+            out += hex;
+        }
+    }
+    return out;
+}
 const char *webpageTemplate =
     R"(
       <!DOCTYPE html>
@@ -157,13 +177,28 @@ void Spotify::startOauthWebServer()
     ESP_LOGI(__func__, "Setting up Spotify login handlers");
     handlers.push_back(&pattern->server->on("/spotify", HTTP_GET, [this](AsyncWebServerRequest *request)
                                             {
-                    snprintf(oauthState, sizeof(oauthState), "%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random());
-                    char webpage[800];
-                    snprintf(webpage, sizeof(webpage), webpageTemplate, spotifyPrefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope, oauthState);
+                    // Random, then where the relay page should send the browser
+                    // back to. The IP rather than cube.local: the relay accepts
+                    // either, but not every client resolves mDNS.
+                    snprintf(oauthState, sizeof(oauthState), "%08lx%08lx.%s", (unsigned long)esp_random(), (unsigned long)esp_random(), WiFi.localIP().toString().c_str());
+                    String spotifyId = spotifyPrefs.getString("SPOTIFY_ID");
+                    if (spotifyId.length() == 0)
+                    {
+                        request->send(503, "text/plain", "This cube has no Spotify client ID configured.");
+                        return;
+                    }
+                    char webpage[1000];
+                    snprintf(webpage, sizeof(webpage), webpageTemplate, spotifyId.c_str(), encodedRedirectUri().c_str(), scope, oauthState);
                     request->send(200, "text/html", webpage); }));
     handlers.push_back(&pattern->server->on("/callback/", HTTP_GET, [this](AsyncWebServerRequest *request)
                                             {
                     ESP_LOGI(__func__, "got callback request");
+                    if (request->hasArg("error"))
+                    {
+                        // e.g. access_denied when the user cancels on Spotify's page
+                        request->send(400, "text/plain", "Spotify login was cancelled (" + request->arg("error") + ").");
+                        return;
+                    }
                     if (oauthState[0] == '\0' || !request->hasArg("state") || request->arg("state") != oauthState)
                     {
                         request->send(400, "text/plain", "Login link expired or not from this cube. Start again at /spotify.");
@@ -211,7 +246,7 @@ void Spotify::exchangePendingCode()
         return;
     }
 
-    const char *refreshToken = spotify->requestAccessTokens(code, callbackURI);
+    const char *refreshToken = spotify->requestAccessTokens(code, encodedRedirectUri().c_str());
     if (refreshToken == NULL)
     {
         ESP_LOGE(__func__, "Spotify rejected the login code");

@@ -35,6 +35,14 @@
 // API Endpoint
 #define API_ENDPOINT "/api"
 
+// Where Spotify sends the browser after login. Spotify only accepts HTTPS here
+// (http is allowed for 127.0.0.1 alone), which the cube cannot serve, so this is
+// a relay page on GitHub Pages (docs/spotify/callback.html) that forwards to the
+// cube. Must match a redirect URI registered in the Spotify app's dashboard.
+#ifndef SPOTIFY_REDIRECT_URI
+  #define SPOTIFY_REDIRECT_URI "https://elliotmatson.github.io/LED_Cube/spotify/callback.html"
+#endif
+
 // Where the dashboard's firmware upload card POSTs the image
 #define FIRMWARE_UPLOAD_ROUTE "/firmware_upload"
 

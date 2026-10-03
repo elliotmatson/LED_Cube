@@ -1,7 +1,27 @@
 #include "spotify.h"
 
 char scope[] = "user-read-playback-state%20user-modify-playback-state";
-char callbackURI[] = "http%3A%2F%2Fcube.local%2Fcallback%2F";
+
+// SPOTIFY_REDIRECT_URI, percent-encoded for the authorize link and the token
+// request body. Both must carry exactly the same URI.
+static String encodedRedirectUri()
+{
+    String out;
+    for (const char *c = SPOTIFY_REDIRECT_URI; *c; c++)
+    {
+        if (isalnum((unsigned char)*c) || strchr("-_.~", *c))
+        {
+            out += *c;
+        }
+        else
+        {
+            char hex[4];
+            snprintf(hex, sizeof(hex), "%%%02X", (unsigned char)*c);
+            out += hex;
+        }
+    }
+    return out;
+}
 const char *webpageTemplate =
     R"(
       <!DOCTYPE html>
@@ -13,7 +33,7 @@ const char *webpageTemplate =
         </head>
         <body>
           <div>
-          <a href="https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=%s">spotify Auth</a>
+          <a href="https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&state=%s">spotify Auth</a>
           </div>
         </body>
       </html>
@@ -62,6 +82,7 @@ void Spotify::changeStatus(PatternStatus status)
 void Spotify::init(PatternServices *pattern)
 {
     this->pattern = pattern;
+    patternStatus = unknown;
     panel0 = new SinglePanel(*pattern->display, 2, 2);
     panel1 = new SinglePanel(*pattern->display, 1, 2);
     panel2 = new SinglePanel(*pattern->display, 0, 0);
@@ -71,6 +92,9 @@ void Spotify::init(PatternServices *pattern)
     TJpgDec.setCallback([&](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
                         { return this->displayImageOutput(x, y, w, h, bitmap); });
 
+    // Registered for as long as the pattern runs, whether or not a token is
+    // stored, so a revoked token can be replaced by logging in again.
+    startOauthWebServer();
     changeStatus(oauth);
 }
 
@@ -96,8 +120,6 @@ void Spotify::start()
         &progressTask                                      // Task handle
     ); 
     vTaskSuspend(progressTask);
-
-    setupCredentials();
 }
 
 int Spotify::setupCredentials()
@@ -135,7 +157,6 @@ int Spotify::setupCredentials()
 
     if (spotifyPrefs.getString("SPOTIFY_TOKEN", "").equals(""))
     {
-        startOauthWebServer();
         ESP_LOGE(__func__, "No token found");
         return -1;
     } else {
@@ -153,75 +174,125 @@ int Spotify::setupCredentials()
 
 void Spotify::startOauthWebServer()
 {
-    ESP_LOGI(__func__, "Not logged in, Setting up API handlers");
-    handlers.push_back(&pattern->server->on("/spotify", HTTP_GET, [&](AsyncWebServerRequest *request)
-                                      {    
-                    char webpage[800];
-                    sprintf(webpage, webpageTemplate, spotifyPrefs.getString("SPOTIFY_ID").c_str(), callbackURI, scope);
-                    request->send(200, "text/html", webpage);
-                    ESP_LOGI(__func__,"got root request"); }));
-    handlers.push_back(&pattern->server->on("/callback/", HTTP_GET, [&](AsyncWebServerRequest *request)
-                        {    
-                    String code = "";
-                    const char *refreshToken = NULL;
-                    ESP_LOGI(__func__,"got callback request");
-                    for (uint8_t i = 0; i < request->args(); i++)
+    ESP_LOGI(__func__, "Setting up Spotify login handlers");
+    handlers.push_back(&pattern->server->on("/spotify", HTTP_GET, [this](AsyncWebServerRequest *request)
+                                            {
+                    // Random, then where the relay page should send the browser
+                    // back to. The IP rather than cube.local: the relay accepts
+                    // either, but not every client resolves mDNS.
+                    snprintf(oauthState, sizeof(oauthState), "%08lx%08lx.%s", (unsigned long)esp_random(), (unsigned long)esp_random(), WiFi.localIP().toString().c_str());
+                    String spotifyId = spotifyPrefs.getString("SPOTIFY_ID");
+                    if (spotifyId.length() == 0)
                     {
-                        if (request->argName(i) == "code")
-                        {
-                            code = request->arg(i);
-                            ESP_LOGI(__func__,"got code: %s", code.c_str());
-                            refreshToken = spotify->requestAccessTokens(code.c_str(), callbackURI);
-                        }
+                        request->send(503, "text/plain", "This cube has no Spotify client ID configured.");
+                        return;
                     }
-
-                    if (refreshToken != NULL)
+                    char webpage[1000];
+                    snprintf(webpage, sizeof(webpage), webpageTemplate, spotifyId.c_str(), encodedRedirectUri().c_str(), scope, oauthState);
+                    request->send(200, "text/html", webpage); }));
+    handlers.push_back(&pattern->server->on("/callback/", HTTP_GET, [this](AsyncWebServerRequest *request)
+                                            {
+                    ESP_LOGI(__func__, "got callback request");
+                    if (request->hasArg("error"))
                     {
-                        ESP_LOGI(__func__, "storing token: %s", refreshToken);
-                        spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
-                        request->send(200, "text/plain", refreshToken);
-                        ESP_LOGI(__func__,"got token: %s", refreshToken);
-                        spotify->setRefreshToken(refreshToken);
-                        this->changeStatus(noPlayback);
-                        stopOauthWebServer();
+                        // e.g. access_denied when the user cancels on Spotify's page
+                        request->send(400, "text/plain", "Spotify login was cancelled (" + request->arg("error") + ").");
+                        return;
                     }
-                    else
+                    if (oauthState[0] == '\0' || !request->hasArg("state") || request->arg("state") != oauthState)
                     {
-                        request->send(404, "text/plain", "Failed to load token, check serial monitor");
-                        ESP_LOGI(__func__,"Failed to load token, check serial monitor");
-                    } }));
-    ESP_LOGI(__func__, "HTTP server started");
-    ESP_LOGI(__func__, "No token found, please visit http://cube.local/spotify to authenticate");
+                        request->send(400, "text/plain", "Login link expired or not from this cube. Start again at /spotify.");
+                        return;
+                    }
+                    if (!request->hasArg("code") || request->arg("code").length() >= sizeof(pendingCode))
+                    {
+                        request->send(400, "text/plain", "Spotify did not return a login code.");
+                        return;
+                    }
+                    oauthState[0] = '\0'; // one use
+                    String code = request->arg("code");
+                    portENTER_CRITICAL(&codeMux);
+                    strlcpy(pendingCode, code.c_str(), sizeof(pendingCode));
+                    portEXIT_CRITICAL(&codeMux);
+                    request->send(200, "text/plain", "Logging the cube in to Spotify. You can close this page."); }));
+    ESP_LOGI(__func__, "Visit http://cube.local/spotify to log in");
 }
 
 void Spotify::stopOauthWebServer()
-{   
+{
     ESP_LOGI(__func__, "Removing HTTP server handlers");
-    // iterate through handlers vector and remove all handlers
-    for (uint8_t i = 0; i < handlers.size(); i++)
+    for (AsyncCallbackWebHandler *handler : handlers)
     {
-        pattern->server->removeHandler(handlers[i]);
-    } 
+        pattern->server->removeHandler(handler);
+    }
+    // removeHandler() destroys them; keeping the pointers would remove freed
+    // handlers on the next stop.
+    handlers.clear();
 }
 
+/**
+ * Trades a code from /callback/ for a refresh token. Runs in the refresh task:
+ * the request is a TLS round trip of a second or more.
+ */
+void Spotify::exchangePendingCode()
+{
+    char code[sizeof(pendingCode)];
+    portENTER_CRITICAL(&codeMux);
+    strlcpy(code, pendingCode, sizeof(code));
+    pendingCode[0] = '\0';
+    portEXIT_CRITICAL(&codeMux);
+    if (code[0] == '\0' || spotify == nullptr)
+    {
+        return;
+    }
 
-
-
+    const char *refreshToken = spotify->requestAccessTokens(code, encodedRedirectUri().c_str());
+    if (refreshToken == NULL)
+    {
+        ESP_LOGE(__func__, "Spotify rejected the login code");
+        return;
+    }
+    // The token is a long-lived credential: stored, never logged.
+    spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
+    spotify->setRefreshToken(refreshToken);
+    ESP_LOGI(__func__, "Logged in to Spotify");
+    changeStatus(noPlayback);
+}
 
 void Spotify::stop()
 {
+    // Tasks first: they use everything deleted below.
+    if (refreshTask)
+    {
+        vTaskDelete(refreshTask);
+        refreshTask = nullptr;
+    }
+    if (progressTask)
+    {
+        vTaskDelete(progressTask);
+        progressTask = nullptr;
+    }
+    if (pattern)
+    {
+        stopOauthWebServer();
+    }
     delete panel0;
     delete panel1;
     delete panel2;
     delete spotify;
-    vTaskDelete(refreshTask);
-    vTaskDelete(progressTask);
+    panel0 = panel1 = panel2 = nullptr;
+    spotify = nullptr;
+    spotifyPrefs.end();
 }
 
 void Spotify::refreshInfo()
-{   
+{
+    // Here rather than in start(), which runs in the pattern switcher: the
+    // token refresh is an HTTPS request.
+    setupCredentials();
     while (true)
-    {   
+    {
+        exchangePendingCode();
         int status;
         switch (patternStatus)
         {
@@ -323,6 +394,11 @@ bool Spotify::displayImageOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, u
 
 int Spotify::displayImage()
 {
+    // Local files, some podcasts and ads come without art.
+    if (currentlyPlaying.numImages <= 0)
+    {
+        return -1;
+    }
     SpotifyImage smallestImage = currentlyPlaying.albumImages[currentlyPlaying.numImages - 1];
     String newAlbum = String(smallestImage.url);
 
@@ -379,7 +455,7 @@ void Spotify::displayProgress()
     {
         if (currentlyPlaying.isPlaying || (millis() - lastUpdate < BLANK_AFTER_PAUSE_MS))
         {
-            long progress = currentlyPlaying.progressMs + (millis() - lastUpdate);
+            int64_t progress = currentlyPlaying.progressMs + (millis() - lastUpdate);
             if (!currentlyPlaying.isPlaying)
             {
                 progress = currentlyPlaying.progressMs;
@@ -391,8 +467,9 @@ void Spotify::displayProgress()
             if (currentlyPlaying.durationMs > 0)
             {
                 panel1->drawLine(0, 39, 63, 39, panel1->color565(50, 50, 50));
+                // 64-bit: progress * 63 overflows a long after about 9.5 hours.
                 int barLength = (progress * 63) / (currentlyPlaying.durationMs);
-                long rem = (progress * 63) % (currentlyPlaying.durationMs);
+                int64_t rem = (progress * 63) % (currentlyPlaying.durationMs);
                 int bright = (rem * 205 / currentlyPlaying.durationMs) + 50;
                 panel1->drawLine(0, 39, barLength, 39, panel1->color565(255, 255, 255));
                 panel1->drawPixelRGB888(barLength + 1, 39, bright, bright, bright);

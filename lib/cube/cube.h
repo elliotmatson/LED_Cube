@@ -21,7 +21,8 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ESPDashPro.h>
-#include <ElegantOTA.h>
+#include <Update.h>
+#include <esp_app_desc.h>
 #include <Adafruit_NeoPixel.h>
 #include "time.h"
 #include "AsyncJson.h"
@@ -80,7 +81,16 @@ private:
     AsyncWebServer server;
     WiFiManager wifiManager;
     CubePrefs cubePrefs;
-    Pattern *currentPattern;
+    Pattern *currentPattern = nullptr;
+    bool patternRunning = false;
+    // Held for the whole of a pattern's stop() or init()/start(). Switches
+    // come from the dashboard, the API, the boot path and three update paths,
+    // each in a different task.
+    SemaphoreHandle_t patternMutex = nullptr;
+    // Dashboard handlers run in the AsyncTCP task and must not block it, so
+    // they only post the index of the pattern they want here. Length 1: a
+    // newer request replaces one not yet acted on.
+    QueueHandle_t patternRequests = nullptr;
     PatternServices patternServices;
     std::unordered_map<std::string, Pattern *> patterns;
     std::vector<std::string> patternButtonLabels;
@@ -88,6 +98,9 @@ private:
     // Variables
     String serial;
     bool wifiReady;
+    // The upload that owns the Update object, or null. Set only after its
+    // image passed checkFirmwareImage() and Update.begin() succeeded.
+    AsyncWebServerRequest *updateRequest = nullptr;
 
     // UI Components
     ESPDash dashboard;
@@ -102,14 +115,16 @@ private:
     dash::PushButtonCard rebootButton;
     dash::PushButtonCard resetWifiButton;
     dash::PushButtonCard crashMe;
+    dash::FileUploadCard<> firmwareUploadCard;
+    dash::FeedbackCard<> firmwareUploadStatus;
     dash::Tab systemTab;
     dash::Tab developerTab;
 
     // FreeRTOS Tasks
-    TaskHandle_t checkForUpdatesTask;
-    TaskHandle_t checkForOTATask;
-    TaskHandle_t printMemTask;
-    TaskHandle_t elegantOtaTask;
+    TaskHandle_t checkForUpdatesTask = nullptr;
+    TaskHandle_t checkForOTATask = nullptr;
+    TaskHandle_t printMemTask = nullptr;
+    TaskHandle_t patternTask = nullptr;
     Preferences prefs;
 
     // Functions
@@ -128,11 +143,17 @@ private:
     bool initWifi();
     void initUI();
     void initAPI();
+    void initFirmwareUpload();
     void checkForUpdates();
     bool findFirmwareRelease(String &tag, String &firmwareUrl);
     void checkForOTA();
     void updatePrefs();
     void printMem();
+    void startPattern(Pattern *pattern);
+    void stopPattern();
+    void resumePattern();
+    void requestPattern(size_t index);
+    void patternWorker();
 };
 
 #endif

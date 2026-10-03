@@ -50,9 +50,12 @@ public:
     std::string getName() { return data.name; };
 
 protected:
-    TaskHandle_t refreshTask;
+    // Null while the pattern is not running. stop() implementations must
+    // check it and clear it: vTaskDelete(NULL) deletes the *calling* task, and
+    // a stale handle may already belong to a different task.
+    TaskHandle_t refreshTask{nullptr};
     unsigned long frameCount{0};
-    PatternServices *pattern;
+    PatternServices *pattern{nullptr};
     PatternData data;
 };
 

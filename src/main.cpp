@@ -2,6 +2,14 @@
 
 Cube cube;
 
+// Tells the Arduino core not to confirm a freshly updated image as soon as it
+// boots. Cube::init() confirms it instead, once the cube is actually working,
+// so an image that crashes during startup is rolled back.
+bool verifyRollbackLater()
+{
+  return true;
+}
+
 void setup()
 {
   // Immediately pulls display enable pin low to keep panels from flickering on boot

@@ -9,6 +9,7 @@
 #include <TJpg_Decoder.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <WiFi.h>
 #include <Preferences.h>
 
 #include "config.h"
@@ -33,6 +34,7 @@ extern const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
 
 enum PatternStatus
 {
+  unknown, // before init(); lets the first changeStatus() always draw
   oauth,
   refreshToken,
   noPlayback,
@@ -57,27 +59,37 @@ private:
   void displayPlayback();
   void startOauthWebServer();
   void stopOauthWebServer();
+  void exchangePendingCode();
   int setupCredentials();
   void changeStatus(PatternStatus status);
 
-  SinglePanel *panel0;
-  SinglePanel *panel1;
-  SinglePanel *panel2;
+  SinglePanel *panel0 = nullptr;
+  SinglePanel *panel1 = nullptr;
+  SinglePanel *panel2 = nullptr;
   NetworkClientSecure client;
-  SpotifyArduino *spotify;
+  SpotifyArduino *spotify = nullptr;
   Preferences spotifyPrefs;
 
-  TaskHandle_t progressTask;
+  TaskHandle_t progressTask = nullptr;
 
   String previousTrack;
   String previousAlbum;
-  long lastPlaying;
-  long lastUpdate;
+  long lastPlaying = 0;
+  long lastUpdate = 0;
 
-  CurrentlyPlaying currentlyPlaying;
-  PlayerDetails playerDetails;
-  PatternStatus patternStatus;
+  CurrentlyPlaying currentlyPlaying{};
+  PlayerDetails playerDetails{};
+  PatternStatus patternStatus = unknown;
   std::vector<AsyncCallbackWebHandler *> handlers;
+
+  // The OAuth callback runs in the AsyncTCP task, which must not block on the
+  // token request's TLS handshake. It hands the code to the refresh task here.
+  portMUX_TYPE codeMux = portMUX_INITIALIZER_UNLOCKED;
+  char pendingCode[512] = "";
+  // Random per /spotify visit and checked on /callback/, so a link from
+  // elsewhere cannot log the cube in to someone else's account.
+  // "<16 hex>.<host>": the relay page sends the browser back to <host>.
+  char oauthState[64] = "";
 
   char spotifyID[33];
   char spotifySecret[33];

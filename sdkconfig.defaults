@@ -6,6 +6,16 @@
 # settings inherited from arduino-esp32's own defaults (speech recognition,
 # RainMaker, Modbus) -- diff before committing and keep only what the cube needs.
 
+# Updates: a new image boots "pending verify" and Cube::init() confirms it once
+# the display, WiFi and the first pattern are up. If it crashes or resets
+# before that, the bootloader goes back to the previous image.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# Crash dumps go to the 64 KB coredump partition, to be read back over USB
+# with esp-coredump (`esp-coredump info_corefile -c <dump> firmware.elf`).
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+
 # Target and flash
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y

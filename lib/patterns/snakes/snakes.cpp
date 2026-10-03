@@ -41,13 +41,24 @@ void SnakeGame::start()
 
 void SnakeGame::stop()
 {
-  vTaskDelete(refreshTask);
-  for (int i = 0; i < PANEL_HEIGHT; i++)
+  if (refreshTask)
   {
-    free(this->board[i]);
+    vTaskDelete(refreshTask);
+    refreshTask = nullptr;
   }
-  free(this->board);
+  // Cleared after freeing, so a second stop() (or the destructor after a
+  // stop()) does not free them again.
+  if (this->board)
+  {
+    for (int i = 0; i < PANEL_HEIGHT; i++)
+    {
+      free(this->board[i]);
+    }
+    free(this->board);
+    this->board = nullptr;
+  }
   free(this->snakes);
+  this->snakes = nullptr;
 }
 
 void SnakeGame::reset()

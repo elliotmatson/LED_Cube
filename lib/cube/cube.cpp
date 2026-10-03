@@ -20,6 +20,8 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                rebootButton(dashboard, "Reboot Cube"),
                resetWifiButton(dashboard, "Reset Wifi"),
                crashMe(dashboard, "Crash Cube"),
+               firmwareUploadCard(dashboard, "Update Firmware", ".bin"),
+               firmwareUploadStatus(dashboard, "Update Status", dash::Status::NONE),
                systemTab(dashboard, "System"),
                developerTab(dashboard, "Development")
 {
@@ -59,11 +61,15 @@ void Cube::init()
     patternServices.server = &server;
 
     initAPI();
+    initFirmwareUpload();
     initUI();
     initUpdates();
 
     leds.setPixelColor(3, 0, 255, 0);
     leds.show();
+
+    patternMutex = xSemaphoreCreateMutex();
+    patternRequests = xQueueCreate(1, sizeof(size_t));
 
     // make unordered map of patterns from the patterns list array
     // reserve capacity up front so push_back never reallocates: dash::Component only stores an
@@ -76,22 +82,24 @@ void Cube::init()
         patternButtonLabels.push_back(name + " Pattern");
         dash::PushButtonCard *card = new dash::PushButtonCard(dashboard, patternButtonLabels.back().c_str());
         ESPDash *dash = &dashboard;
-        card->onPush([&, name, dash, i]()
-                             {
-                                ESP_LOGI("Cube", "Pattern: %s", name.c_str());
-                                currentPattern->stop();
-                                currentPattern = patterns[name];
-                                currentPattern->init(&patternServices);
-                                currentPattern->start();
-                                this->cubePrefs.patternIndex = i;
-                                this->updatePrefs();
-                                dash->sendUpdates(); });
+        card->onPush([this, name, i]()
+                     {
+                        ESP_LOGI("Cube", "Pattern requested: %s", name.c_str());
+                        this->requestPattern(i); });
         patterns[pattern->getName()] = pattern;
         if (i == cubePrefs.patternIndex)
         {
             currentPattern = pattern;
         }
         i++;
+    }
+    // An index saved by firmware with more patterns, or a reordered list,
+    // matches nothing. Without this the boot below dereferences null.
+    if (currentPattern == nullptr)
+    {
+        ESP_LOGW("Cube", "Saved pattern index %d is out of range, using %s", cubePrefs.patternIndex, patternList[0]->getName().c_str());
+        currentPattern = patternList[0];
+        cubePrefs.patternIndex = 0;
     }
     dashboard.sendUpdates();
 
@@ -113,9 +121,98 @@ void Cube::init()
     }
 
     // Start the selected pattern
-    ESP_LOGI("Cube", "currentPattern: %p", (void *)currentPattern);
+    ESP_LOGI("Cube", "Starting pattern %s", currentPattern->getName().c_str());
+    startPattern(currentPattern);
+
+    xTaskCreate(
+        [](void *o)
+        { static_cast<Cube *>(o)->patternWorker(); },
+        "Pattern Switcher",
+        // Spotify's start() runs here and does its first HTTPS request.
+        8192,
+        this,
+        2,
+        &patternTask);
+
+    // Startup got this far, so the image works: stop the bootloader rolling
+    // it back (see verifyRollbackLater() in main.cpp). A no-op unless this is
+    // the first boot after an update.
+    esp_ota_mark_app_valid_cancel_rollback();
+}
+
+/**
+ * Stops whatever pattern is running, then initializes and starts `pattern`.
+ * Safe to call from any task; switches are serialized by patternMutex.
+ */
+void Cube::startPattern(Pattern *pattern)
+{
+    xSemaphoreTake(patternMutex, portMAX_DELAY);
+    if (patternRunning)
+    {
+        currentPattern->stop();
+        patternRunning = false;
+    }
+    currentPattern = pattern;
     currentPattern->init(&patternServices);
     currentPattern->start();
+    patternRunning = true;
+    xSemaphoreGive(patternMutex);
+}
+
+/**
+ * Stops the running pattern, if there is one. Calling it again is a no-op:
+ * stopping a pattern twice used to delete a stale task handle.
+ */
+void Cube::stopPattern()
+{
+    xSemaphoreTake(patternMutex, portMAX_DELAY);
+    if (patternRunning)
+    {
+        currentPattern->stop();
+        patternRunning = false;
+    }
+    xSemaphoreGive(patternMutex);
+}
+
+/**
+ * Restarts the current pattern if an update stopped it and then failed.
+ */
+void Cube::resumePattern()
+{
+    xSemaphoreTake(patternMutex, portMAX_DELAY);
+    bool running = patternRunning;
+    xSemaphoreGive(patternMutex);
+    if (!running)
+    {
+        startPattern(currentPattern);
+    }
+}
+
+/**
+ * Asks the pattern task to switch to patternList[index]. Returns at once, so
+ * it is safe from AsyncTCP callbacks.
+ */
+void Cube::requestPattern(size_t index)
+{
+    if (index < std::size(patternList))
+    {
+        xQueueOverwrite(patternRequests, &index);
+    }
+}
+
+void Cube::patternWorker()
+{
+    for (;;)
+    {
+        size_t index;
+        if (xQueueReceive(patternRequests, &index, portMAX_DELAY) == pdTRUE)
+        {
+            startPattern(patternList[index]);
+            cubePrefs.patternIndex = index;
+            updatePrefs();
+            dashboard.sendUpdates();
+        }
+    }
 }
 
 // Initialize Preferences Library
@@ -176,18 +273,51 @@ bool Cube::initDisplay()
 bool Cube::initWifi()
 {
     ESP_LOGI(__func__, "Connecting to WiFi...");
+
+    // The setup hotspot gets a fresh password each boot, shown only on the
+    // panels: joining it then needs someone who can see the cube, rather than
+    // anyone in range of an open "Cube" network. No 0/O/1/l/I to misread.
+    static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
+    char apPassword[9];
+    for (int i = 0; i < 8; i++)
+    {
+        apPassword[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+    }
+    apPassword[8] = '\0';
+
     wifiManager.setHostname("cube");
     wifiManager.setClass("invert");
-    wifiManager.setAPCallback([&](WiFiManager *myWiFiManager)
+    // Non-blocking, so the portal is driven by the loop below. WiFiManager's
+    // own blocking loop only calls yield(), which never lets the idle task on
+    // this core run, and the task watchdog fires for as long as it is up.
+    wifiManager.setConfigPortalBlocking(false);
+    wifiManager.setAPCallback([this, apPassword](WiFiManager *myWiFiManager)
                               {
             dma_display->fillScreen(BLACK);
             dma_display->setTextColor(WHITE);
             dma_display->setCursor(0, 0);
-            dma_display->printf("\n\nConnect to\n   WiFi\n\nSSID: %s", myWiFiManager->getConfigPortalSSID().c_str());
+            dma_display->printf("\n\nConnect to\n   WiFi\n\nSSID: %s\nPassword:\n  %s", myWiFiManager->getConfigPortalSSID().c_str(), apPassword);
             leds.setPixelColor(2, 0, 0, 255);
             leds.show(); });
 
-    bool status = wifiManager.autoConnect("Cube");
+    bool status = wifiManager.autoConnect("Cube", apPassword);
+    if (!status)
+    {
+        // The portal is up. Give up after a while and run patterns offline,
+        // rather than leaving the hotspot up indefinitely.
+        const uint32_t portalStart = millis();
+        while (!(status = wifiManager.process()))
+        {
+            if (millis() - portalStart > WIFI_PORTAL_TIMEOUT * 1000UL)
+            {
+                ESP_LOGW(__func__, "No WiFi after %d s of setup portal, continuing offline", WIFI_PORTAL_TIMEOUT);
+                wifiManager.stopConfigPortal();
+                dma_display->fillScreen(BLACK);
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
 
     // Set up NTP
     long gmtOffset_sec = 0;
@@ -222,18 +352,6 @@ bool Cube::initWifi()
 
     // Set up web server
     this->server.begin();
-
-    // Set up ElegantOTA (replaces removed PrettyOTA)
-    ElegantOTA.begin(&this->server);
-    xTaskCreate(
-        [](void *o)
-        { for (;;) { ElegantOTA.loop(); vTaskDelay(pdMS_TO_TICKS(1000)); } }, // This is disgusting, but it works
-        "ElegantOTA Loop",                                                   // Name of the task (for debugging)
-        3000,                                                                // Stack size (bytes)
-        this,                                                                // Parameter to pass
-        1,                                                                   // Task priority
-        &elegantOtaTask                                                     // Task handle
-    );
 
     this->wifiReady = true;
 
@@ -318,12 +436,192 @@ void Cube::initUI()
     this->GHUpdateToggle.setTab(developerTab);
     this->signedFWOnlyToggle.setTab(developerTab);
     this->crashMe.setTab(developerTab);
+    this->firmwareUploadCard.setTab(systemTab);
+    this->firmwareUploadStatus.setTab(systemTab);
+    // The card's value is where its frontend POSTs the file, as multipart
+    // field "file"; its progress ring follows the response status.
+    this->firmwareUploadCard.setValue(FIRMWARE_UPLOAD_ROUTE);
     this->latchSlider.setTab(developerTab);
     this->use20MHzToggle.setTab(developerTab);
 
     dashboard.sendUpdates();
 
     MDNS.addService("http", "tcp", 80);
+}
+
+// What an upload must contain before any of it is written: the image header,
+// the first segment header, the app descriptor, and the cube descriptor that
+// follows it in the same segment (see cubePartition above).
+static constexpr size_t IMAGE_CHECK_BYTES = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) +
+                                            sizeof(esp_app_desc_t) + sizeof(CubePartition);
+
+/**
+ * Decides whether an upload is firmware this cube can boot, from its first
+ * chunk. Arduino's Update checks only the 0xE9 magic, which every ESP image
+ * (and the bootloader at the front of a -factory image) has.
+ *
+ * @return null if the image is acceptable, otherwise why not.
+ */
+static const char *checkFirmwareImage(const uint8_t *data, size_t len, bool requireCubeSignature)
+{
+    // Real clients send ~1.4 KB chunks, so this only rejects a truncated upload.
+    if (len < IMAGE_CHECK_BYTES)
+    {
+        return "Too short to be a firmware image";
+    }
+    esp_image_header_t header;
+    memcpy(&header, data, sizeof(header));
+    if (header.magic != ESP_IMAGE_HEADER_MAGIC)
+    {
+        return "Not a firmware image";
+    }
+    if (header.chip_id != CONFIG_IDF_FIRMWARE_CHIP_ID)
+    {
+        return "Built for a different chip";
+    }
+    size_t offset = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
+    esp_app_desc_t desc;
+    memcpy(&desc, data + offset, sizeof(desc));
+    if (desc.magic_word != ESP_APP_DESC_MAGIC_WORD)
+    {
+        // A -factory image starts with the bootloader, which has no app descriptor.
+        return "Not an application image (use the .bin without -factory)";
+    }
+    // Compared with the running image rather than a literal, so renaming the
+    // project cannot silently start rejecting (or accepting) the wrong thing.
+    if (strncmp(desc.project_name, esp_app_get_description()->project_name, sizeof(desc.project_name)) != 0)
+    {
+        return "Not LED Cube firmware";
+    }
+    if (requireCubeSignature)
+    {
+        CubePartition uploaded;
+        memcpy(&uploaded, data + offset + sizeof(desc), sizeof(uploaded));
+        if (strncmp(uploaded.cookie, cubePartition.cookie, sizeof(uploaded.cookie)) != 0)
+        {
+            return "Missing the cube firmware signature";
+        }
+    }
+    return nullptr;
+}
+
+/**
+ * Serves the dashboard's firmware upload card. The image is streamed straight
+ * into the inactive OTA partition as each chunk arrives; the cube restarts into
+ * it once Update.end() has checked it and marked it bootable.
+ */
+void Cube::initFirmwareUpload()
+{
+    server.on(
+        FIRMWARE_UPLOAD_ROUTE, HTTP_POST,
+        [this](AsyncWebServerRequest *request)
+        {
+            if (updateRequest != request)
+            {
+                // Rejected while the body arrived -- that send() only queued
+                // the response, so isSent() is still false here and the queued
+                // one must not be replaced -- or a POST with no file at all.
+                if (request->getResponse() == nullptr)
+                {
+                    request->send(400, "text/plain", "No firmware file in the request");
+                }
+                return;
+            }
+            updateRequest = nullptr;
+
+            // end(true) verifies the image and sets the boot partition.
+            if (!Update.end(true))
+            {
+                ESP_LOGE(__func__, "Update.end failed: %s", Update.errorString());
+                firmwareUploadStatus.setFeedback(Update.errorString(), dash::Status::DANGER);
+                dashboard.sendUpdates();
+                request->send(400, "text/plain", Update.errorString());
+                return;
+            }
+
+            ESP_LOGI(__func__, "Firmware update staged, restarting");
+            firmwareUploadStatus.setFeedback("Update complete - restarting", dash::Status::SUCCESS);
+            dashboard.sendUpdates();
+            AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "Update complete, restarting");
+            response->addHeader("Connection", "close");
+            request->send(response);
+            // Long enough for the response and the dashboard update to go out.
+            xTaskCreate(
+                [](void *)
+                {
+                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    ESP.restart();
+                },
+                "Restart", 2048, nullptr, 1, nullptr);
+        },
+        [this](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
+        {
+            if (index == 0)
+            {
+                ESP_LOGI(__func__, "Firmware upload starting: %s", filename.c_str());
+                if (updateRequest != nullptr)
+                {
+                    request->send(409, "text/plain", "An update is already in progress");
+                    return;
+                }
+                if (!filename.endsWith(".bin"))
+                {
+                    request->send(400, "text/plain", "Only .bin files are accepted");
+                    return;
+                }
+                const char *problem = checkFirmwareImage(data, len, cubePrefs.signedFWOnly);
+                if (problem)
+                {
+                    ESP_LOGE(__func__, "Rejecting %s: %s", filename.c_str(), problem);
+                    firmwareUploadStatus.setFeedback(problem, dash::Status::WARNING);
+                    dashboard.sendUpdates();
+                    request->send(400, "text/plain", problem);
+                    return;
+                }
+                // UPDATE_SIZE_UNKNOWN: contentLength() includes the multipart
+                // framing and overstates the image.
+                if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH))
+                {
+                    ESP_LOGE(__func__, "Update.begin failed: %s", Update.errorString());
+                    request->send(500, "text/plain", Update.errorString());
+                    return;
+                }
+                updateRequest = request;
+                // A client that leaves mid-upload never reaches the completion
+                // handler; without this the update would stay owned by a dead
+                // request and every later upload would get a 409.
+                request->onDisconnect([this, request]()
+                                      {
+                    if (updateRequest == request)
+                    {
+                        ESP_LOGW(__func__, "Firmware upload disconnected, aborting");
+                        Update.abort();
+                        updateRequest = nullptr;
+                        firmwareUploadStatus.setFeedback("Upload interrupted - firmware unchanged", dash::Status::WARNING);
+                        dashboard.sendUpdates();
+                    } });
+                firmwareUploadStatus.setFeedback("Receiving firmware...", dash::Status::INFO);
+                dashboard.sendUpdates();
+            }
+            if (updateRequest != request)
+            {
+                return; // rejected above, or another upload owns Update
+            }
+            if (len > 0 && Update.write(data, len) != len)
+            {
+                ESP_LOGE(__func__, "Update.write failed: %s", Update.errorString());
+                firmwareUploadStatus.setFeedback(Update.errorString(), dash::Status::DANGER);
+                dashboard.sendUpdates();
+                Update.abort();
+                updateRequest = nullptr;
+                request->send(400, "text/plain", Update.errorString());
+                return;
+            }
+            if (final)
+            {
+                ESP_LOGI(__func__, "Firmware upload received: %u bytes", (unsigned)(index + len));
+            }
+        });
 }
 
 /**
@@ -348,7 +646,18 @@ void Cube::initAPI()
         ESP_LOGI(__func__,"POST %s", request->url().c_str());
         if (request->hasArg("brightness"))
         {
-            this->setBrightness(request->arg("brightness").toInt());
+            // toInt() returns 0 for garbage, and the cast to uint8_t used to wrap
+            // 300 to 44, so check the text and the range before using either.
+            const String arg = request->arg("brightness");
+            long value = arg.toInt();
+            if (arg.length() == 0 || (value == 0 && arg != "0") || value < 0 || value > 255)
+            {
+                request->send(400, "application/json", "{\"error\": \"brightness must be 0-255\"}");
+                return;
+            }
+            this->setBrightness(value);
+            this->brightnessSlider.setValue(value);
+            this->dashboard.sendUpdates();
             request->send(200, "application/json", String("{\"brightness\":") + this->getBrightness() + "}");
         }
         else
@@ -395,7 +704,7 @@ void Cube::setOTA(bool ota)
 
                     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
                     ESP_LOGI(__func__,"Start updating %s", type.c_str());
-                    currentPattern->stop();
+                    stopPattern();
                     dma_display->fillScreenRGB888(0, 0, 0);
                     dma_display->setFont(NULL);
                     dma_display->setCursor(6, 21);
@@ -410,7 +719,6 @@ void Cube::setOTA(bool ota)
                     } })
             .onProgress([&](unsigned int progress, unsigned int total)
                         { 
-                    this->dashboard.sendUpdates();
                     ESP_LOGI(__func__,"Progress: %u%%\r", total ? (progress * 100) / total : 0);
 
                     if (this->cubePrefs.signedFWOnly && progress == total)
@@ -418,7 +726,7 @@ void Cube::setOTA(bool ota)
                         CubePartition newCubePartition;
                         esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
                         ESP_LOGI(__func__,"Checking for Cube FW Signature: \nNew:%s\nold:%s", newCubePartition.cookie, cubePartition.cookie);
-                        if (strcmp(newCubePartition.cookie, cubePartition.cookie))
+                        if (strncmp(newCubePartition.cookie, cubePartition.cookie, sizeof(cubePartition.cookie)))
                             Update.abort();
                     }
 
@@ -446,8 +754,17 @@ void Cube::setOTA(bool ota)
                     else if (error == OTA_BEGIN_ERROR) ESP_LOGE(__func__,"Begin Failed");
                     else if (error == OTA_CONNECT_ERROR) ESP_LOGE(__func__,"Connect Failed");
                     else if (error == OTA_RECEIVE_ERROR) ESP_LOGE(__func__,"Receive Failed");
-                    else if (error == OTA_END_ERROR) ESP_LOGE(__func__,"End Failed"); });
+                    else if (error == OTA_END_ERROR) ESP_LOGE(__func__,"End Failed");
+                    // The pattern was stopped in onStart; nothing will reboot into
+                    // new firmware now, so bring it back.
+                    resumePattern(); });
 
+        if (checkForOTATask)
+        {
+            // Already running. begin() twice would start a second listener,
+            // and a second task would lose the first one's handle.
+            return;
+        }
         ArduinoOTA.begin();
 
         xTaskCreate(
@@ -463,10 +780,11 @@ void Cube::setOTA(bool ota)
     else
     {
         ESP_LOGI(__func__, "OTA Disabled");
-        ArduinoOTA.end();
         if (checkForOTATask)
         {
             vTaskDelete(checkForOTATask);
+            checkForOTATask = nullptr;
+            ArduinoOTA.end();
         }
     }
 }
@@ -488,7 +806,7 @@ void Cube::setGHUpdate(bool github)
         httpUpdate.onStart([&]()
                            {
             ESP_LOGI(__func__,"Start updating");
-            currentPattern->stop();
+            stopPattern();
             dma_display->fillScreenRGB888(0, 0, 0);
             dma_display->setFont(NULL);
             dma_display->setCursor(6, 21);
@@ -510,7 +828,7 @@ void Cube::setGHUpdate(bool github)
                 CubePartition newCubePartition;
                 esp_partition_read(esp_ota_get_next_update_partition(NULL), sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t), &newCubePartition, sizeof(newCubePartition));
                 ESP_LOGI(__func__,"Checking for Cube FW Signature: \nNew:%s\nold:%s", newCubePartition.cookie, cubePartition.cookie);
-                if (strcmp(newCubePartition.cookie, cubePartition.cookie))
+                if (strncmp(newCubePartition.cookie, cubePartition.cookie, sizeof(cubePartition.cookie)))
                     Update.abort();
             }
 
@@ -531,6 +849,10 @@ void Cube::setGHUpdate(bool github)
             dma_display->drawFastHLine(128, 63, constrain(i - 448, 0, 64), 0xFFFF);
             dma_display->drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), 0xFFFF);
             dma_display->drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), 0xFFFF); });
+        if (checkForUpdatesTask)
+        {
+            return; // already checking
+        }
         xTaskCreate(
             [](void *o)
             { static_cast<Cube *>(o)->checkForUpdates(); }, // This is disgusting, but it works
@@ -547,6 +869,7 @@ void Cube::setGHUpdate(bool github)
         if (checkForUpdatesTask)
         {
             vTaskDelete(checkForUpdatesTask);
+            checkForUpdatesTask = nullptr;
         }
     }
 }
@@ -696,6 +1019,8 @@ void Cube::checkForUpdates()
             {
             case HTTP_UPDATE_FAILED:
                 ESP_LOGE(__func__, "Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+                // onStart may already have stopped the pattern.
+                resumePattern();
                 break;
 
             case HTTP_UPDATE_NO_UPDATES:

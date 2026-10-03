@@ -43,6 +43,9 @@
   #define SPOTIFY_REDIRECT_URI "https://elliotmatson.github.io/LED_Cube/spotify/callback.html"
 #endif
 
+// Longest Ticker message kept, in bytes
+#define TICKER_MAX_LENGTH 120
+
 // Where the dashboard's firmware upload card POSTs the image
 #define FIRMWARE_UPLOAD_ROUTE "/firmware_upload"
 

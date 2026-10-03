@@ -329,6 +329,26 @@ void test_integer_projection_tracks_the_float_one(void)
     }
 }
 
+void test_unproject_inverts_the_projection_for_every_pixel(void)
+{
+    for (int16_t x = 0; x < CHAIN_WIDTH; x++)
+    {
+        for (int16_t y = 0; y < CHAIN_HEIGHT; y++)
+        {
+            Point p = unproject(projectXf(x, y), projectYf(x, y));
+            TEST_ASSERT_EQUAL_INT16(x, p.x);
+            TEST_ASSERT_EQUAL_INT16(y, p.y);
+        }
+    }
+}
+
+void test_unproject_rejects_points_outside_the_hexagon(void)
+{
+    TEST_ASSERT_FALSE(unproject(200, 0).valid());
+    TEST_ASSERT_FALSE(unproject(0, 200).valid());
+    TEST_ASSERT_FALSE(unproject(0, -200).valid());
+}
+
 int main(int, char **)
 {
     UNITY_BEGIN();
@@ -349,5 +369,7 @@ int main(int, char **)
     RUN_TEST(test_seam_cells_have_a_full_set_of_neighbours);
     RUN_TEST(test_projection_is_continuous_across_seams);
     RUN_TEST(test_integer_projection_tracks_the_float_one);
+    RUN_TEST(test_unproject_inverts_the_projection_for_every_pixel);
+    RUN_TEST(test_unproject_rejects_points_outside_the_hexagon);
     return UNITY_END();
 }

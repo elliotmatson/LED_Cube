@@ -19,6 +19,7 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                resetWifiButton(dashboard, "Reset Wifi"),
                crashMe(dashboard, "Crash Cube"),
                timezoneDropdown(dashboard, "Time Zone", timezones::dropdownOptions()),
+               tickerInput(dashboard, "Ticker Message", "Shown by the Ticker pattern"),
                updates(dashboard),
                systemTab(dashboard, "System"),
                developerTab(dashboard, "Development")
@@ -326,6 +327,19 @@ void Cube::initUI()
     this->latchSlider.setValue(settings.latchBlanking());
     this->use20MHzToggle.setValue(settings.use20MHz());
     this->timezoneDropdown.setValue(currentTimezone().name);
+    Ticker::setMessage(settings.tickerText());
+    tickerInput.setValue(settings.tickerText().c_str());
+    tickerInput.onChange([this](const std::optional<dash::string> &value)
+                         {
+            std::string text = value ? std::string(value->c_str()) : std::string();
+            if (text.size() > TICKER_MAX_LENGTH)
+            {
+                text.resize(TICKER_MAX_LENGTH);
+            }
+            settings.setTickerText(text);
+            Ticker::setMessage(text);
+            tickerInput.setValue(text.c_str());
+            dashboard.sendUpdates(); });
     this->timezoneDropdown.setTab(systemTab);
 
     this->rebootButton.setTab(systemTab);
@@ -440,6 +454,38 @@ void Cube::initAPI()
             }
         }
         request->send(404, "application/json", "{\"error\": \"no pattern with that id\"}"); });
+
+    // The Ticker pattern's custom message. POST text=<message> (empty to
+    // clear); GET returns it.
+    sprintf(uri, "%s/v1/ticker", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        JsonDocument doc;
+        doc["text"] = settings.tickerText();
+        String body;
+        serializeJson(doc, body);
+        request->send(200, "application/json", body); });
+    server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
+              {
+        if (!request->hasArg("text"))
+        {
+            request->send(400, "application/json", "{\"error\": \"No text parameter\"}");
+            return;
+        }
+        std::string text = request->arg("text").c_str();
+        if (text.size() > TICKER_MAX_LENGTH)
+        {
+            text.resize(TICKER_MAX_LENGTH);
+        }
+        settings.setTickerText(text);
+        Ticker::setMessage(text);
+        tickerInput.setValue(text.c_str());
+        dashboard.sendUpdates();
+        JsonDocument doc;
+        doc["text"] = text;
+        String body;
+        serializeJson(doc, body);
+        request->send(200, "application/json", body); });
 
     // redirect to docs on api root request
     server.on(API_ENDPOINT, HTTP_GET, [&](AsyncWebServerRequest *request)

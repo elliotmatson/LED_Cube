@@ -56,6 +56,10 @@ public:
     std::string timezone() const;
     void setTimezone(const std::string &name);
 
+    /// The Ticker pattern's custom message, or empty.
+    std::string tickerText() const;
+    void setTickerText(const std::string &text);
+
     /// Hardware revision written at manufacture (key "HW"), or empty.
     std::string hardware() const { return _hardware; }
 
@@ -80,6 +84,7 @@ private:
         CLOCK_20MHZ = 1 << 6,
         PATTERN = 1 << 7,
         TIMEZONE = 1 << 8,
+        TICKER = 1 << 9,
     };
 
     void changed(Key key);
@@ -99,6 +104,7 @@ private:
     bool _use20MHz = false;
     std::string _pattern;
     std::string _timezone;
+    std::string _tickerText;
     std::string _hardware;
     int _legacyPatternIndex = -1;
 };

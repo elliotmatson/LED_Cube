@@ -120,6 +120,16 @@ namespace cube
     int16_t projectX(int16_t x, int16_t y);
     float projectXf(int16_t x, int16_t y);
     int16_t projectY(int16_t x, int16_t y);
+    float projectYf(int16_t x, int16_t y);
+
+    /**
+     * The inverse of (projectXf, projectYf): the pixel that shows point
+     * (X, Y) of the projected plane, or NO_POINT if no pixel does (outside
+     * the hexagon, or in the gaps the projection leaves along the seams).
+     * Lets a pattern draw in the projected plane -- a wireframe floating in
+     * the cube, say -- and land on the right face.
+     */
+    Point unproject(float X, float Y);
 }
 
 #endif

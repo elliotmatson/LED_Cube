@@ -18,6 +18,9 @@
 // Signature for cube firmware
 #define CUBE_MAGIC_COOKIE "LED_CUBE_FW"
 
+// How long the WiFi setup hotspot stays up before the cube runs offline
+#define WIFI_PORTAL_TIMEOUT 180 // Seconds
+
 // Cube Hostname
 #define HOSTNAME "cube"
 
@@ -31,6 +34,9 @@
 
 // API Endpoint
 #define API_ENDPOINT "/api"
+
+// Where the dashboard's firmware upload card POSTs the image
+#define FIRMWARE_UPLOAD_ROUTE "/firmware_upload"
 
 // PlatformIO environment this firmware is built as. Release assets are named
 // `<env>-<version>.bin`, so the GitHub updater looks for its image by this.

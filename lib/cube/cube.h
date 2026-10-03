@@ -129,6 +129,7 @@ private:
     void initUI();
     void initAPI();
     void checkForUpdates();
+    bool findFirmwareRelease(String &tag, String &firmwareUrl);
     void checkForOTA();
     void updatePrefs();
     void printMem();

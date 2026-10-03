@@ -411,7 +411,7 @@ void Cube::setOTA(bool ota)
             .onProgress([&](unsigned int progress, unsigned int total)
                         { 
                     this->dashboard.sendUpdates();
-                    ESP_LOGI(__func__,"Progress: %u%%\r", (progress / (total / 100)));
+                    ESP_LOGI(__func__,"Progress: %u%%\r", total ? (progress * 100) / total : 0);
 
                     if (this->cubePrefs.signedFWOnly && progress == total)
                     {
@@ -503,7 +503,7 @@ void Cube::setGHUpdate(bool github)
             } });
         httpUpdate.onProgress([&](unsigned int progress, unsigned int total)
                               { 
-            ESP_LOGI(__func__,"Progress: %u%%\r", (progress / (total / 100)));
+            ESP_LOGI(__func__,"Progress: %u%%\r", total ? (progress * 100) / total : 0);
 
             if (this->cubePrefs.signedFWOnly && progress == total)
             {
@@ -681,91 +681,151 @@ void Cube::checkForUpdates()
 {
     for (;;)
     {
-        HTTPClient http;
-        NetworkClientSecure client;
-        client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
-
-        String firmwareUrl = "";
-        ESP_LOGI(__func__, "Branch = %s", this->cubePrefs.development ? "development" : "main");
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-        String boardFile = "/esp32s3.bin";
-#else
-        String boardFile = "/esp32.bin";
-#endif
-        if (this->cubePrefs.development)
+        String firmwareUrl;
+        String tag;
+        if (findFirmwareRelease(tag, firmwareUrl))
         {
-            // https://api.github.com/repos/elliotmatson/LED_Cube/releases
-            String jsonUrl = String("https://api.github.com/repos/") + REPO_URL + String("/releases");
-            ESP_LOGI(__func__, "%s", jsonUrl.c_str());
-            http.useHTTP10(true);
-            if (http.begin(client, jsonUrl))
+            ESP_LOGI(__func__, "Updating %s -> %s from %s", FW_VERSION, tag.c_str(), firmwareUrl.c_str());
+            NetworkClientSecure client;
+            client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
+            // browser_download_url redirects to the release asset CDN.
+            httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+            t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
+
+            switch (ret)
             {
-                JsonDocument filter(spiRamAllocator());
-                filter[0]["name"] = true;
-                filter[0]["prerelease"] = true;
-                filter[0]["assets"] = true;
-                filter[0]["published_at"] = true;
-                http.GET();
-                JsonDocument doc(spiRamAllocator());
-                deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
-                JsonArray releases = doc.as<JsonArray>();
-                int newestPrereleaseIndex = -1;
-                String newestPrereleaseDate = "";
-                for (int i = 0; i < releases.size(); i++)
-                {
-                    JsonObject release = releases[i].as<JsonObject>();
-                    if (release["prerelease"].as<bool>() && release["published_at"].as<String>() > newestPrereleaseDate)
-                    {
-                        newestPrereleaseIndex = i;
-                        newestPrereleaseDate = release["published_at"].as<String>();
-                    }
-                }
-                JsonObject newestPrerelease = releases[newestPrereleaseIndex].as<JsonObject>();
-                ESP_LOGI(__func__, "Newest Prerelease: %s  date:%s", newestPrerelease["name"].as<String>().c_str(), newestPrerelease["published_at"].as<String>().c_str());
-                // https://github.com/elliotmatson/LED_Cube/releases/download/v0.2.3/esp32.bin
-                firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/download/") + newestPrerelease["name"].as<String>() + boardFile;
-                http.end();
-            }
-        }
-        else
-        {
-            firmwareUrl = String("https://github.com/") + REPO_URL + String("/releases/latest/download/") + boardFile;
-        }
-        ESP_LOGI(__func__, "%s", firmwareUrl.c_str());
+            case HTTP_UPDATE_FAILED:
+                ESP_LOGE(__func__, "Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+                break;
 
-        if (http.begin(client, firmwareUrl) && firmwareUrl != "")
-        {
-            int httpCode = http.sendRequest("HEAD");
-            if (httpCode < 300 || httpCode > 400 || (http.getLocation().indexOf(String(FW_VERSION)) > 0) || (firmwareUrl.indexOf(String(FW_VERSION)) > 0))
-            {
-                ESP_LOGI(__func__, "Not updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
-                http.end();
-            }
-            else
-            {
-                ESP_LOGI(__func__, "Updating from (sc=%d): %s", httpCode, http.getLocation().c_str());
+            case HTTP_UPDATE_NO_UPDATES:
+                ESP_LOGI(__func__, "No Update!");
+                break;
 
-                httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-                t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
-
-                switch (ret)
-                {
-                case HTTP_UPDATE_FAILED:
-                    ESP_LOGE(__func__, "Http Update Failed (Error=%d): %s", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-                    break;
-
-                case HTTP_UPDATE_NO_UPDATES:
-                    ESP_LOGI(__func__, "No Update!");
-                    break;
-
-                case HTTP_UPDATE_OK:
-                    ESP_LOGI(__func__, "Update OK!");
-                    break;
-                }
+            case HTTP_UPDATE_OK:
+                ESP_LOGI(__func__, "Update OK!");
+                break;
             }
         }
         vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
     }
+}
+
+/**
+ * Finds the release the cube should be running and, if it is not the running
+ * one, the URL of its application image.
+ *
+ * Releases are published by elliotmatson/pio-actions, which names the app
+ * image `<env>-<tag>.bin`. That name carries the version, so the old
+ * `/releases/latest/download/esp32s3.bin` shortcut cannot be used: the
+ * release is looked up through the API and its asset matched by name.
+ *
+ * Stable cubes follow `/releases/latest`, which GitHub resolves to the newest
+ * non-prerelease. Development cubes take the newest release of either kind.
+ *
+ * @param tag Set to the chosen release's tag.
+ * @param firmwareUrl Set to the download URL of the image to install.
+ * @return true only when there is an image to install. A tag that matches
+ * FW_VERSION exactly, a local "DEV" build, or any failure along the way
+ * returns false.
+ */
+bool Cube::findFirmwareRelease(String &tag, String &firmwareUrl)
+{
+    // A build that did not come from CI has no version to compare, and every
+    // release would look newer than it. Overwriting it a minute after it was
+    // flashed is never what was wanted.
+    if (strcmp(FW_VERSION, "DEV") == 0)
+    {
+        ESP_LOGI(__func__, "Local build, not checking GitHub for updates");
+        return false;
+    }
+
+    const bool development = this->cubePrefs.development;
+    String apiUrl = String("https://api.github.com/repos/") + REPO_URL +
+                    (development ? "/releases?per_page=10" : "/releases/latest");
+    ESP_LOGI(__func__, "Checking %s", apiUrl.c_str());
+
+    NetworkClientSecure client;
+    client.setCACertBundle(rootca_crt_bundle_start, rootca_crt_bundle_end - rootca_crt_bundle_start);
+    HTTPClient http;
+    http.useHTTP10(true); // no chunked encoding, so the body can be streamed into the parser
+    if (!http.begin(client, apiUrl))
+    {
+        ESP_LOGE(__func__, "Could not start request");
+        return false;
+    }
+    http.addHeader("Accept", "application/vnd.github+json");
+    int httpCode = http.GET();
+    if (httpCode != HTTP_CODE_OK)
+    {
+        // 404 from /releases/latest just means nothing has been published yet.
+        ESP_LOGW(__func__, "GitHub returned %d", httpCode);
+        http.end();
+        return false;
+    }
+
+    // Only what is used below; a release's JSON is several KB per asset otherwise.
+    JsonDocument filter(spiRamAllocator());
+    JsonObject releaseFilter = development ? filter[0].to<JsonObject>() : filter.to<JsonObject>();
+    releaseFilter["tag_name"] = true;
+    releaseFilter["draft"] = true;
+    releaseFilter["published_at"] = true;
+    releaseFilter["assets"][0]["name"] = true;
+    releaseFilter["assets"][0]["browser_download_url"] = true;
+
+    JsonDocument doc(spiRamAllocator());
+    DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+    http.end();
+    if (err)
+    {
+        ESP_LOGE(__func__, "Could not parse release list: %s", err.c_str());
+        return false;
+    }
+
+    JsonObject release;
+    if (development)
+    {
+        // ISO 8601 timestamps in the same zone compare correctly as strings.
+        const char *newest = "";
+        for (JsonObject candidate : doc.as<JsonArray>())
+        {
+            const char *published = candidate["published_at"] | "";
+            if (!(candidate["draft"] | false) && strcmp(published, newest) > 0)
+            {
+                release = candidate;
+                newest = published;
+            }
+        }
+    }
+    else
+    {
+        release = doc.as<JsonObject>();
+    }
+    if (release.isNull() || !release["tag_name"].is<const char *>())
+    {
+        ESP_LOGW(__func__, "No release found");
+        return false;
+    }
+
+    tag = release["tag_name"].as<const char *>();
+    // Exact match: a substring test would treat v0.2.1 as already running v0.2.10.
+    if (tag == FW_VERSION)
+    {
+        ESP_LOGI(__func__, "Already running %s", FW_VERSION);
+        return false;
+    }
+
+    String assetName = String(FW_ENV) + "-" + tag + ".bin";
+    for (JsonObject asset : release["assets"].as<JsonArray>())
+    {
+        if (assetName == (asset["name"] | ""))
+        {
+            firmwareUrl = asset["browser_download_url"].as<const char *>();
+            return firmwareUrl.length() > 0;
+        }
+    }
+    ESP_LOGW(__func__, "Release %s has no %s", tag.c_str(), assetName.c_str());
+    return false;
 }
 
 // Task to handle OTA updates

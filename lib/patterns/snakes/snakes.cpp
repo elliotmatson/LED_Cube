@@ -190,15 +190,17 @@ void SnakeGame::draw(){
           }
         } else if(s->type == SnakeType::FADE){
           float brightness = 0;
-          brightness += max(0,((int)frameCount % 120) - 80) / 40.0f; // Fade in
-          brightness += max(0,(40 - (int)frameCount % 120)) / 40.0f;
+          // Take the modulo before the cast: (int)frameCount % 120 goes
+          // negative once frameCount passes INT_MAX.
+          brightness += max(0,40 - (int)(frameCount % 120)) / 40.0f; // Fade out
+          brightness += max(0,(int)(frameCount % 120) - 80) / 40.0f; // Fade in
           r = s->r1 * brightness;
           g = s->g1 * brightness;
           b = s->b1 * brightness;
         } else if(s->type == SnakeType::PULSING){
           float brightness = 0;
-          brightness += max(0,((int)frameCount % 30) - 25) / 5.0f; // Pulse in
-          brightness += max(0,(5 - (int)frameCount % 30)) / 5.0f; // Pulse out
+          brightness += max(0,(int)(frameCount % 30) - 25) / 5.0f; // Pulse in
+          brightness += max(0,5 - (int)(frameCount % 30)) / 5.0f; // Pulse out
           r = min(255, (int)(s->r1 * (1 + brightness)));
           g = min(255, (int)(s->g1 * (1 + brightness)));
           b = min(255, (int)(s->b1 * (1 + brightness))); 

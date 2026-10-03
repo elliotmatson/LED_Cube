@@ -84,9 +84,12 @@ open on the LAN (as on hub); phased PRs.
 - Done: Clock redesigned (analog dial on top, digits on the right face, date
   on the left; push 24 ms -> 1.6 ms), Game of Life on all three faces across
   the seams, Snakes carry direction across seams, `/api/v1/patterns`.
-- New, built on the 3D mapping: 3D noise/fire volume, plane sweeps, falling sand
-  toward the shared corner, corner ripples, Matrix rain, rotating wireframes,
-  Rubik's scramble/solve, information/scrolling text.
+- Done: Ripples (rings from the shared corner plus raindrops, 12 ms tick),
+  Matrix Rain (over the edges and down the sides, 1 ms), Nebula (3D Perlin
+  noise around the cube, 20 ms at quarter-resolution sampling).
+- Still to do: plane sweeps, falling sand toward the shared corner, rotating
+  wireframes, Rubik's scramble/solve, information/scrolling text.
+- Nebula is the SIMD/fixed-point candidate: its tick is noise evaluation.
 
 ## Spotify (deferred until the plan above is done)
 

@@ -60,6 +60,8 @@ lib/cube_geometry/           hardware-free: face mappings, seam stepping, 3D sur
 lib/life/                    hardware-free Game of Life step
 lib/timezones/               hardware-free named time zones -> POSIX TZ rules
 lib/firmware_image/          hardware-free checks deciding whether an upload is bootable cube firmware
+lib/noise/                   hardware-free 3D Perlin noise (reference implementation)
+lib/color/                   hardware-free HSV, blends and gradients
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts
@@ -73,7 +75,8 @@ across the two side faces. `lib/cube_geometry` (namespace `cube`) has
 for a pixel's 3D position on the cube surface, and `cube::projectX/Y`, an
 isometric projection continuous across the seams.
 
-`lib/cube_geometry`, `lib/life`, `lib/timezones` and `lib/firmware_image` include nothing from Arduino or ESP-IDF, so
+`lib/cube_geometry`, `lib/life`, `lib/timezones`, `lib/firmware_image`,
+`lib/noise` and `lib/color` include nothing from Arduino or ESP-IDF, so
 `[env:native]` can test them on the host. Keep it that way, and put new pure
 logic in libraries like these so it can be tested too. The board env takes its
 settings from `[esp32_base]` rather than `[env]`, which would leak the
@@ -81,6 +84,19 @@ framework into the native env.
 
 The global `Cube` object is `ledCube`, not `cube`: that name is the geometry
 namespace.
+
+### Writing a pattern
+
+Give it a stable `data.id` (saved in settings; never change it) and a
+`data.name`, add it to `patternList` in `lib/patterns/all_patterns.cpp` and
+bump `PATTERN_COUNT` (a mismatch fails to compile). Allocate big buffers in
+`begin()` from PSRAM and free them in `end()`. Patterns that fill every pixel
+should write whole rows with `Canvas::rowForWrite()`. Anything that depends
+only on the pixel -- its 3D position (`cube::toCube`), a projection, a
+distance -- belongs in a table built in `begin()`: `sinf`, `sqrtf` and
+divisions per pixel per frame are what made the first Ripples take 176 ms a
+frame. Animate from `millis()`, not the frame count, unless one tick is
+deliberately one step (Snake, Life). Check `/api/v1/stats` on the cube.
 
 ## Things that will bite you
 

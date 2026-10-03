@@ -12,6 +12,7 @@ pio run -t upload                         # flash over the network (espota, cube
 pio run -t monitor                        # serial monitor, 115200
 pio run -t save-defconfig                 # regenerate sdkconfig.defaults
 pio run -t idf-size                       # size summary (also size-components, size-files)
+pio test -e native                        # host unit tests (test/)
 ```
 
 If `pio` is not on `PATH`, it is at `~/.platformio/penv/bin/pio`.
@@ -46,7 +47,10 @@ and `SPOTIFY_CLIENT_SECRET` for local builds.
 ```
 src/main.cpp                 setup() calls Cube::init(); loop() deletes itself
 lib/cube/                    the Cube class: display, WiFi, prefs, dashboard, API, OTA, GitHub updates
-lib/cube_utils/              Pattern base class, SinglePanel/BottomPanels virtual displays, projection macros
+lib/cube_utils/              Pattern base class; SinglePanel/BottomPanels views (one ChainView base)
+lib/cube_geometry/           hardware-free: face mappings, seam stepping, 3D surface mapping, projection
+lib/life/                    hardware-free Game of Life step
+test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts
 api/                         Bruno collection for the REST API
@@ -54,8 +58,19 @@ api/                         Bruno collection for the REST API
 
 Physical panel *p* of the 192×64 chain is `x ∈ [64p, 64p+63]`. `SinglePanel`
 gives a rotated 64×64 view of one face; `BottomPanels` a 128×64 upright strip
-across the two side faces; `PROJ_CALC_*` an isometric projection that is
-continuous across all three seams.
+across the two side faces. `lib/cube_geometry` (namespace `cube`) has
+`cube::step` for moving across seams (it rotates the heading), `cube::toCube`
+for a pixel's 3D position on the cube surface, and `cube::projectX/Y`, an
+isometric projection continuous across the seams.
+
+`lib/cube_geometry` and `lib/life` include nothing from Arduino or ESP-IDF, so
+`[env:native]` can test them on the host. Keep it that way, and put new pure
+logic in libraries like these so it can be tested too. The board env takes its
+settings from `[esp32_base]` rather than `[env]`, which would leak the
+framework into the native env.
+
+The global `Cube` object is `ledCube`, not `cube`: that name is the geometry
+namespace.
 
 ## Things that will bite you
 
@@ -91,7 +106,8 @@ continuous across all three seams.
 
 Callers of the shared workflows in `elliotmatson/pio-actions@v1`:
 `build-release.yml` (PRs and manual releases: stable / beta / build),
-`static-analysis.yml` (`pio check`, fails on high), plus
+`static-analysis.yml` (`pio check`, fails on high), `test.yml`
+(`pio test -e native`), plus
 `dependency-updates.yml` (weekly `platformio.ini` bumps through
 `elliotmatson/platformio-dependency-updater`) and Dependabot for actions.
 `docs.yml` publishes Doxygen to GitHub Pages from `main`.

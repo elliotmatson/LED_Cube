@@ -81,17 +81,38 @@ private:
     AsyncWebServer server;
     WiFiManager wifiManager;
     CubePrefs cubePrefs;
+    Canvas canvas;
+    // Owned by the render task once it starts: only renderLoop() changes it.
     Pattern *currentPattern = nullptr;
-    bool patternRunning = false;
-    // Held for the whole of a pattern's stop() or init()/start(). Switches
-    // come from the dashboard, the API, the boot path and three update paths,
-    // each in a different task.
-    SemaphoreHandle_t patternMutex = nullptr;
-    // Dashboard handlers run in the AsyncTCP task and must not block it, so
-    // they only post the index of the pattern they want here. Length 1: a
-    // newer request replaces one not yet acted on.
-    QueueHandle_t patternRequests = nullptr;
     PatternServices patternServices;
+
+    // Requests to the render task. Dashboard handlers run in the AsyncTCP
+    // task and must not block it, so they only post here.
+    struct RenderCommand
+    {
+        enum Type : uint8_t
+        {
+            SWITCH, // to patternList[index]
+            STOP,   // end the pattern, stop rendering, then give renderAck
+            RESUME, // begin the current pattern again after a STOP
+        } type;
+        size_t index;
+    };
+    QueueHandle_t renderCommands = nullptr;
+    SemaphoreHandle_t renderAck = nullptr;
+    SemaphoreHandle_t stopCallers = nullptr; // one stopPattern() at a time
+
+    // Render timing over the last stats window, for /api/v1/stats. Written by
+    // the render task, read by the API under statsMux.
+    struct RenderStats
+    {
+        char pattern[24] = "";
+        uint32_t frames = 0;
+        uint32_t windowMs = 0;
+        uint32_t tickAvgUs = 0, tickMaxUs = 0;
+        uint32_t pushAvgUs = 0, pushMaxUs = 0;
+    } renderStats;
+    portMUX_TYPE statsMux = portMUX_INITIALIZER_UNLOCKED;
     std::unordered_map<std::string, Pattern *> patterns;
     std::vector<std::string> patternButtonLabels;
 
@@ -124,7 +145,7 @@ private:
     TaskHandle_t checkForUpdatesTask = nullptr;
     TaskHandle_t checkForOTATask = nullptr;
     TaskHandle_t printMemTask = nullptr;
-    TaskHandle_t patternTask = nullptr;
+    TaskHandle_t renderTask = nullptr;
     Preferences prefs;
 
     // Functions
@@ -149,11 +170,10 @@ private:
     void checkForOTA();
     void updatePrefs();
     void printMem();
-    void startPattern(Pattern *pattern);
     void stopPattern();
     void resumePattern();
     void requestPattern(size_t index);
-    void patternWorker();
+    void renderLoop();
 };
 
 #endif

@@ -57,7 +57,11 @@ void Cube::init()
     delay(5000);
 
     // Set up pattern services
-    patternServices.display = dma_display;
+    if (!canvas.begin())
+    {
+        ESP_LOGE(__func__, "No PSRAM for the canvas");
+    }
+    patternServices.display = &canvas;
     patternServices.server = &server;
 
     initAPI();
@@ -68,8 +72,9 @@ void Cube::init()
     leds.setPixelColor(3, 0, 255, 0);
     leds.show();
 
-    patternMutex = xSemaphoreCreateMutex();
-    patternRequests = xQueueCreate(1, sizeof(size_t));
+    renderCommands = xQueueCreate(4, sizeof(RenderCommand));
+    renderAck = xSemaphoreCreateBinary();
+    stopCallers = xSemaphoreCreateMutex();
 
     // make unordered map of patterns from the patterns list array
     // reserve capacity up front so push_back never reallocates: dash::Component only stores an
@@ -87,19 +92,15 @@ void Cube::init()
                         ESP_LOGI("Cube", "Pattern requested: %s", name.c_str());
                         this->requestPattern(i); });
         patterns[pattern->getName()] = pattern;
-        if (i == cubePrefs.patternIndex)
-        {
-            currentPattern = pattern;
-        }
         i++;
     }
+    size_t startIndex = cubePrefs.patternIndex;
     // An index saved by firmware with more patterns, or a reordered list,
-    // matches nothing. Without this the boot below dereferences null.
-    if (currentPattern == nullptr)
+    // matches nothing.
+    if (startIndex >= std::size(patternList))
     {
         ESP_LOGW("Cube", "Saved pattern index %d is out of range, using %s", cubePrefs.patternIndex, patternList[0]->getName().c_str());
-        currentPattern = patternList[0];
-        cubePrefs.patternIndex = 0;
+        startIndex = 0;
     }
     dashboard.sendUpdates();
 
@@ -117,22 +118,27 @@ void Cube::init()
     // Changes to a known "safe" pattern if the button is pressed
     if (digitalRead(CONTROL_BUTTON) == LOW)
     {
-        currentPattern = patterns["Plasma"];
+        for (size_t p = 0; p < std::size(patternList); p++)
+        {
+            if (patternList[p] == patterns["Plasma"])
+            {
+                startIndex = p;
+            }
+        }
     }
 
-    // Start the selected pattern
-    ESP_LOGI("Cube", "Starting pattern %s", currentPattern->getName().c_str());
-    startPattern(currentPattern);
-
-    xTaskCreate(
+    // Core 1, away from WiFi and AsyncTCP on core 0. Above the update and
+    // pattern worker tasks (1), below the network stack.
+    xTaskCreatePinnedToCore(
         [](void *o)
-        { static_cast<Cube *>(o)->patternWorker(); },
-        "Pattern Switcher",
-        // Spotify's start() runs here and does its first HTTPS request.
+        { static_cast<Cube *>(o)->renderLoop(); },
+        "Render",
         8192,
         this,
-        2,
-        &patternTask);
+        3,
+        &renderTask,
+        1);
+    requestPattern(startIndex);
 
     // Startup got this far, so the image works: stop the bootloader rolling
     // it back (see verifyRollbackLater() in main.cpp). A no-op unless this is
@@ -141,76 +147,158 @@ void Cube::init()
 }
 
 /**
- * Stops whatever pattern is running, then initializes and starts `pattern`.
- * Safe to call from any task; switches are serialized by patternMutex.
- */
-void Cube::startPattern(Pattern *pattern)
-{
-    xSemaphoreTake(patternMutex, portMAX_DELAY);
-    if (patternRunning)
-    {
-        currentPattern->stop();
-        patternRunning = false;
-    }
-    currentPattern = pattern;
-    currentPattern->init(&patternServices);
-    currentPattern->start();
-    patternRunning = true;
-    xSemaphoreGive(patternMutex);
-}
-
-/**
- * Stops the running pattern, if there is one. Calling it again is a no-op:
- * stopping a pattern twice used to delete a stale task handle.
- */
-void Cube::stopPattern()
-{
-    xSemaphoreTake(patternMutex, portMAX_DELAY);
-    if (patternRunning)
-    {
-        currentPattern->stop();
-        patternRunning = false;
-    }
-    xSemaphoreGive(patternMutex);
-}
-
-/**
- * Restarts the current pattern if an update stopped it and then failed.
- */
-void Cube::resumePattern()
-{
-    xSemaphoreTake(patternMutex, portMAX_DELAY);
-    bool running = patternRunning;
-    xSemaphoreGive(patternMutex);
-    if (!running)
-    {
-        startPattern(currentPattern);
-    }
-}
-
-/**
- * Asks the pattern task to switch to patternList[index]. Returns at once, so
+ * Asks the render task to switch to patternList[index]. Returns at once, so
  * it is safe from AsyncTCP callbacks.
  */
 void Cube::requestPattern(size_t index)
 {
     if (index < std::size(patternList))
     {
-        xQueueOverwrite(patternRequests, &index);
+        RenderCommand cmd{RenderCommand::SWITCH, index};
+        xQueueSend(renderCommands, &cmd, 0);
     }
 }
 
-void Cube::patternWorker()
+/**
+ * Ends the running pattern and stops rendering, and returns once that has
+ * happened -- so the caller can draw on the panels directly (update
+ * progress). Calling it again is a no-op. Not from the render task.
+ */
+void Cube::stopPattern()
 {
+    if (renderTask == nullptr || xTaskGetCurrentTaskHandle() == renderTask)
+    {
+        return;
+    }
+    xSemaphoreTake(stopCallers, portMAX_DELAY);
+    RenderCommand cmd{RenderCommand::STOP, 0};
+    xQueueSend(renderCommands, &cmd, portMAX_DELAY);
+    xSemaphoreTake(renderAck, portMAX_DELAY);
+    xSemaphoreGive(stopCallers);
+}
+
+/**
+ * Starts the current pattern again after stopPattern(), e.g. when an update
+ * fails. A no-op if one is running.
+ */
+void Cube::resumePattern()
+{
+    RenderCommand cmd{RenderCommand::RESUME, 0};
+    xQueueSend(renderCommands, &cmd, 0);
+}
+
+/**
+ * The render task: the only place patterns are begun, ticked and ended, and
+ * the only writer of the HUB75 buffer while a pattern runs. Each frame is the
+ * pattern's tick() into the canvas, then a push of the changed rows.
+ */
+void Cube::renderLoop()
+{
+    bool running = false;
+    uint32_t nextFrame = 0;
+    // Frame timing, logged every STATS_INTERVAL_MS for tuning.
+    const uint32_t STATS_INTERVAL_MS = 10000;
+    uint32_t statsStart = millis();
+    uint32_t frames = 0;
+    uint64_t tickTotalUs = 0, pushTotalUs = 0;
+    uint32_t tickMaxUs = 0, pushMaxUs = 0;
+
     for (;;)
     {
-        size_t index;
-        if (xQueueReceive(patternRequests, &index, portMAX_DELAY) == pdTRUE)
+        TickType_t wait = portMAX_DELAY;
+        if (running)
         {
-            startPattern(patternList[index]);
-            cubePrefs.patternIndex = index;
-            updatePrefs();
-            dashboard.sendUpdates();
+            int32_t remaining = int32_t(nextFrame - millis());
+            wait = remaining > 0 ? pdMS_TO_TICKS(remaining) : 0;
+        }
+
+        RenderCommand cmd;
+        if (xQueueReceive(renderCommands, &cmd, wait) == pdTRUE)
+        {
+            switch (cmd.type)
+            {
+            case RenderCommand::SWITCH:
+                if (running)
+                {
+                    currentPattern->end();
+                }
+                currentPattern = patternList[cmd.index];
+                ESP_LOGI("Cube", "Starting pattern %s", currentPattern->getName().c_str());
+                canvas.fillScreen(0);
+                currentPattern->begin(&patternServices);
+                running = true;
+                nextFrame = millis();
+                if (cubePrefs.patternIndex != cmd.index)
+                {
+                    cubePrefs.patternIndex = cmd.index;
+                    updatePrefs();
+                }
+                dashboard.sendUpdates();
+                break;
+            case RenderCommand::STOP:
+                if (running)
+                {
+                    currentPattern->end();
+                    running = false;
+                }
+                xSemaphoreGive(renderAck);
+                break;
+            case RenderCommand::RESUME:
+                if (!running && currentPattern)
+                {
+                    // Whatever was drawn on the panels directly is about to
+                    // be covered: start from a clean frame.
+                    canvas.fillScreen(0);
+                    currentPattern->begin(&patternServices);
+                    running = true;
+                    nextFrame = millis();
+                }
+                break;
+            }
+            continue;
+        }
+
+        // A frame is due.
+        uint32_t t0 = micros();
+        currentPattern->tick();
+        uint32_t t1 = micros();
+        canvas.push(*dma_display);
+        uint32_t t2 = micros();
+
+        frames++;
+        tickTotalUs += t1 - t0;
+        pushTotalUs += t2 - t1;
+        tickMaxUs = max(tickMaxUs, t1 - t0);
+        pushMaxUs = max(pushMaxUs, t2 - t1);
+        if (millis() - statsStart >= STATS_INTERVAL_MS)
+        {
+            RenderStats latest;
+            strlcpy(latest.pattern, currentPattern->getName().c_str(), sizeof(latest.pattern));
+            latest.frames = frames;
+            latest.windowMs = millis() - statsStart;
+            latest.tickAvgUs = tickTotalUs / frames;
+            latest.tickMaxUs = tickMaxUs;
+            latest.pushAvgUs = pushTotalUs / frames;
+            latest.pushMaxUs = pushMaxUs;
+            portENTER_CRITICAL(&statsMux);
+            renderStats = latest;
+            portEXIT_CRITICAL(&statsMux);
+            ESP_LOGD("Render", "%s: %u frames in %u s, tick avg %llu us max %u us, push avg %llu us max %u us",
+                     currentPattern->getName().c_str(), frames, (millis() - statsStart) / 1000,
+                     tickTotalUs / frames, tickMaxUs, pushTotalUs / frames, pushMaxUs);
+            statsStart = millis();
+            frames = 0;
+            tickTotalUs = pushTotalUs = 0;
+            tickMaxUs = pushMaxUs = 0;
+        }
+
+        nextFrame += currentPattern->frameInterval();
+        if (int32_t(millis() - nextFrame) >= 0)
+        {
+            // Overran: start the next frame now rather than catching up, but
+            // yield first so the idle task on this core still runs.
+            nextFrame = millis();
+            vTaskDelay(1);
         }
     }
 }
@@ -664,6 +752,28 @@ void Cube::initAPI()
         {
             request->send(400, "application/json", "{\"error\": \"No brightness parameter\"}");
         } });
+
+    // Render timing for the last 10 s window, plus memory. For tuning; the
+    // numbers behind any SIMD or double-buffering decision.
+    sprintf(uri, "%s/v1/stats", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        RenderStats s;
+        portENTER_CRITICAL(&statsMux);
+        s = renderStats;
+        portEXIT_CRITICAL(&statsMux);
+        char body[400];
+        snprintf(body, sizeof(body),
+                 "{\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
+                 "\"push_avg_us\":%u,\"push_max_us\":%u,\"free_internal\":%u,\"largest_internal\":%u,"
+                 "\"free_psram\":%u,\"uptime_s\":%lu}",
+                 s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
+                 s.tickAvgUs, s.tickMaxUs, s.pushAvgUs, s.pushMaxUs,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                 (unsigned long)(millis() / 1000));
+        request->send(200, "application/json", body); });
 
     // redirect to docs on api root request
     server.on(API_ENDPOINT, HTTP_GET, [&](AsyncWebServerRequest *request)

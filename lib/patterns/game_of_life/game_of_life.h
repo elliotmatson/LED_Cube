@@ -2,7 +2,6 @@
 #define GAME_OF_LIFE_H
 
 #include <Arduino.h>
-#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "cube_utils.h"
 #include "life.h"
 
@@ -11,14 +10,14 @@
 class GameOfLife: public Pattern{
     public:
         GameOfLife();
-        ~GameOfLife();
-        void init(PatternServices *pattern);
-        void start();
-        void stop();
+        void begin(PatternServices *services) override;
+        void tick() override;
+        uint32_t frameInterval() const override { return 50; }
 
     private:
-        void show();
         void seed();
+        int lastPopulation = -1;
+        int unchanged = 0;
         // Row-major, one byte per cell (lib/life's layout).
         uint8_t currentFrame[64 * 64];
         uint8_t nextFrame[64 * 64];

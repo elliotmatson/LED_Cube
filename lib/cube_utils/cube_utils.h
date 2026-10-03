@@ -8,6 +8,7 @@
 
 #include <ESPAsyncWebServer.h>
 
+#include "canvas.h"
 #include "virtual_displays.h"
 #include "config.h"
 
@@ -28,7 +29,9 @@
 
 struct PatternServices
 {
-    MatrixPanel_I2S_DMA *display;
+    // What patterns draw on. Pushed to the panels by the render task after
+    // every tick().
+    Canvas *display;
     AsyncWebServer *server;
 };
 
@@ -37,20 +40,31 @@ struct PatternData
     std::string name;
 };
 
-// Pattern interface
+/**
+ * A pattern, driven by the cube's single render task:
+ *
+ *   begin() once when selected, then tick() every frameInterval() ms, then
+ *   end() when another pattern is selected or an update starts. begin() may
+ *   be called again after end().
+ *
+ * All three run in the render task, so a pattern needs no locking between
+ * them and never creates or deletes the task that draws it. Patterns that do
+ * slow I/O (Spotify) start a worker in begin(), hand results to tick() under
+ * a lock, and stop the worker cooperatively in end() -- tick() must not block.
+ */
 class Pattern
 {
 public:
-    virtual void init(PatternServices *pattern) = 0;
-    virtual void start() = 0;
-    virtual void stop() = 0;
+    virtual ~Pattern() = default;
+    virtual void begin(PatternServices *services) = 0;
+    virtual void tick() = 0;
+    virtual void end() {}
+    /// Milliseconds between ticks. A tick that overruns is followed by the
+    /// next one straight away (after a one-tick yield), not by catching up.
+    virtual uint32_t frameInterval() const { return 33; }
     std::string getName() { return data.name; };
 
 protected:
-    // Null while the pattern is not running. stop() implementations must
-    // check it and clear it: vTaskDelete(NULL) deletes the *calling* task, and
-    // a stale handle may already belong to a different task.
-    TaskHandle_t refreshTask{nullptr};
     unsigned long frameCount{0};
     PatternServices *pattern{nullptr};
     PatternData data;

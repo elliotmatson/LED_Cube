@@ -1,12 +1,12 @@
 #ifndef VIRTUAL_DISPLAYS_H
 #define VIRTUAL_DISPLAYS_H
 
-#include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
+#include "canvas.h"
 #include "cube_geometry.h"
 
 /**
- * An Adafruit_GFX surface drawn onto part of the HUB75 chain through a fixed
- * coordinate mapping. Subclasses supply map(); everything else -- clipping,
+ * An Adafruit_GFX surface drawn onto part of the frame (the Canvas, laid out
+ * like the 192x64 HUB75 chain) through a fixed coordinate mapping. Subclasses supply map(); everything else -- clipping,
  * fills, fast lines, sprites -- is shared.
  *
  * map() is a pure function of (x, y), so two tasks drawing on the same view
@@ -17,11 +17,11 @@
 class ChainView : public Adafruit_GFX
 {
 public:
-    MatrixPanel_I2S_DMA *display;
+    Canvas *display;
     int16_t virtualResX;
     int16_t virtualResY;
 
-    ChainView(MatrixPanel_I2S_DMA &disp, int16_t w, int16_t h)
+    ChainView(Canvas &disp, int16_t w, int16_t h)
         : Adafruit_GFX(w, h), display(&disp), virtualResX(w), virtualResY(h) {}
     virtual ~ChainView() = default;
 
@@ -61,7 +61,6 @@ public:
 
     uint16_t color444(uint8_t r, uint8_t g, uint8_t b) { return display->color444(r, g, b); }
     uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return display->color565(r, g, b); }
-    void flipDMABuffer() { display->flipDMABuffer(); }
 
     // Clipped to the view, then drawn as one fast line on the chain. These
     // used to skip clipping, so a line or a GFX fillRect near an edge spilled
@@ -172,7 +171,7 @@ private:
 class SinglePanel : public ChainView
 {
 public:
-    SinglePanel(MatrixPanel_I2S_DMA &disp, int panel, int rotate)
+    SinglePanel(Canvas &disp, int panel, int rotate)
         : ChainView(disp, cube::FACE_SIZE, cube::FACE_SIZE), _panel(panel), _rotate(rotate & 3) {}
 
     /// @param rotate 0 = none, 1 = 90 degrees, 2 = 180, 3 = 270. Does not
@@ -192,7 +191,7 @@ private:
 class BottomPanels : public ChainView
 {
 public:
-    explicit BottomPanels(MatrixPanel_I2S_DMA &disp)
+    explicit BottomPanels(Canvas &disp)
         : ChainView(disp, 2 * cube::FACE_SIZE, cube::FACE_SIZE) {}
 
     cube::Point map(int16_t x, int16_t y) const override

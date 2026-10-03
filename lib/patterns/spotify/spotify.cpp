@@ -44,82 +44,201 @@ Spotify::Spotify()
     data.name = "Spotify";
 }
 
-Spotify::~Spotify() 
+Spotify::~Spotify()
 {
-    stop();
+    end();
 }
 
-void Spotify::changeStatus(PatternStatus status)
+void Spotify::begin(PatternServices *services)
 {
-    if (status != patternStatus)
+    pattern = services;
+    if (stateMutex == nullptr)
     {
-        ESP_LOGI(__func__, "Changing status to %d", status);
-        patternStatus = status;
-        switch (status)
-        {
-            case oauth:
-                this->pattern->display->fillScreen(0x0000);
-                panel0->setCursor(0, 0);
-                panel0->print("No OAuth\nCredentials");
-                break;
-            case refreshToken:
-                this->pattern->display->fillScreen(0x0000);
-                panel0->setCursor(0, 0);
-                panel0->print("Not logged\nin...\n\ncube.local\n/spotify");
-                break;
-            case noPlayback:
-                vTaskSuspend(progressTask);
-                this->pattern->display->fillScreen(0x0000);
-                break;
-            case playback:
-                this->pattern->display->fillScreen(0x0000);
-                vTaskResume(progressTask);
-                break;
-        }
+        stateMutex = xSemaphoreCreateMutex();
+        workerDone = xSemaphoreCreateBinary();
     }
-}
-
-void Spotify::init(PatternServices *pattern)
-{
-    this->pattern = pattern;
-    patternStatus = unknown;
     panel0 = new SinglePanel(*pattern->display, 2, 2);
     panel1 = new SinglePanel(*pattern->display, 1, 2);
-    panel2 = new SinglePanel(*pattern->display, 0, 0);
     spotify = new SpotifyArduino(this->client);
     spotifyPrefs.begin("spotify");
     TJpgDec.setJpgScale(1);
-    TJpgDec.setCallback([&](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
-                        { return this->displayImageOutput(x, y, w, h, bitmap); });
+    TJpgDec.setCallback([this](int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
+                        { return this->drawArtPixels(x, y, w, h, bitmap); });
+
+    status = oauth;
+    drawnStatus = unknown;
+    playingVersion = playerVersion = artVersion = 0;
+    drawnPlayingVersion = drawnPlayerVersion = drawnArtVersion = 0;
+    playing = NowPlaying();
+    player = PlayerState();
 
     // Registered for as long as the pattern runs, whether or not a token is
     // stored, so a revoked token can be replaced by logging in again.
     startOauthWebServer();
-    changeStatus(oauth);
+
+    running = true;
+    xTaskCreate(
+        [](void *o)
+        { static_cast<Spotify *>(o)->worker(); },
+        "Spotify",
+        10240, // TLS
+        this,
+        1,
+        &workerTask);
 }
 
-void Spotify::start()
+void Spotify::end()
 {
-    xTaskCreate(
-        [](void *o)
-        { static_cast<Spotify *>(o)->refreshInfo(); }, // This is disgusting, but it works
-        "Spotify - Refresh",                    // Name of the task (for debugging)
-        10000,                                  // Stack size (bytes)
-        this,                                   // Parameter to pass
-        1,                                      // Task priority
-        &refreshTask                            // Task handle
-    );
+    if (workerTask)
+    {
+        running = false;
+        xTaskNotifyGive(workerTask); // cut its wait between polls short
+        // A request in flight has to time out first. Deleting the task
+        // mid-request would leave TLS and HTTP state behind.
+        if (xSemaphoreTake(workerDone, pdMS_TO_TICKS(20000)) != pdTRUE)
+        {
+            ESP_LOGE(__func__, "Spotify worker did not stop; deleting it");
+            vTaskDelete(workerTask);
+        }
+        workerTask = nullptr;
+    }
+    if (pattern && !handlers.empty())
+    {
+        stopOauthWebServer();
+    }
+    delete panel0;
+    delete panel1;
+    delete spotify;
+    panel0 = panel1 = nullptr;
+    spotify = nullptr;
+    free(art);
+    free(shownArt);
+    art = shownArt = nullptr;
+    artSize = shownArtSize = 0;
+    spotifyPrefs.end();
+}
 
-    xTaskCreate(
-        [](void *o)
-        { static_cast<Spotify *>(o)->displayProgress(); }, // This is disgusting, but it works
-        "Spotify - Display Progress",                      // Name of the task (for debugging)
-        2000,                                              // Stack size (bytes)
-        this,                                              // Parameter to pass
-        1,                                                 // Task priority
-        &progressTask                                      // Task handle
-    ); 
-    vTaskSuspend(progressTask);
+void Spotify::setStatus(PatternStatus s)
+{
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    if (status != s)
+    {
+        ESP_LOGI(__func__, "Status %d -> %d", status, s);
+        status = s;
+    }
+    xSemaphoreGive(stateMutex);
+}
+
+void Spotify::worker()
+{
+    setupCredentials();
+    while (running)
+    {
+        exchangePendingCode();
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        PatternStatus s = status;
+        xSemaphoreGive(stateMutex);
+        if (s == noPlayback || s == playback)
+        {
+            poll();
+        }
+        // Woken early by end().
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(SPOTIFY_REQUEST_INTERVAL_MS));
+    }
+    xSemaphoreGive(workerDone);
+    vTaskDelete(NULL);
+}
+
+/**
+ * One round of requests: what is playing, its album art if the album
+ * changed, and the player state. Results go into the shared state for tick().
+ */
+void Spotify::poll()
+{
+    bool newAlbum = false;
+    String artUrl;
+    bool gotItem = false;
+
+    int code = spotify->getCurrentlyPlaying([&](CurrentlyPlaying cp)
+                                            {
+        gotItem = true;
+        NowPlaying np;
+        np.trackUri = cp.trackUri;
+        np.albumUri = cp.albumUri;
+        np.trackName = cp.trackName;
+        np.albumName = cp.albumName;
+        for (int i = 0; i < cp.numArtists; i++)
+        {
+            if (i > 0)
+            {
+                np.artists += ", ";
+            }
+            np.artists += cp.artists[i].artistName;
+        }
+        np.progressMs = cp.progressMs;
+        np.durationMs = cp.durationMs;
+        np.isPlaying = cp.isPlaying;
+        np.receivedAtMs = millis();
+        // The smallest image is last; local files and some episodes have none.
+        if (cp.numImages > 0)
+        {
+            artUrl = cp.albumImages[cp.numImages - 1].url;
+        }
+
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        newAlbum = np.albumUri != playing.albumUri;
+        if (np.trackUri != playing.trackUri)
+        {
+            playingVersion++;
+        }
+        playing = np;
+        xSemaphoreGive(stateMutex); });
+    if (code > 300)
+    {
+        ESP_LOGW(__func__, "currently-playing: %d", code);
+    }
+
+    if (newAlbum && artUrl.length() > 0)
+    {
+        uint8_t *image = nullptr;
+        int size = 0;
+        if (spotify->getImage(const_cast<char *>(artUrl.c_str()), &image, &size))
+        {
+            xSemaphoreTake(stateMutex, portMAX_DELAY);
+            free(art);
+            art = image;
+            artSize = size;
+            artVersion++;
+            xSemaphoreGive(stateMutex);
+        }
+    }
+
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    bool isPlaying = gotItem && playing.isPlaying;
+    xSemaphoreGive(stateMutex);
+    if (isPlaying)
+    {
+        lastPlayingMs = millis();
+        setStatus(playback);
+    }
+    else if (millis() - lastPlayingMs > BLANK_AFTER_PAUSE_MS)
+    {
+        // Paused (or nothing playing, a 204) for long enough to blank.
+        setStatus(noPlayback);
+    }
+
+    code = spotify->getPlayerDetails([&](PlayerDetails pd)
+                                     {
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        player.isPlaying = pd.isPlaying;
+        player.shuffle = pd.shuffleState;
+        player.repeat = pd.repeatState;
+        playerVersion++;
+        xSemaphoreGive(stateMutex); });
+    if (code > 300)
+    {
+        ESP_LOGW(__func__, "player: %d", code);
+    }
 }
 
 int Spotify::setupCredentials()
@@ -148,7 +267,7 @@ int Spotify::setupCredentials()
         return -2;
     }
 
-    changeStatus(refreshToken);
+    setStatus(refreshToken);
 
     // Initialize Spotify Library
     ESP_LOGI(__func__, "Setting up Spotify Library");
@@ -162,7 +281,7 @@ int Spotify::setupCredentials()
     } else {
         ESP_LOGI(__func__, "Token found");
         spotify->setRefreshToken(spotifyPrefs.getString("SPOTIFY_TOKEN").c_str());
-        changeStatus(noPlayback);
+        setStatus(noPlayback);
     }
     ESP_LOGI(__func__, "Refreshing Access Tokens");
     if (!spotify->refreshAccessToken())
@@ -231,7 +350,7 @@ void Spotify::stopOauthWebServer()
 }
 
 /**
- * Trades a code from /callback/ for a refresh token. Runs in the refresh task:
+ * Trades a code from /callback/ for a refresh token. Runs in the worker:
  * the request is a TLS round trip of a second or more.
  */
 void Spotify::exchangePendingCode()
@@ -256,250 +375,164 @@ void Spotify::exchangePendingCode()
     spotifyPrefs.putString("SPOTIFY_TOKEN", refreshToken);
     spotify->setRefreshToken(refreshToken);
     ESP_LOGI(__func__, "Logged in to Spotify");
-    changeStatus(noPlayback);
+    setStatus(noPlayback);
 }
 
-void Spotify::stop()
+void Spotify::tick()
 {
-    // Tasks first: they use everything deleted below.
-    if (refreshTask)
+    // Copy what changed out of the shared state, and take any new album art,
+    // without holding the lock while drawing.
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    PatternStatus s = status;
+    bool newPlaying = playingVersion != drawnPlayingVersion;
+    bool newPlayer = playerVersion != drawnPlayerVersion;
+    NowPlaying np = playing;
+    PlayerState pb = player;
+    drawnPlayingVersion = playingVersion;
+    drawnPlayerVersion = playerVersion;
+    if (artVersion != drawnArtVersion)
     {
-        vTaskDelete(refreshTask);
-        refreshTask = nullptr;
+        free(shownArt);
+        shownArt = art;
+        shownArtSize = artSize;
+        art = nullptr;
+        drawnArtVersion = artVersion;
+        newPlaying = true; // redraw the art with it
     }
-    if (progressTask)
-    {
-        vTaskDelete(progressTask);
-        progressTask = nullptr;
-    }
-    if (pattern)
-    {
-        stopOauthWebServer();
-    }
-    delete panel0;
-    delete panel1;
-    delete panel2;
-    delete spotify;
-    panel0 = panel1 = panel2 = nullptr;
-    spotify = nullptr;
-    spotifyPrefs.end();
-}
+    xSemaphoreGive(stateMutex);
 
-void Spotify::refreshInfo()
-{
-    // Here rather than in start(), which runs in the pattern switcher: the
-    // token refresh is an HTTPS request.
-    setupCredentials();
-    while (true)
+    if (s != drawnStatus)
     {
-        exchangePendingCode();
-        int status;
-        switch (patternStatus)
+        drawStatus(s);
+        drawnStatus = s;
+        // Everything on screen was just cleared.
+        newPlaying = newPlayer = true;
+    }
+    if (s != playback)
+    {
+        return;
+    }
+    if (newPlaying)
+    {
+        drawInfo(np);
+        if (shownArt)
         {
-            case playback:
-                status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currPlaying)
-                                                      { 
-                        currentlyPlaying = currPlaying;
-                        lastUpdate = millis();
-                        if (currentlyPlaying.isPlaying)
-                        {
-                            String currentTrack = String(currentlyPlaying.trackUri);
-                            this->lastPlaying = millis();
-                            if (currentTrack.compareTo(previousTrack) != 0)
-                            {
-                                String currentAlbum = String(currentlyPlaying.albumUri);
-                                ESP_LOGI(__func__, "New Track - Updating Text (%s -> %s)\n", this->previousTrack.c_str(), currentlyPlaying.trackUri);
-                                displayInfo();
-                                if (currentAlbum.compareTo(previousAlbum) != 0)
-                                {
-                                    ESP_LOGI(__func__, "New Album - Updating Art (%s -> %s)\n", this->previousAlbum.c_str(), currentlyPlaying.albumUri);
-                                    displayImage();
-                                }
-                            }
-                        }
-                        else if (millis() - lastPlaying > BLANK_AFTER_PAUSE_MS)
-                        {
-                            changeStatus(noPlayback);
-                        }                                    
-                        previousTrack = currentlyPlaying.trackUri;
-                        previousAlbum = currentlyPlaying.albumUri; });
-                if (status > 300)
-                {
-                    ESP_LOGI(__func__, "Error: %d", status);
-                }
-                status = spotify->getPlayerDetails([&](PlayerDetails current)
-                                                   { 
-                                                playerDetails = current;
-                                                if (patternStatus == playback)
-                                                {
-                                                    this->displayPlayback();
-                                                } });
-                if (status > 300)
-                {
-                    ESP_LOGI(__func__, "Error: %d", status);
-                }
-                vTaskDelay(300 / portTICK_PERIOD_MS);
-                break;
-            case noPlayback:
-                status = spotify->getCurrentlyPlaying([&](CurrentlyPlaying currPlaying)
-                                                          {      
-                        if (currPlaying.isPlaying)
-                        {
-                            changeStatus(playback);
-                            currentlyPlaying = currPlaying;
-                            lastUpdate = millis();
-                            status = spotify->getPlayerDetails([&](PlayerDetails current)
-                                                               { 
-                                                playerDetails = current;
-                                                this->displayPlayback(); });
-                            if (status > 300)
-                            {
-                                ESP_LOGI(__func__, "Error: %d", status);
-                            }
-                            displayImage();
-                            displayInfo();
-                        } });
-                if (status > 300)
-                {
-                    ESP_LOGI(__func__, "Error: %d", status);
-                }
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-                break;
-            default:
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-                break;
+            TJpgDec.drawJpg(0, 0, shownArt, shownArtSize);
         }
     }
+    if (newPlayer)
+    {
+        drawPlayback(pb);
+    }
+    drawProgress(np);
 }
 
-bool Spotify::displayImageOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
+void Spotify::drawStatus(PatternStatus s)
 {
-    // Stop further decoding as image is running off bottom of screen
+    pattern->display->fillScreen(0x0000);
+    switch (s)
+    {
+    case oauth:
+        panel0->setCursor(0, 0);
+        panel0->print("No OAuth\nCredentials");
+        break;
+    case refreshToken:
+        panel0->setCursor(0, 0);
+        panel0->print("Not logged\nin...\n\ncube.local\n/spotify");
+        break;
+    default:
+        break;
+    }
+}
+
+bool Spotify::drawArtPixels(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t *bitmap)
+{
+    // Stop decoding once the image runs off the bottom of the face.
     if (y >= panel0->height())
     {
-        ESP_LOGI(__func__,"Invalid display parameters: x=%d, y=%d, w=%d, h=%d", x, y, w, h);
         return 0;
     }
-
     for (int16_t j = 0; j < h; j++, y++)
     {
         for (int16_t i = 0; i < w; i++)
         {
-            panel0->drawPixelRGB888(x + i, y, pgm_read_byte(&bitmap[((j * w + i) * 3)]), pgm_read_byte(&bitmap[((j * w + i) * 3) + 1]), pgm_read_byte(&bitmap[((j * w + i) * 3) + 2]));
+            const uint8_t *px = &bitmap[(j * w + i) * 3];
+            panel0->drawPixelRGB888(x + i, y, px[0], px[1], px[2]);
         }
     }
-    // Return 1 to decode next block
     return 1;
 }
 
-int Spotify::displayImage()
-{
-    // Local files, some podcasts and ads come without art.
-    if (currentlyPlaying.numImages <= 0)
-    {
-        return -1;
-    }
-    SpotifyImage smallestImage = currentlyPlaying.albumImages[currentlyPlaying.numImages - 1];
-    String newAlbum = String(smallestImage.url);
-
-    char *albumArtUrl = const_cast<char *>(smallestImage.url);
-
-    uint8_t *imageFile; // pointer that the library will store the image at (uses malloc)
-    int imageSize;      // library will update the size of the image
-    // log url
-    ESP_LOGI(__func__,"Album Art URL: %s", albumArtUrl);
-    bool gotImage = spotify->getImage(albumArtUrl, &imageFile, &imageSize);
-
-    if (gotImage)
-    {
-        int jpegStatus = TJpgDec.drawJpg(0, 0, imageFile, imageSize);
-        free(imageFile); // Make sure to free the memory!
-        return jpegStatus;
-    }
-    else
-    {
-        return -2;
-    }
-}
-
-void Spotify::displayInfo()
+void Spotify::drawInfo(const NowPlaying &np)
 {
     panel1->fillRect(0, 0, 64, 38, 0x0000);
     panel1->setTextColor(0xFFFF);
-    panel1->setCursor(0, 0);
     panel1->setTextSize(1);
     panel1->setTextWrap(false);
     panel1->setCursor(0, 5);
     panel1->setFont(&LEMONMILK_Medium7pt7b);
-    panel1->println(currentlyPlaying.trackName);
+    panel1->println(np.trackName);
     panel1->setFont(NULL);
     panel1->setCursor(1, 16);
-    String artists = "";
-    for (int i = 0; i < currentlyPlaying.numArtists; i++)
-    {
-        artists += currentlyPlaying.artists[i].artistName;
-        if (i < currentlyPlaying.numArtists - 1)
-        {
-            artists += ", ";
-        }
-    }
-    panel1->println(artists);
+    panel1->println(np.artists);
     panel1->setTextColor(panel1->color565(160, 160, 160));
     panel1->setCursor(1, 27);
-    panel1->println(currentlyPlaying.albumName);
+    panel1->println(np.albumName);
 }
 
-void Spotify::displayProgress()
+void Spotify::drawProgress(const NowPlaying &np)
 {
-    while (true)
+    if (np.durationMs <= 0)
     {
-        if (currentlyPlaying.isPlaying || (millis() - lastUpdate < BLANK_AFTER_PAUSE_MS))
-        {
-            int64_t progress = currentlyPlaying.progressMs + (millis() - lastUpdate);
-            if (!currentlyPlaying.isPlaying)
-            {
-                progress = currentlyPlaying.progressMs;
-            }
-            if (progress > currentlyPlaying.durationMs)
-            {
-                progress = currentlyPlaying.durationMs;
-            }
-            if (currentlyPlaying.durationMs > 0)
-            {
-                panel1->drawLine(0, 39, 63, 39, panel1->color565(50, 50, 50));
-                // 64-bit: progress * 63 overflows a long after about 9.5 hours.
-                int barLength = (progress * 63) / (currentlyPlaying.durationMs);
-                int64_t rem = (progress * 63) % (currentlyPlaying.durationMs);
-                int bright = (rem * 205 / currentlyPlaying.durationMs) + 50;
-                panel1->drawLine(0, 39, barLength, 39, panel1->color565(255, 255, 255));
-                panel1->drawPixelRGB888(barLength + 1, 39, bright, bright, bright);
-            }
-        }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        return;
     }
+    // Interpolated between polls while playing.
+    int64_t progress = np.progressMs;
+    if (np.isPlaying)
+    {
+        progress += millis() - np.receivedAtMs;
+    }
+    if (progress > np.durationMs)
+    {
+        progress = np.durationMs;
+    }
+    panel1->drawLine(0, 39, 63, 39, panel1->color565(50, 50, 50));
+    // 64-bit: progress * 63 overflows a long after about 9.5 hours.
+    int barLength = (progress * 63) / np.durationMs;
+    int64_t rem = (progress * 63) % np.durationMs;
+    int bright = (rem * 205 / np.durationMs) + 50;
+    panel1->drawLine(0, 39, barLength, 39, panel1->color565(255, 255, 255));
+    panel1->drawPixelRGB888(barLength + 1, 39, bright, bright, bright);
 }
 
-void Spotify::displayPlayback()
+void Spotify::drawPlayback(const PlayerState &pb)
 {
-    if(playerDetails.isPlaying){
-        panel1->drawSprite16(spotify_pause, 24, 44, 16, 16, 100,100,100,true);
-    } else {
-        panel1->drawSprite16(spotify_play, 24, 44, 16, 16, 100,100,100,true);
+    if (pb.isPlaying)
+    {
+        panel1->drawSprite16(spotify_pause, 24, 44, 16, 16, 100, 100, 100, true);
     }
-    if(playerDetails.shuffleState)
+    else
     {
-        panel1->drawSprite16(spotify_shuffle_on, 3, 47, 15, 16, 50,120,50,true);
-    } else {
-        panel1->drawSprite16(spotify_shuffle_off, 3, 47, 15, 16, 100,100,100,true);
+        panel1->drawSprite16(spotify_play, 24, 44, 16, 16, 100, 100, 100, true);
     }
-    if (playerDetails.repeatState == repeat_off)
+    if (pb.shuffle)
     {
-        panel1->drawSprite16(spotify_loop_off, 46, 47, 15, 16, 100,100,100,true);
-    } else if(playerDetails.repeatState == repeat_context)
+        panel1->drawSprite16(spotify_shuffle_on, 3, 47, 15, 16, 50, 120, 50, true);
+    }
+    else
     {
-        panel1->drawSprite16(spotify_loop_context, 46, 47, 15, 16, 50,120,50,true);
-    } else if(playerDetails.repeatState == repeat_track)
+        panel1->drawSprite16(spotify_shuffle_off, 3, 47, 15, 16, 100, 100, 100, true);
+    }
+    if (pb.repeat == repeat_off)
     {
-        panel1->drawSprite16(spotify_loop_track, 46, 47, 15, 16, 50,120,50,true);
+        panel1->drawSprite16(spotify_loop_off, 46, 47, 15, 16, 100, 100, 100, true);
+    }
+    else if (pb.repeat == repeat_context)
+    {
+        panel1->drawSprite16(spotify_loop_context, 46, 47, 15, 16, 50, 120, 50, true);
+    }
+    else if (pb.repeat == repeat_track)
+    {
+        panel1->drawSprite16(spotify_loop_track, 46, 47, 15, 16, 50, 120, 50, true);
     }
 }

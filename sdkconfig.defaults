@@ -29,6 +29,10 @@ CONFIG_AUTOSTART_ARDUINO=y
 CONFIG_ARDUINO_RUN_NO_AFFINITY=y
 CONFIG_ARDUHAL_LOG_DEFAULT_LEVEL_INFO=y
 
+# Optimize for speed. The IDF default (-Og) is for debugging; the render loop's
+# per-pixel work runs measurably faster at -O2. Flash has plenty of room.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
 # CPU, RTOS, console
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_FREERTOS_HZ=1000

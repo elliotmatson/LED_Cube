@@ -72,6 +72,10 @@ protected:
     PatternData data;
 };
 
-uint8_t fast_cos(uint16_t x);
+extern const uint8_t cos_wave[256];
+
+/// (1 - cos) / 2 scaled to 0..255, one period per 256 steps. Inline: Plasma
+/// calls it six times a pixel.
+inline uint8_t fast_cos(uint16_t x) { return cos_wave[x & 0xFF]; }
 
 #endif

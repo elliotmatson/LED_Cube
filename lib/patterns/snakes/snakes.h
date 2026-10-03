@@ -58,7 +58,7 @@ struct Snake{
     }
 
     // Randomly change direction, increasing the chance of changing direction the longer the snake has been going in the same direction
-    if(random(1000) < 30 * (1.0/sqrt(len)) * t || !valid_dirs[this->dir]){
+    if(random(1000) < 30 * (1.0f/sqrtf(len)) * t || !valid_dirs[this->dir]){
       do{
         this->dir = random(4);
       } while(!valid_dirs[this->dir]);
@@ -102,8 +102,10 @@ class SnakeGame: public Pattern{
         void begin(PatternServices *services) override;
         void tick() override;
         void end() override;
-        // Each tick redraws all 12,288 pixels; this mostly just yields.
-        uint32_t frameInterval() const override { return 16; }
+        // One game step per tick, and a snake moves one cell per step, so this
+        // sets their speed: about 30 steps a second, as before the render loop
+        // could go faster.
+        uint32_t frameInterval() const override { return 33; }
 
       private:
         uint8_t len; // Starting length of all snakes
@@ -111,7 +113,7 @@ class SnakeGame: public Pattern{
         std::pair<uint8_t,uint16_t> ** board = nullptr; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
         uint8_t n_snakes;
         uint16_t n_food;
-        double infinite_vals[20] = {1.05,1.1,1.15,1.2,1.25,1.3,1.35,1.4,1.45,1.5,1.55,1.6,1.65,1.7,1.75,1.8,1.85,1.9,1.95,2};
+        float infinite_vals[20] = {1.05f,1.1f,1.15f,1.2f,1.25f,1.3f,1.35f,1.4f,1.45f,1.5f,1.55f,1.6f,1.65f,1.7f,1.75f,1.8f,1.85f,1.9f,1.95f,2.0f};
 
         void reset();
         void update();

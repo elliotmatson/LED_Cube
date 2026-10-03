@@ -108,10 +108,8 @@ void Canvas::push(MatrixPanel_I2S_DMA &panels)
         }
         dirtyFrom[y] = cube::CHAIN_WIDTH;
         dirtyTo[y] = -1;
-        const uint8_t *p = at(from, y);
-        for (int16_t x = from; x <= to; x++, p += 3)
-        {
-            panels.drawPixelRGB888(x, y, p[0], p[1], p[2]);
-        }
+        // One call per span: the library looks up each bit plane's row once
+        // rather than once per pixel (elliotmatson fork, row-writer branch).
+        panels.drawRowRGB888(from, y, at(from, y), to - from + 1);
     }
 }

@@ -121,13 +121,28 @@ void SnakeGame::update(){
 }
 
 void SnakeGame::draw(){
+  // Every pixel is drawn every frame, so whole rows are written straight into
+  // the canvas. float rather than double throughout: the S3's FPU is single
+  // precision, and double arithmetic is emulated in software.
+  uint8_t *row = nullptr;
+  auto put = [&](int j, uint8_t r, uint8_t g, uint8_t b)
+  {
+    uint8_t *px = row + j * 3;
+    px[0] = r;
+    px[1] = g;
+    px[2] = b;
+  };
   for(int i = 0; i < PANEL_HEIGHT; i++){
+    row = pattern->display->rowForWrite(i, 0, PANEL_WIDTH * PANELS_NUMBER);
+    if (row == nullptr) {
+      return;
+    }
     for(int j = 0; j < PANEL_WIDTH * PANELS_NUMBER; j++){
       if(this->board[i][j].second != 0){ // If there is a snake part here
         Snake * s = &snakes[this->board[i][j].first];
         uint8_t r = s->r1, g = s->g1, b = s->b1;
-        double c1_factor = (double)(this->board[i][j].second - 1) / (s->len - 1);
-        double c2_factor = (double)((s->len-1) - (this->board[i][j].second - 1)) / (s->len - 1);
+        float c1_factor = (float)(this->board[i][j].second - 1) / (s->len - 1);
+        float c2_factor = (float)((s->len-1) - (this->board[i][j].second - 1)) / (s->len - 1);
         
         // Multicolor gradient snake
         if(s->type == SnakeType::GRADIENT){
@@ -174,16 +189,16 @@ void SnakeGame::draw(){
             b = s->b2;
           }
         } else if(s->type == SnakeType::FADE){
-          double brightness = 0;
-          brightness += max(0,((int)frameCount % 120) - 80) / 40.0; // Fade in
-          brightness += max(0,(40 - (int)frameCount % 120)) / 40.0;
+          float brightness = 0;
+          brightness += max(0,((int)frameCount % 120) - 80) / 40.0f; // Fade in
+          brightness += max(0,(40 - (int)frameCount % 120)) / 40.0f;
           r = s->r1 * brightness;
           g = s->g1 * brightness;
           b = s->b1 * brightness;
         } else if(s->type == SnakeType::PULSING){
-          double brightness = 0;
-          brightness += max(0,((int)frameCount % 30) - 25) / 5.0; // Pulse in
-          brightness += max(0,(5 - (int)frameCount % 30)) / 5.0; // Pulse out
+          float brightness = 0;
+          brightness += max(0,((int)frameCount % 30) - 25) / 5.0f; // Pulse in
+          brightness += max(0,(5 - (int)frameCount % 30)) / 5.0f; // Pulse out
           r = min(255, (int)(s->r1 * (1 + brightness)));
           g = min(255, (int)(s->g1 * (1 + brightness)));
           b = min(255, (int)(s->b1 * (1 + brightness))); 
@@ -203,23 +218,23 @@ void SnakeGame::draw(){
             b = 0;
           }
         } else if(s->type == SnakeType::EATER_OF_WORLDS){
-          r = 100 * c1_factor  + 155 * c1_factor * (fast_cos((u_int8_t)(frameCount* 6)) / 255.0);
+          r = 100 * c1_factor  + 155 * c1_factor * (fast_cos((u_int8_t)(frameCount* 6)) / 255.0f);
           g = 0;
           b = 0;
         } else if(s->type == SnakeType::INFINITE){
           uint8_t c = (this->board[i][j].second - (frameCount * 2)) % 50;
           if(c < 20){
-            double multiplier = infinite_vals[c];
+            float multiplier = infinite_vals[c];
             r = min((int)(s->r1 * multiplier),255);
             g = min((int)(s->g1 * multiplier),255);
             b = min((int)(s->b1 * multiplier),255);
           }
         }
         if(s->alive){
-          pattern->display->drawPixelRGB888(j, i, r, g, b);
+          put(j, r, g, b);
         } else {
-          double brightness = s->respawn_delay / (double)s->len; 
-          pattern->display->drawPixelRGB888(j, i, 
+          float brightness = s->respawn_delay / (float)s->len; 
+          put(j, 
             min(255, (int)(r * brightness * 4)),
             min(255, (int)(g * brightness * 4)),
             min(255, (int)(b * brightness * 4))
@@ -227,9 +242,9 @@ void SnakeGame::draw(){
         }
 
       } else if (this->board[i][j].first == FOOD_ID){
-        pattern->display->drawPixelRGB888(j, i, 100, 100, 100);
+        put(j, 100, 100, 100);
       } else { // Background
-        pattern->display->drawPixelRGB888(j, i, 0, 0 , 0);
+        put(j, 0, 0 , 0);
       }
     }
   }

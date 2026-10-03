@@ -30,7 +30,11 @@ void Clock::start()
 
 void Clock::stop()
 {
-  vTaskDelete(refreshTask);
+  if (refreshTask)
+  {
+    vTaskDelete(refreshTask);
+    refreshTask = nullptr;
+  }
 }
 
 void Clock::show()

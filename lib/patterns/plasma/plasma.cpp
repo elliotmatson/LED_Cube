@@ -29,8 +29,13 @@ void Plasma::start()
   );
 }
 
-void Plasma::stop() {
-  vTaskDelete(refreshTask);
+void Plasma::stop()
+{
+  if (refreshTask)
+  {
+    vTaskDelete(refreshTask);
+    refreshTask = nullptr;
+  }
 }
 
 void Plasma::show()
@@ -56,5 +61,8 @@ void Plasma::show()
         pattern->display->drawPixelRGB888(i, j, r, g, b);
       }
     }
+    // Without a yield this task never blocks, so the idle task on its core
+    // never runs and the task watchdog fires every few seconds.
+    vTaskDelay(1);
   }
 }

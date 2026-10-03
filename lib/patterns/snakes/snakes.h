@@ -186,8 +186,8 @@ class SnakeGame: public Pattern{
       private:
         unsigned long frameCount;
         uint8_t len; // Starting length of all snakes
-        Snake * snakes; // Array of all snakes in the game
-        std::pair<uint8_t,uint16_t> ** board; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
+        Snake * snakes = nullptr; // Array of all snakes in the game
+        std::pair<uint8_t,uint16_t> ** board = nullptr; // 2D array representing the board, each element is a pair of uint8_t, the first is the snake id, the second is the length of the snake
         uint8_t n_snakes;
         uint16_t n_food;
         double infinite_vals[20] = {1.05,1.1,1.15,1.2,1.25,1.3,1.35,1.4,1.45,1.5,1.55,1.6,1.65,1.7,1.75,1.8,1.85,1.9,1.95,2};

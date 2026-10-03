@@ -17,6 +17,8 @@ bool Renderer::begin(MatrixPanel_I2S_DMA *panels, AsyncWebServer *server, Patter
     commands = xQueueCreate(4, sizeof(Command));
     ack = xSemaphoreCreateBinary();
     stopCallers = xSemaphoreCreateMutex();
+    snapshotDone = xSemaphoreCreateBinary();
+    snapshotCallers = xSemaphoreCreateMutex();
 
     // Core 1, away from WiFi and AsyncTCP on core 0. Above the update and
     // pattern worker tasks (1), below the network stack.
@@ -58,6 +60,21 @@ void Renderer::resume()
 {
     Command cmd{Command::RESUME, 0};
     xQueueSend(commands, &cmd, 0);
+}
+
+bool Renderer::snapshot(uint8_t *out, TickType_t timeout)
+{
+    if (out == nullptr || task == nullptr || xTaskGetCurrentTaskHandle() == task)
+    {
+        return false;
+    }
+    xSemaphoreTake(snapshotCallers, portMAX_DELAY);
+    xSemaphoreTake(snapshotDone, 0); // drop a stale completion
+    snapshotTarget = out;
+    bool ok = xSemaphoreTake(snapshotDone, timeout) == pdTRUE;
+    snapshotTarget = nullptr; // a late copy after a timeout is harmless: same buffer
+    xSemaphoreGive(snapshotCallers);
+    return ok;
 }
 
 Renderer::Stats Renderer::stats()
@@ -136,6 +153,13 @@ void Renderer::loop()
         uint32_t t1 = micros();
         canvas.push(*panels);
         uint32_t t2 = micros();
+        uint8_t *target = snapshotTarget;
+        if (target && canvas.data())
+        {
+            memcpy(target, canvas.data(), Canvas::FRAME_BYTES);
+            snapshotTarget = nullptr;
+            xSemaphoreGive(snapshotDone);
+        }
 
         frames++;
         tickTotalUs += t1 - t0;

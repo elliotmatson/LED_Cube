@@ -98,7 +98,9 @@ only on the pixel -- its 3D position (`cube::toCube`), a projection, a
 distance -- belongs in a table built in `begin()`: `sinf`, `sqrtf` and
 divisions per pixel per frame are what made the first Ripples take 176 ms a
 frame. Animate from `millis()`, not the frame count, unless one tick is
-deliberately one step (Snake, Life). Check `/api/v1/stats` on the cube.
+deliberately one step (Snake, Life). Check `/api/v1/stats` on the cube. Re-record the README animations with `uv run --with pillow
+scripts/capture_patterns.py --host cube.local <pattern id>` (frames come from
+`GET /api/v1/frame`) and add the new pattern to the gallery in `README.md`.
 
 ## Things that will bite you
 

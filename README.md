@@ -6,8 +6,21 @@
 
 An ESP32 based LED cube, inspired by [this project](https://github.com/Staacks/there.oughta.be/tree/master/led-cube).
 
+## Patterns
+
+Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the cube looks from its corner.
+
+<table>
+<tr><td align="center" width="33%"><img src="docs/patterns/snake.webp" alt="Snake" width="220"><br><b>Snake</b><br><sub>Snakes of many kinds roam all three faces, crossing the seams, eating and growing.</sub></td><td align="center" width="33%"><img src="docs/patterns/plasma.webp" alt="Plasma" width="220"><br><b>Plasma</b><br><sub>A classic plasma, projected so it flows continuously across the corner.</sub></td><td align="center" width="33%"><img src="docs/patterns/spotify.webp" alt="Spotify" width="220"><br><b>Spotify</b><br><sub>Album art, scrolling track details and playback state, with the album's colours on top. See <a href="#spotify">Spotify</a>.</sub></td></tr>
+<tr><td align="center" width="33%"><img src="docs/patterns/clock.webp" alt="Clock" width="220"><br><b>Clock</b><br><sub>An analog dial on top, the time on the right, the date on the left.</sub></td><td align="center" width="33%"><img src="docs/patterns/game_of_life.webp" alt="Game of Life" width="220"><br><b>Game of Life</b><br><sub>Conway's Life on all three faces as one surface; gliders cross the seams.</sub></td><td align="center" width="33%"><img src="docs/patterns/ripples.webp" alt="Ripples" width="220"><br><b>Ripples</b><br><sub>Rings spreading from the corner, plus raindrops.</sub></td></tr>
+<tr><td align="center" width="33%"><img src="docs/patterns/matrix_rain.webp" alt="Matrix Rain" width="220"><br><b>Matrix Rain</b><br><sub>Rain across the top, over the edges and down the sides.</sub></td><td align="center" width="33%"><img src="docs/patterns/nebula.webp" alt="Nebula" width="220"><br><b>Nebula</b><br><sub>A drifting 3D noise cloud the cube is cut out of.</sub></td><td align="center" width="33%"><img src="docs/patterns/wireframes.webp" alt="Wireframes" width="220"><br><b>Wireframes</b><br><sub>Rotating solids floating inside the cube.</sub></td></tr>
+<tr><td align="center" width="33%"><img src="docs/patterns/rubiks_cube.webp" alt="Rubik's Cube" width="220"><br><b>Rubik's Cube</b><br><sub>Scrambles, then solves itself.</sub></td><td align="center" width="33%"><img src="docs/patterns/falling_sand.webp" alt="Falling Sand" width="220"><br><b>Falling Sand</b><br><sub>Sand poured from the top piles up down the sides.</sub></td><td align="center" width="33%"><img src="docs/patterns/plane_sweep.webp" alt="Plane Sweep" width="220"><br><b>Plane Sweep</b><br><sub>Coloured planes sweeping through the cube's volume.</sub></td></tr>
+<tr><td align="center" width="33%"><img src="docs/patterns/ticker.webp" alt="Ticker" width="220"><br><b>Ticker</b><br><sub>Your message, the time and the date scrolling around the sides.</sub></td></tr>
+</table>
+
 ## Table of Contents
 - [LED Cube](#led-cube)
+  - [Patterns](#patterns)
   - [Table of Contents](#table-of-contents)
   - [Development](#development)
     - [Setting up Dev Environment](#setting-up-dev-environment)
@@ -62,3 +75,13 @@ The Spotify pattern shows what is playing on your account: album art on one side
 If something goes wrong, the Spotify card on that tab says what (also at `/api/v1/spotify`). **Log out of Spotify** forgets the linked account. To use another account in development mode, add its email under the app's **User Management** first.
 
 For local builds you can instead put `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in `lib/cube/secrets.h` (gitignored); they are used only when the dashboard fields are empty. Never put the secret in a build you publish.
+
+## Recording the pattern animations
+
+The animations above come from the cube itself: `GET /api/v1/frame` returns the frame it is showing, and the script switches through every pattern and records each one.
+
+```bash
+uv run --with pillow scripts/capture_patterns.py --host cube.local
+```
+
+Pass pattern ids to record only some of them, e.g. `... --host cube.local clock nebula`.

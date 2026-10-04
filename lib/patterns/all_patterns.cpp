@@ -18,6 +18,7 @@ Pattern *patternList[] = {
     new PlaneSweep(),
     new Ticker(),
     new Dvd(),
+    new PongPattern(),
     new MazePattern(),
     new LangtonsAnt(),
     new Fire(),

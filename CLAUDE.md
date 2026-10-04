@@ -68,7 +68,6 @@ lib/particles/               hardware-free points moving over the visible surfac
 lib/bounce/                  hardware-free bouncing body (the DVD logo), with corner detection
 lib/maze/                    hardware-free maze generation and solving on any cell graph
 lib/langton/                 hardware-free Langton's ant and turmites on any cell graph
-lib/arcade/                  hardware-free game rules: Pong
 lib/arcade/                  hardware-free game rules: Pong and Breakout
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp

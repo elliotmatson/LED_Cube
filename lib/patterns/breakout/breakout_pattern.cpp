@@ -1,6 +1,6 @@
 #include "breakout_pattern.h"
+#include "fonts.h"
 
-#include <Fonts/FreeSansBold12pt7b.h>
 #include <math.h>
 
 namespace

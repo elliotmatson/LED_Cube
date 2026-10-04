@@ -66,10 +66,10 @@ lib/rubiks/                  hardware-free Rubik's cube model (stickers as 3D po
 lib/sand/                    hardware-free falling-sand step
 lib/particles/               hardware-free points moving over the visible surface, folding across seams
 lib/bounce/                  hardware-free bouncing body (the DVD logo), with corner detection
-lib/arcade/                  hardware-free game rules: Pong and Breakout
 lib/maze/                    hardware-free maze generation and solving on any cell graph
 lib/langton/                 hardware-free Langton's ant and turmites on any cell graph
 lib/arcade/                  hardware-free game rules: Pong
+lib/arcade/                  hardware-free game rules: Pong and Breakout
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts, each defined once in fonts.cpp: include fonts.h, never a font's own header

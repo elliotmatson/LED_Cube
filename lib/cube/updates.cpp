@@ -3,9 +3,8 @@
 #include <esp_app_desc.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
-#include <Fonts/FreeSansBold12pt7b.h>
+#include "fonts.h"
 
-#include "LEMONMILK_Medium7pt7b.h"
 
 // The cube's custom app descriptor, placed right after the standard one in
 // every image (ESP-IDF's .rodata_custom_desc). Its cookie is the "signature"

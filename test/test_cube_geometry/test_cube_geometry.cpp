@@ -381,6 +381,26 @@ void test_block_neighbours_are_symmetric_and_bounded(void)
     TEST_ASSERT_EQUAL_INT(3 * 2 * 16, outer);
 }
 
+void test_fromCube_inverts_toCube_for_every_pixel(void)
+{
+    for (int16_t y = 0; y < cube::CHAIN_HEIGHT; y++)
+    {
+        for (int16_t x = 0; x < cube::CHAIN_WIDTH; x++)
+        {
+            const cube::Point p = cube::fromCube(cube::toCube({x, y}));
+            TEST_ASSERT_EQUAL_INT16(x, p.x);
+            TEST_ASSERT_EQUAL_INT16(y, p.y);
+        }
+    }
+}
+
+void test_fromCube_rejects_points_off_the_visible_surface(void)
+{
+    TEST_ASSERT_FALSE(cube::fromCube({10, 10, 10}).valid()); // inside
+    TEST_ASSERT_FALSE(cube::fromCube({-1, 64, 10}).valid()); // past an outer edge
+    TEST_ASSERT_FALSE(cube::fromCube({10, 10, 65}).valid()); // above the top
+}
+
 int main(int, char **)
 {
     UNITY_BEGIN();
@@ -404,5 +424,7 @@ int main(int, char **)
     RUN_TEST(test_unproject_inverts_the_projection_for_every_pixel);
     RUN_TEST(test_unproject_rejects_points_outside_the_hexagon);
     RUN_TEST(test_block_neighbours_are_symmetric_and_bounded);
+    RUN_TEST(test_fromCube_inverts_toCube_for_every_pixel);
+    RUN_TEST(test_fromCube_rejects_points_off_the_visible_surface);
     return UNITY_END();
 }

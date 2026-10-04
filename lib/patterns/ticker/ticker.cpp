@@ -1,6 +1,6 @@
 #include "ticker.h"
 
-#include <Fonts/FreeSansBold18pt7b.h>
+#include "fonts.h"
 #include <math.h>
 
 namespace

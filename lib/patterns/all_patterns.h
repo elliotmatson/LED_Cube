@@ -19,6 +19,7 @@
 #include "ticker/ticker.h"
 #include "dvd/dvd.h"
 #include "aurora/aurora.h"
+#include "hyperspace/hyperspace.h"
 
 
 // Array of all patterns. The count is checked against the list in

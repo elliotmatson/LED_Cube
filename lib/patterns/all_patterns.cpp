@@ -18,6 +18,7 @@ Pattern *patternList[] = {
     new PlaneSweep(),
     new Ticker(),
     new Dvd(),
+    new LavaLamp(),
     new Aurora(),
     new Hyperspace(),
 };

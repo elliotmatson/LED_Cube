@@ -34,6 +34,7 @@
 
 #include "config.h"
 #include "settings.h"
+#include "boot_log.h"
 #include "renderer.h"
 #include "updates.h"
 #include "timezones.h"
@@ -57,6 +58,7 @@ private:
     AsyncWebServer server;
     WiFiManager wifiManager;
     Settings settings;
+    BootLog bootLog;
     Renderer renderer;
     std::unordered_map<std::string, Pattern *> patterns;
     std::vector<std::string> patternButtonLabels;
@@ -85,6 +87,7 @@ private:
     dash::InputCard<dash::string> spotifyClientId;
     dash::PasswordCard spotifyClientSecret;
     dash::PushButtonCard spotifyLogout;
+    dash::FeedbackCard<> bootStatus;
     dash::FeedbackCard<> weatherStatus;
     dash::InputCard<dash::string> weatherLocation;
     dash::ToggleButtonCard weatherMetric;

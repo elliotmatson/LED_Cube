@@ -52,6 +52,24 @@ namespace firmware_image
      * header itself when end() runs.
      */
     const char *checkDescriptor(const uint8_t *data, size_t len, const Expected &expected);
+
+    /**
+     * Orders release versions: "v1.2.3" and "1.2.3" (missing parts are 0),
+     * with an optional pre-release after a hyphen ("v0.6.0-b2"), which comes
+     * before the release itself. Numbers compare as numbers, in the version
+     * and in the pre-release (b10 after b2). Build metadata after '+' is
+     * ignored.
+     *
+     * @param ok Set to false if either is not a version (e.g. "DEV").
+     * @return negative, zero or positive as a is older than, the same as, or
+     * newer than b; 0 when either is not a version.
+     */
+    int compareVersions(const char *a, const char *b, bool *ok = nullptr);
+
+    /// True only if `candidate` is a version newer than `running`. A build
+    /// whose version is not one ("DEV") never updates, and nothing ever
+    /// updates to an older or equal release.
+    bool isNewer(const char *candidate, const char *running);
 }
 
 #endif

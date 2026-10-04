@@ -65,7 +65,7 @@ lib/color/                   hardware-free HSV, blends and gradients
 lib/rubiks/                  hardware-free Rubik's cube model (stickers as 3D positions and normals)
 lib/sand/                    hardware-free falling-sand step
 lib/bounce/                  hardware-free bouncing body (the DVD logo), with corner detection
-lib/arcade/                  hardware-free game rules: Pong
+lib/arcade/                  hardware-free game rules: Pong and Breakout
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts

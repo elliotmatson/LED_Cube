@@ -68,7 +68,7 @@ lib/particles/               hardware-free points moving over the visible surfac
 lib/bounce/                  hardware-free bouncing body (the DVD logo), with corner detection
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
-lib/fonts/                   GFX fonts
+lib/fonts/                   GFX fonts, each defined once in fonts.cpp: include fonts.h, never a font's own header
 api/                         Bruno collection for the REST API
 ```
 

@@ -4,6 +4,7 @@
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include "fonts.h"
+#include "waiting_stream.h"
 
 
 // The cube's custom app descriptor, placed right after the standard one in
@@ -780,7 +781,8 @@ bool Updates::findFirmwareRelease(String &tag, String &firmwareUrl)
     releaseFilter["assets"][0]["browser_download_url"] = true;
 
     JsonDocument doc(spiRamAllocator());
-    DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+    WaitingStream body(http.getStream());
+    DeserializationError err = deserializeJson(doc, body, DeserializationOption::Filter(filter));
     http.end();
     if (err)
     {

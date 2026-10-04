@@ -179,6 +179,12 @@ scripts/capture_patterns.py --host cube.local <pattern id>` (frames come from
   repository secrets), but anything compiled in can be read out of a release.
   The broker's ACL is what keeps the shared login to a cube's own topics; a
   new setting reachable over MQTT goes in `lib/remote` and `Cube::applyRemote`.
+- **Parse JSON from the network through `WaitingStream`.**
+  `NetworkClientSecure` returns -1 from `read(buf, n)` whenever no data has
+  arrived yet, and `NetworkClient::readBytes()` takes that as the end, so
+  `deserializeJson(doc, http.getStream())` fails with `IncompleteInput` at
+  the first pause. That broke every development-channel update check in
+  v0.6.0-b2. Wrap the client: `WaitingStream body(http.getStream())`.
 - **Updates only go forwards.** The GitHub updater installs a release only
   if `firmware_image::isNewer()` says its tag is newer than `FW_VERSION`.
   GitHub's "latest" is the newest *stable* release, older than any beta.

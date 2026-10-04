@@ -16,7 +16,7 @@
 #include "color.h"
 #include "noise.h"
 #include "spotify_sprites.h"
-#include "LEMONMILK_Medium7pt7b.h"
+#include "fonts.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"

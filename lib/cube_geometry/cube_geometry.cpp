@@ -149,6 +149,65 @@ namespace cube
         }
     }
 
+    void buildBlockNeighbours(int16_t size, int16_t *out)
+    {
+        const int across = CHAIN_WIDTH / size;
+        const int blocks = blockCount(size);
+        for (int b = 0; b < blocks; b++)
+        {
+            const Point start{int16_t((b % across) * size), int16_t((b / across) * size)};
+            for (int d = 0; d < 4; d++)
+            {
+                // Walk `size` pixels in direction d, turning with the seams;
+                // any pixel of the block lands in the same neighbour.
+                Point p = start;
+                Dir dir = Dir(d);
+                bool off = false;
+                for (int i = 0; i < size; i++)
+                {
+                    const Step s = step(p, dir);
+                    if (!s.valid())
+                    {
+                        off = true;
+                        break;
+                    }
+                    p = s.to;
+                    dir = s.dir;
+                }
+                out[b * 4 + d] = off ? -1 : int16_t((p.y / size) * across + p.x / size);
+            }
+        }
+    }
+
+    Point fromCube(Vec3 v)
+    {
+        const float S = FACE_SIZE;
+        auto cell = [](float c) -> int16_t
+        {
+            // [0, 64] to 0-63; exactly 64 is the last pixel.
+            const int16_t i = int16_t(c);
+            return i >= FACE_SIZE ? FACE_SIZE - 1 : i;
+        };
+        if (v.x < 0 || v.y < 0 || v.z < 0 || v.x > S || v.y > S || v.z > S)
+        {
+            return NO_POINT;
+        }
+        if (v.z >= S)
+        {
+            return Point{cell(v.x), cell(v.y)};
+        }
+        if (v.x >= S)
+        {
+            return Point{int16_t(FACE_SIZE + cell(v.y)), cell(v.z)};
+        }
+        if (v.y >= S)
+        {
+            // toCube: x = 192 - (chain x + 0.5).
+            return Point{int16_t(CHAIN_WIDTH - 1 - cell(v.x)), cell(v.z)};
+        }
+        return NO_POINT;
+    }
+
     // These reproduce the PROJ_CALC_* macros the patterns were written
     // against, so existing visuals do not change. The right shifts of negative
     // values are arithmetic on every compiler this builds with.

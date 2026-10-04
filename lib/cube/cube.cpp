@@ -12,6 +12,7 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                developmentToggle(dashboard, "Use Development Builds"),
                signedFWOnlyToggle(dashboard, "Signed FW only"),
                fwVersion(dashboard, "Firmware Version"),
+               analytics(dashboard),
                brightnessSlider(dashboard, "Brightness:", 0, 255),
                latchSlider(dashboard, "Latch Blanking:", 1, 4),
                use20MHzToggle(dashboard, "Use 20MHz Clock"),
@@ -118,16 +119,17 @@ void Cube::init()
     }
     dashboard.sendUpdates();
 
-    // Start the task to show the selected pattern
-    xTaskCreate(
-        [](void *o)
-        { static_cast<Cube *>(o)->printMem(); }, // This is disgusting, but it works
-        "Memory Printer",                        // Name of the task (for debugging)
-        3000,                                    // Stack size (bytes)
-        this,                                    // Parameter to pass
-        1,                                       // Task priority
-        &printMemTask                            // Task handle
-    );
+    analytics.begin(renderer, [this]()
+                    {
+        const std::string id = settings.pattern();
+        for (Pattern *pattern : patternList)
+        {
+            if (pattern->getId() == id)
+            {
+                return String(pattern->getName().c_str());
+            }
+        }
+        return String("none"); });
 
     // Changes to a known "safe" pattern if the button is pressed
     if (digitalRead(CONTROL_BUTTON) == LOW)
@@ -562,8 +564,9 @@ void Cube::initAPI()
             request->send(400, "application/json", "{\"error\": \"No brightness parameter\"}");
         } });
 
-    // Render timing for the last 10 s window, plus memory. For tuning; the
-    // numbers behind any SIMD or double-buffering decision.
+    // Render timing for the last 10 s window, plus memory and network: the
+    // numbers behind any SIMD or double-buffering decision, and the same
+    // facts as the dashboard's Statistics page.
     sprintf(uri, "%s/v1/stats", API_ENDPOINT);
     server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
               {
@@ -574,22 +577,53 @@ void Cube::initAPI()
         {
             strftime(localTime, sizeof(localTime), "%Y-%m-%d %H:%M:%S %Z", &now);
         }
-        static const char *const REASONS[] = {"unknown", "power-on", "external", "software", "panic", "interrupt watchdog",
-                                              "task watchdog", "other watchdog", "deep sleep", "brownout", "sdio", "usb",
-                                              "jtag", "efuse", "power glitch", "cpu lockup"};
-        const int reason = int(esp_reset_reason());
-        const char *resetReason = reason >= 0 && reason < int(sizeof(REASONS) / sizeof(REASONS[0])) ? REASONS[reason] : "unknown";
-        char body[600];
-        snprintf(body, sizeof(body),
-                 "{\"reset_reason\":\"%s\",\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
-                 "\"push_avg_us\":%u,\"push_max_us\":%u,\"free_internal\":%u,\"largest_internal\":%u,"
-                 "\"free_psram\":%u,\"uptime_s\":%lu}",
-                 resetReason, localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
-                 s.tickAvgUs, s.tickMaxUs, s.pushAvgUs, s.pushMaxUs,
-                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                 (unsigned long)(millis() / 1000));
+        JsonDocument doc;
+        doc["reset_reason"] = sysinfo::resetReasonName(int(esp_reset_reason()));
+        doc["local_time"] = localTime;
+        doc["timezone"] = currentTimezone().name;
+        doc["pattern"] = s.pattern;
+        doc["fps"] = serialized(String(s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f, 1));
+        doc["tick_avg_us"] = s.tickAvgUs;
+        doc["tick_max_us"] = s.tickMaxUs;
+        doc["push_avg_us"] = s.pushAvgUs;
+        doc["push_max_us"] = s.pushMaxUs;
+        doc["free_internal"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        doc["min_free_internal"] = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+        doc["largest_internal"] = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+        doc["free_psram"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        doc["total_psram"] = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+        const float chipTemp = temperatureRead();
+        if (isnan(chipTemp))
+        {
+            doc["chip_temp_c"] = nullptr;
+        }
+        else
+        {
+            doc["chip_temp_c"] = serialized(String(chipTemp, 1));
+        }
+        doc["uptime_s"] = (unsigned long)(millis() / 1000);
+        JsonObject wifi = doc["wifi"].to<JsonObject>();
+        wifi["connected"] = WiFi.isConnected();
+        if (WiFi.isConnected())
+        {
+            wifi["ssid"] = WiFi.SSID();
+            wifi["bssid"] = WiFi.BSSIDstr();
+            wifi["channel"] = WiFi.channel();
+            wifi["rssi"] = WiFi.RSSI();
+            wifi["local_ip"] = WiFi.localIP().toString();
+        }
+        wifi["mac"] = WiFi.macAddress();
+        const String publicIp = analytics.publicIp();
+        if (publicIp.length())
+        {
+            wifi["public_ip"] = publicIp;
+        }
+        else
+        {
+            wifi["public_ip"] = nullptr; // not looked up yet
+        }
+        String body;
+        serializeJson(doc, body);
         request->send(200, "application/json", body); });
 
     // The patterns, and which one is showing. POST with id=<pattern id> to
@@ -883,23 +917,5 @@ void Cube::showTestSequence()
             dma_display->drawPixelRGB888(i, j, 0, 0, 0);
         }
         delay(50);
-    }
-}
-
-void Cube::printMem()
-{
-    for (;;)
-    {
-        ESP_LOGI(__func__, "Free Heap: %d / %d, Used PSRAM: %d / %d", ESP.getFreeHeap(), ESP.getHeapSize(), heap_caps_get_total_size(MALLOC_CAP_SPIRAM) - heap_caps_get_free_size(MALLOC_CAP_SPIRAM), heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
-        ESP_LOGI(__func__, "Largest free block in Heap: %d, PSRAM: %d", ESP.getMaxAllocHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
-        /*char *buf = new char[2048];
-        vTaskGetRunTimeStats(buf);
-        Serial.println(buf);
-        delete[] buf;
-        buf = new char[2048];
-        vTaskList(buf);
-        Serial.println(buf);
-        delete[] buf;*/
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }

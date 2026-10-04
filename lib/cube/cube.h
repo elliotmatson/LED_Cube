@@ -36,7 +36,9 @@
 #include "settings.h"
 #include "renderer.h"
 #include "updates.h"
+#include "analytics.h"
 #include "timezones.h"
+#include "sysinfo.h"
 #include "cube_utils.h"
 #include "all_patterns.h"
 
@@ -72,6 +74,7 @@ private:
     dash::ToggleButtonCard developmentToggle;
     dash::ToggleButtonCard signedFWOnlyToggle;
     dash::StatisticValue<dash::string> fwVersion;
+    Analytics analytics; // the rest of the Statistics page, after the firmware version
     dash::SliderCard<int> brightnessSlider;
     dash::SliderCard<int> latchSlider;
     dash::ToggleButtonCard use20MHzToggle;
@@ -94,9 +97,6 @@ private:
     dash::Tab spotifyTab;
     dash::Tab weatherTab;
 
-    // FreeRTOS Tasks
-    TaskHandle_t printMemTask = nullptr;
-
     // Functions
     void showDebug();
     void showCoordinates();
@@ -109,7 +109,6 @@ private:
     bool initWifi();
     void initUI();
     void initAPI();
-    void printMem();
     const timezones::Zone &currentTimezone();
     void showPattern(const char *id, bool onlyIfShowing = false);
     void refreshSpotifyStatus();

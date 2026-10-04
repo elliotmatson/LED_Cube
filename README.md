@@ -32,6 +32,7 @@ Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the
     - [Uploading](#uploading)
   - [Spotify](#spotify)
   - [Weather](#weather)
+  - [Statistics](#statistics)
 
 ## Development
 
@@ -88,6 +89,12 @@ The Weather pattern shows the conditions outside on the side faces (sun or moon,
 By default the cube works out where it is from its IP address, which can be off by a town or two. To set it, open the dashboard's **Weather** tab and type a city or postcode into **Weather Location**; the status card shows the place it found. Clear the box to go back to the IP address. **Weather in °C and km/h** switches units.
 
 The same settings are at `/api/v1/weather`: GET for what the pattern knows, POST `location=` and/or `metric=true|false`. POST `preview=<WMO code>` (and `day=false` for night) shows a kind of weather for two minutes, to try the animations: 0 clear, 2 partly cloudy, 3 overcast, 45 fog, 53 drizzle, 63 rain, 73 snow, 95 thunderstorm.
+
+## Statistics
+
+The dashboard's **Statistics** page shows how the cube is connected and how it is doing: WiFi network, access point and signal, local and public IP, MAC address, uptime, the reason for the last reset, local time, the pattern showing and its frame rate, internal RAM and PSRAM, and the chip temperature. It refreshes every 5 seconds while the page is open. The public IP comes from [ipify](https://www.ipify.org) (or [icanhazip](https://icanhazip.com) if that is down), looked up every 30 minutes; nothing else leaves the cube.
+
+`GET /api/v1/stats` returns the same as JSON, along with render timings (`tick_*_us`, `push_*_us`) for tuning patterns.
 
 ## Recording the pattern animations
 

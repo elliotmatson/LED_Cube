@@ -55,6 +55,7 @@ lib/cube/cube.*              Cube: startup, display, WiFi/time, dashboard cards,
 lib/cube/renderer.*          the render task, canvas and pattern switching
 lib/cube/updates.*           upload card, ArduinoOTA, GitHub updater, update progress screen
 lib/cube/settings.*          persistent settings (NVS)
+lib/cube/analytics.*         dashboard Statistics page, public IP lookup, memory log
 lib/cube_utils/              Pattern base class; SinglePanel/BottomPanels views (one ChainView base)
 lib/cube_geometry/           hardware-free: face mappings, seam stepping, 3D surface mapping, projection
 lib/life/                    hardware-free Game of Life step
@@ -71,6 +72,7 @@ lib/langton/                 hardware-free Langton's ant and turmites on any cel
 lib/arcade/                  hardware-free game rules: Pong and Breakout
 lib/wordclock/               hardware-free word clock: which letters spell the time
 lib/weather/                 hardware-free weather codes, units and URL encoding for the Weather pattern
+lib/sysinfo/                 hardware-free formatting for statistics: uptime, bytes, reset reasons, IP answers
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts, each defined once in fonts.cpp: include fonts.h, never a font's own header
@@ -85,7 +87,7 @@ for a pixel's 3D position on the cube surface (`cube::fromCube` back), and `cube
 isometric projection continuous across the seams.
 
 `lib/cube_geometry`, `lib/life`, `lib/timezones`, `lib/firmware_image`,
-`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce`, `lib/particles`, `lib/maze`, `lib/langton`, `lib/arcade`, `lib/wordclock` and `lib/weather` include nothing from Arduino or ESP-IDF, so
+`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce`, `lib/particles`, `lib/maze`, `lib/langton`, `lib/arcade`, `lib/wordclock`, `lib/weather` and `lib/sysinfo` include nothing from Arduino or ESP-IDF, so
 `[env:native]` can test them on the host. Keep it that way, and put new pure
 logic in libraries like these so it can be tested too. The board env takes its
 settings from `[esp32_base]` rather than `[env]`, which would leak the

@@ -137,8 +137,11 @@ void Updates::verifyWrittenImage()
 namespace
 {
     const char *WORD = "UPDATE";
-    const int16_t ROW_SPACING = 16;
-    const int16_t WORD_GAP = 12;
+    const int ROWS = 4;
+    const int16_t ROW_HEIGHT = 16;
+    const int16_t WORD_GAP = 14;
+    // Each frame moves one row, in turn from the top, by this much.
+    const int16_t ROW_STEP = 4;
     const uint32_t FRAME_MS = 50;
     // Slept after every frame, however long it took. Flash writes stall the
     // caches, so during an update a frame can overrun its slot; a task that
@@ -146,32 +149,8 @@ namespace
     // watchdog fires -- and the watchdog's own backtrace, printed mid-write,
     // panicked the cube.
     const uint32_t MIN_REST_MS = 10;
-
-    // "UPDATE" in rows across a face, each row scrolling the opposite way to
-    // the one above it. `pixelsPerSecond` sets the speed; `firstLeft` the
-    // direction of the top row.
-    void tile(SinglePanel &face, int16_t wordWidth, uint32_t ms, int pixelsPerSecond, bool firstLeft, uint16_t color)
-    {
-        const int period = wordWidth + WORD_GAP;
-        const int travel = int((uint64_t(ms) * pixelsPerSecond / 1000) % period);
-        face.setFont(&LEMONMILK_Medium7pt7b);
-        face.setTextSize(1);
-        face.setTextWrap(false);
-        face.setTextColor(color);
-        for (int row = 0; row <= cube::FACE_SIZE / ROW_SPACING; row++)
-        {
-            const bool left = ((row & 1) == 0) == firstLeft;
-            const int y = row * ROW_SPACING + 11;
-            // Start each row somewhere different so the words do not line up.
-            const int start = (row * period / 3 + (left ? period - travel : travel)) % period;
-            for (int x = start - period; x < cube::FACE_SIZE; x += period)
-            {
-                face.setCursor(int16_t(x), int16_t(y));
-                face.print(WORD);
-            }
-        }
-        face.setFont(NULL);
-    }
+    // The edge line's length in steps: once round the top face.
+    const int EDGE_STEPS = 4 * (cube::FACE_SIZE - 1);
 }
 
 void Updates::startAnimation()
@@ -185,8 +164,8 @@ void Updates::startAnimation()
     {
         animationDone = xSemaphoreCreateBinary();
     }
-    animationStartMs = millis();
     progressPermille = 0;
+    firstFrame = true;
     animating = true;
     // Core 1, which the render task leaves idle during an update and AsyncTCP
     // no longer uses (CONFIG_ASYNC_TCP_RUNNING_CORE=0), above the ordinary
@@ -233,70 +212,109 @@ void Updates::setProgress(float fraction)
     progressPermille = uint16_t(fraction * 1000);
 }
 
-/// One frame of the update screen.
+/**
+ * One frame of the update screen. Flash writes freeze both cores for tens of
+ * milliseconds, and the canvas is pushed straight into the buffer the panels
+ * are showing: a frozen full-screen redraw shows as a torn frame. So each
+ * frame changes as little as it can -- one row of text on the side strip,
+ * the percentage only when it changes, and the new part of the edge line.
+ */
 void Updates::drawFrame()
 {
     if (!canvasReady)
     {
         return;
     }
-    const uint32_t t = millis() - animationStartMs;
-    const float fraction = progressPermille / 1000.0f;
-
-    canvas.fillScreen(0);
+    BottomPanels strip(canvas);
     SinglePanel top(canvas, 0, 0);
-    SinglePanel right(canvas, 1, 2); // upright, as the patterns use them
-    SinglePanel left(canvas, 2, 2);
-    int16_t x1, y1;
-    uint16_t w, h;
-    top.setFont(&LEMONMILK_Medium7pt7b);
-    top.getTextBounds(WORD, 0, 11, &x1, &y1, &w, &h);
-    const int16_t wordWidth = int16_t(w) + x1;
-    const uint16_t dim = Canvas::color565(0, 85, 115);
+    if (firstFrame)
+    {
+        canvas.fillScreen(0);
+        for (int r = 0; r < ROWS; r++)
+        {
+            // Start each row somewhere different so the words do not line up.
+            rowOffset[r] = int16_t(r * 19);
+            drawRow(strip, r);
+        }
+        nextRow = 0;
+        shownPercent = -1;
+        shownEdge = 0;
+        firstFrame = false;
+    }
+    else
+    {
+        // Rows alternate direction.
+        rowOffset[nextRow] += (nextRow & 1) ? ROW_STEP : -ROW_STEP;
+        drawRow(strip, nextRow);
+        nextRow = (nextRow + 1) % ROWS;
+    }
 
-    // Rows alternate direction on every face; the faces differ in speed and
-    // in which way their top row goes.
-    tile(top, wordWidth, t, 22, true, dim);
-    tile(right, wordWidth, t, 30, false, dim);
-    tile(left, wordWidth, t, 30, true, dim);
-
-    // The percentage, large, over the top face.
-    char percent[6];
-    snprintf(percent, sizeof(percent), "%d%%", int(fraction * 100 + 0.5f));
-    top.setFont(&FreeSansBold12pt7b);
-    top.getTextBounds(percent, 0, 40, &x1, &y1, &w, &h);
-    const int16_t px = (cube::FACE_SIZE - int16_t(w)) / 2 - x1;
-    top.fillRect(px + x1 - 3, y1 - 3, w + 6, h + 6, 0);
-    top.setTextColor(0xFFFF);
-    top.setCursor(px, 40);
-    top.print(percent);
-    top.setFont(NULL);
-
-    drawEdgeProgress(int(fraction * 512));
+    const float fraction = progressPermille / 1000.0f;
+    const int percent = int(fraction * 100 + 0.5f);
+    if (percent != shownPercent)
+    {
+        char text[6];
+        snprintf(text, sizeof(text), "%d%%", percent);
+        top.fillRect(4, 20, cube::FACE_SIZE - 8, 24, 0);
+        int16_t x1, y1;
+        uint16_t w, h;
+        top.setFont(&FreeSansBold12pt7b);
+        top.getTextBounds(text, 0, 40, &x1, &y1, &w, &h);
+        top.setTextColor(0xFFFF);
+        top.setCursor((cube::FACE_SIZE - int16_t(w)) / 2 - x1, 40);
+        top.print(text);
+        top.setFont(NULL);
+        shownPercent = percent;
+    }
+    const int edge = int(fraction * EDGE_STEPS);
+    if (edge > shownEdge)
+    {
+        drawEdgeProgress(top, shownEdge, edge);
+        shownEdge = edge;
+    }
     canvas.push(*panels);
 }
 
-/// The progress line: 512 steps around the cube's edges, as before.
-void Updates::drawEdgeProgress(int i)
+/// Redraws row `r` of "UPDATE" across the side strip at its offset.
+void Updates::drawRow(BottomPanels &strip, int r)
 {
-    Canvas &c = canvas;
-    const uint16_t white = 0xFFFF;
-    c.drawFastHLine(128, 0, constrain(i, 0, 64), white);
-    c.drawFastVLine(191, 0, constrain(i - 64, 0, 64), white);
+    strip.setFont(&LEMONMILK_Medium7pt7b);
+    strip.setTextSize(1);
+    strip.setTextWrap(false);
+    int16_t x1, y1;
+    uint16_t w, h;
+    strip.getTextBounds(WORD, 0, 12, &x1, &y1, &w, &h);
+    const int period = int(w) + x1 + WORD_GAP;
+    const int16_t bandTop = int16_t(r * ROW_HEIGHT);
+    strip.fillRect(0, bandTop, strip.width(), ROW_HEIGHT, 0);
+    strip.setTextColor(Canvas::color565(0, 120, 160));
+    // The glyphs span baseline -12 to +3: baseline 12 fills the band.
+    const int start = ((rowOffset[r] % period) + period) % period;
+    for (int x = start - period; x < strip.width(); x += period)
+    {
+        strip.setCursor(int16_t(x), int16_t(bandTop + 12));
+        strip.print(WORD);
+    }
+    strip.setFont(NULL);
+}
 
-    c.drawFastVLine(0, 64 - constrain(i - 128, 0, 63), constrain(i - 128, 0, 64), white);
-    c.drawFastHLine(0, 0, constrain(i - 192, 0, 64), white);
-
-    c.drawFastVLine(64, 64 - constrain(i - 256, 0, 63), constrain(i - 256, 0, 64), white);
-    c.drawFastHLine(64, 0, constrain(i - 320, 0, 64), white);
-
-    c.drawFastVLine(127, 0, constrain(i - 384, 0, 64), white);
-    c.drawFastVLine(128, 0, constrain(i - 384, 0, 64), white);
-
-    c.drawFastHLine(128 - constrain(i - 448, 0, 63), 63, constrain(i - 448, 0, 64), white);
-    c.drawFastHLine(128, 63, constrain(i - 448, 0, 64), white);
-    c.drawFastHLine(64 - constrain(i - 448, 0, 64), 63, constrain(i - 448, 0, 64), white);
-    c.drawFastVLine(63, 64 - constrain(i - 448, 0, 64), constrain(i - 448, 0, 64), white);
+/// The progress line round the top face's edge, steps [from, to).
+void Updates::drawEdgeProgress(SinglePanel &top, int from, int to)
+{
+    const int16_t last = cube::FACE_SIZE - 1;
+    for (int i = from; i < to && i < EDGE_STEPS; i++)
+    {
+        const int side = i / last, along = i % last;
+        int16_t x, y;
+        switch (side)
+        {
+        case 0: x = along; y = 0; break;
+        case 1: x = last; y = along; break;
+        case 2: x = last - along; y = last; break;
+        default: x = 0; y = last - along; break;
+        }
+        top.drawPixel(x, y, 0xFFFF);
+    }
 }
 
 /// Progress from ArduinoOTA or the GitHub updater.

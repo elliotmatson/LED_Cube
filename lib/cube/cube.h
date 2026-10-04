@@ -35,6 +35,7 @@
 #include "config.h"
 #include "settings.h"
 #include "boot_log.h"
+#include "telemetry.h"
 #include "renderer.h"
 #include "updates.h"
 #include "timezones.h"
@@ -59,6 +60,7 @@ private:
     WiFiManager wifiManager;
     Settings settings;
     BootLog bootLog;
+    Telemetry telemetry;
     Renderer renderer;
     std::unordered_map<std::string, Pattern *> patterns;
     std::vector<std::string> patternButtonLabels;
@@ -88,6 +90,7 @@ private:
     dash::PasswordCard spotifyClientSecret;
     dash::PushButtonCard spotifyLogout;
     dash::FeedbackCard<> bootStatus;
+    dash::FeedbackCard<> telemetryStatus;
     dash::FeedbackCard<> weatherStatus;
     dash::InputCard<dash::string> weatherLocation;
     dash::ToggleButtonCard weatherMetric;
@@ -117,7 +120,10 @@ private:
     void showPattern(const char *id, bool onlyIfShowing = false);
     void refreshSpotifyStatus();
     void refreshWeatherStatus();
-    void setWeatherLocation(std::string text);
+    void setWeatherLocation(std::string text, bool show = true);
+    void setTimezone(const timezones::Zone &zone);
+    std::string applyRemote(const remote::Command &cmd);
+    void refreshTelemetryStatus();
 };
 
 #endif

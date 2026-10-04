@@ -26,6 +26,7 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                spotifyClientSecret(dashboard, "Spotify Client Secret", "Saved; type to replace"),
                spotifyLogout(dashboard, "Log out of Spotify"),
                bootStatus(dashboard, "Startup", dash::Status::NONE),
+               telemetryStatus(dashboard, "Telemetry", dash::Status::NONE),
                weatherStatus(dashboard, "Weather", dash::Status::NONE),
                weatherLocation(dashboard, "Weather Location", "City or postcode; blank to use the cube's IP address"),
                weatherMetric(dashboard, "Weather in \u00b0C and km/h"),
@@ -74,6 +75,7 @@ void Cube::init()
     renderer.begin(dma_display, &server, [this](Pattern *pattern)
                    {
         settings.setPattern(pattern->getId());
+        telemetry.patternShown(pattern->getId());
         dashboard.sendUpdates(); });
     bootLog.reached(BootLog::BOOT_PATTERNS);
 
@@ -83,6 +85,9 @@ void Cube::init()
     bootLog.reached(BootLog::BOOT_UI);
     updates.begin(server, dma_display, settings, renderer, systemTab);
     bootLog.reached(BootLog::BOOT_UPDATES);
+    // Reports to the broker, and settings from it, if this build has one.
+    telemetry.begin(settings, bootLog, renderer, [this](const remote::Command &cmd)
+                    { return applyRemote(cmd); });
 
     leds.setPixelColor(3, 0, 255, 0);
     leds.show();
@@ -227,7 +232,7 @@ void Cube::refreshWeatherStatus()
 }
 
 /// From the dashboard or the API: save, pass on, and show the result.
-void Cube::setWeatherLocation(std::string text)
+void Cube::setWeatherLocation(std::string text, bool show)
 {
     while (!text.empty() && isspace((unsigned char)text.back()))
         text.pop_back();
@@ -240,10 +245,128 @@ void Cube::setWeatherLocation(std::string text)
     settings.setWeatherLocation(text);
     WeatherPattern::setLocation(text);
     weatherLocation.setValue(text.c_str());
-    // Show it: the pattern looks the place up, and the status follows.
-    showPattern("weather");
+    // Show it: the pattern looks the place up, and the status follows. Not
+    // when it was set remotely: whoever is looking at the cube did not ask.
+    if (show)
+    {
+        showPattern("weather");
+    }
     refreshWeatherStatus();
     dashboard.sendUpdates();
+}
+
+void Cube::setTimezone(const timezones::Zone &zone)
+{
+    settings.setTimezone(zone.name);
+    setenv("TZ", zone.posix, 1);
+    tzset();
+    timezoneDropdown.setValue(zone.name);
+    dashboard.sendUpdates();
+}
+
+/**
+ * A setting from the MQTT broker (see Telemetry, lib/remote): applied the
+ * way the dashboard applies it, so the dashboard shows it too. Returns "" or
+ * why it could not be applied. Runs in the MQTT client's task.
+ */
+std::string Cube::applyRemote(const remote::Command &cmd)
+{
+    using remote::Setting;
+    switch (cmd.id)
+    {
+    case Setting::PATTERN:
+        for (Pattern *p : patternList)
+        {
+            if (p->getId() == cmd.text)
+            {
+                showPattern(cmd.text.c_str());
+                return "";
+            }
+        }
+        return "no such pattern";
+    case Setting::BRIGHTNESS:
+        setBrightness(uint8_t(cmd.number));
+        brightnessSlider.setValue(int(cmd.number));
+        break;
+    case Setting::TICKER:
+    {
+        std::string text = cmd.text;
+        if (text.size() > TICKER_MAX_LENGTH)
+        {
+            text.resize(TICKER_MAX_LENGTH);
+        }
+        settings.setTickerText(text);
+        Ticker::setMessage(text);
+        tickerInput.setValue(text.c_str());
+        break;
+    }
+    case Setting::TIMEZONE:
+    {
+        const timezones::Zone *zone = timezones::find(cmd.text.c_str());
+        if (zone == nullptr)
+        {
+            return "unknown time zone";
+        }
+        setTimezone(*zone);
+        break;
+    }
+    case Setting::WEATHER_LOCATION:
+        setWeatherLocation(cmd.text, false);
+        break;
+    case Setting::WEATHER_METRIC:
+        settings.setWeatherMetric(cmd.flag);
+        WeatherPattern::setMetric(cmd.flag);
+        weatherMetric.setValue(cmd.flag);
+        break;
+    case Setting::GITHUB_UPDATES:
+        updates.setGithub(cmd.flag);
+        GHUpdateToggle.setValue(cmd.flag);
+        break;
+    case Setting::DEVELOPMENT:
+        setDevelopment(cmd.flag);
+        developmentToggle.setValue(cmd.flag);
+        break;
+    case Setting::OTA:
+        updates.setOta(cmd.flag);
+        otaToggle.setValue(cmd.flag);
+        break;
+    case Setting::TELEMETRY_INTERVAL:
+        settings.setTelemetryInterval(uint32_t(cmd.number));
+        break;
+    case Setting::REPORT_HEALTH:
+        settings.setReportHealth(cmd.flag);
+        break;
+    case Setting::REPORT_USAGE:
+        settings.setReportUsage(cmd.flag);
+        break;
+    case Setting::REPORT_PERF:
+        settings.setReportPerf(cmd.flag);
+        break;
+    case Setting::CHECK_UPDATES:
+        if (!updates.checkNow())
+        {
+            return "GitHub updates are off";
+        }
+        break;
+    default:
+        return "not handled here";
+    }
+    dashboard.sendUpdates();
+    return "";
+}
+
+void Cube::refreshTelemetryStatus()
+{
+    const Telemetry::Status t = telemetry.status();
+    if (!t.configured)
+    {
+        telemetryStatus.setFeedback("Not in this build (no broker configured)", dash::Status::NONE);
+        return;
+    }
+    char text[96];
+    snprintf(text, sizeof(text), "%s as %s: %lu sent, %lu failed, %lu commands", t.connected ? "Connected" : "Not connected",
+             t.deviceId, (unsigned long)t.published, (unsigned long)t.failed, (unsigned long)t.commands);
+    telemetryStatus.setFeedback(text, t.connected ? dash::Status::SUCCESS : dash::Status::WARNING);
 }
 
 /// The saved time zone, or the default if none is saved or it is unknown.
@@ -425,15 +548,10 @@ void Cube::initUI()
     timezoneDropdown.onChange([this](const dash::string &name)
                               {
             const timezones::Zone *zone = timezones::find(name.c_str());
-            if (zone == nullptr)
+            if (zone != nullptr)
             {
-                return;
-            }
-            settings.setTimezone(zone->name);
-            setenv("TZ", zone->posix, 1);
-            tzset();
-            timezoneDropdown.setValue(zone->name);
-            dashboard.sendUpdates(); });
+                setTimezone(*zone);
+            } });
     this->otaToggle.setValue(settings.ota());
     this->developmentToggle.setValue(settings.development());
     this->GHUpdateToggle.setValue(settings.github());
@@ -483,6 +601,7 @@ void Cube::initUI()
         {
             refreshSpotifyStatus();
             refreshWeatherStatus();
+            refreshTelemetryStatus();
         } });
     refreshSpotifyStatus();
 
@@ -527,6 +646,7 @@ void Cube::initUI()
         bootStatus.setFeedback(bootLog.summary().c_str(), trouble ? dash::Status::WARNING : dash::Status::SUCCESS);
         bootStatus.setTab(systemTab);
     }
+    telemetryStatus.setTab(systemTab);
 
     this->rebootButton.setTab(systemTab);
     this->resetWifiButton.setTab(systemTab);
@@ -613,6 +733,24 @@ void Cube::initAPI()
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                  (unsigned long)(millis() / 1000));
+        request->send(200, "application/json", body); });
+
+    // Telemetry: whether this build reports, as which device, and how it is
+    // going.
+    sprintf(uri, "%s/v1/telemetry", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        const Telemetry::Status t = telemetry.status();
+        JsonDocument doc;
+        doc["configured"] = t.configured;
+        doc["connected"] = t.connected;
+        doc["device_id"] = t.deviceId;
+        doc["published"] = t.published;
+        doc["failed"] = t.failed;
+        doc["commands"] = t.commands;
+        doc["interval_s"] = settings.telemetryInterval();
+        String body;
+        serializeJson(doc, body);
         request->send(200, "application/json", body); });
 
     // The last few boots, newest first: version, how each started (the

@@ -69,6 +69,17 @@ public:
     bool weatherMetric() const { return _weatherMetric; }
     void setWeatherMetric(bool value);
 
+    /// Seconds between telemetry reports (60 to 86400).
+    uint32_t telemetryInterval() const { return _telemetryInterval; }
+    void setTelemetryInterval(uint32_t seconds);
+    /// Which periodic telemetry reports are sent.
+    bool reportHealth() const { return _reportHealth; }
+    void setReportHealth(bool value);
+    bool reportUsage() const { return _reportUsage; }
+    void setReportUsage(bool value);
+    bool reportPerf() const { return _reportPerf; }
+    void setReportPerf(bool value);
+
     /// Hardware revision written at manufacture (key "HW"), or empty.
     std::string hardware() const { return _hardware; }
 
@@ -96,6 +107,10 @@ private:
         TICKER = 1 << 9,
         WEATHER_LOCATION = 1 << 10,
         WEATHER_METRIC = 1 << 11,
+        TELEMETRY_INTERVAL = 1 << 12,
+        REPORT_HEALTH = 1 << 13,
+        REPORT_USAGE = 1 << 14,
+        REPORT_PERF = 1 << 15, // the last bit of _dirty
     };
 
     void changed(Key key);
@@ -118,6 +133,10 @@ private:
     std::string _tickerText;
     std::string _weatherLocation;
     bool _weatherMetric = false;
+    uint32_t _telemetryInterval = 300;
+    bool _reportHealth = true;
+    bool _reportUsage = true;
+    bool _reportPerf = true;
     std::string _hardware;
     int _legacyPatternIndex = -1;
 };

@@ -68,4 +68,7 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=512
 CONFIG_ESP_TLS_PSK_VERIFICATION=y
 CONFIG_ESP_HTTP_CLIENT_ENABLE_DIGEST_AUTH=y
 CONFIG_MBEDTLS_HAVE_TIME_DATE=y
-CONFIG_MBEDTLS_DEBUG=y
+# No CONFIG_MBEDTLS_DEBUG: ESP-IDF's TLS layer (the MQTT client's) turns it
+# into a dozen log lines per TLS record, which on the USB-Serial-JTAG console
+# block whenever no host is reading.
+# CONFIG_MBEDTLS_DEBUG is not set

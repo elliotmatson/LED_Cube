@@ -80,6 +80,9 @@ public:
     void setOta(bool ota);
     /// Turns GitHub updates on or off and saves the choice. Idempotent.
     void setGithub(bool github);
+    /// Checks GitHub now rather than at the next hourly check. False if
+    /// GitHub updates are off.
+    bool checkNow();
 
 private:
     void initFirmwareUpload();

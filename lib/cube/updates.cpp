@@ -567,8 +567,19 @@ void Updates::checkForUpdates()
                 ESP.restart();
             }
         }
-        vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
+        // Woken early by checkNow().
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CHECK_FOR_UPDATES_INTERVAL * 1000UL));
     }
+}
+
+bool Updates::checkNow()
+{
+    if (githubTask == nullptr)
+    {
+        return false;
+    }
+    xTaskNotifyGive(githubTask);
+    return true;
 }
 
 /**

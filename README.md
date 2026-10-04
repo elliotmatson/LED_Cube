@@ -32,6 +32,7 @@ Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the
     - [Uploading](#uploading)
   - [Spotify](#spotify)
   - [Weather](#weather)
+  - [Telemetry](#telemetry)
 
 ## Development
 
@@ -88,6 +89,52 @@ The Weather pattern shows the conditions outside on the side faces (sun or moon,
 By default the cube works out where it is from its IP address, which can be off by a town or two. To set it, open the dashboard's **Weather** tab and type a city or postcode into **Weather Location**; the status card shows the place it found. Clear the box to go back to the IP address. **Weather in °C and km/h** switches units.
 
 The same settings are at `/api/v1/weather`: GET for what the pattern knows, POST `location=` and/or `metric=true|false`. POST `preview=<WMO code>` (and `day=false` for night) shows a kind of weather for two minutes, to try the animations: 0 clear, 2 partly cloudy, 3 overcast, 45 fog, 53 drizzle, 63 rain, 73 snow, 95 thunderstorm.
+
+## Telemetry
+
+Release builds report to an MQTT broker, and take settings from it, so cubes in the field can be followed and managed. **While the project is in testing this is always on, with no opt-out.** A build reports only if it was given a broker (`MQTT_URL`, `MQTT_USER`, `MQTT_PASSWORD` in `lib/cube/secrets.h`, written by CI from repository secrets); other builds never connect.
+
+Each cube picks a random ID once and publishes under `cube/<id>/`, as JSON:
+
+| Topic | When | Contents |
+|---|---|---|
+| `status` | retained | `online`, or `offline` (the broker publishes that if the cube drops) |
+| `boot` | each boot | firmware version and build, chip, MAC address, WiFi network (SSID, BSSID, signal, channel), local and **public IP**, the boot log (reset reasons, rollbacks, how far startup got) |
+| `health` | every interval | uptime, memory and its low-water marks, signal, current access point (BSSID), pattern |
+| `usage` | every interval | seconds per pattern, brightness, whether Spotify, a weather location and a ticker message are set |
+| `perf` | every interval | the renderer's frame rate and tick/push times |
+| `wifi` | boot, then hourly | a scan of the networks in range: SSID, BSSID, signal, channel, security |
+| `crash` | once per crash | a summary (task, PC, cause, backtrace), then the core dump in base64 parts on `crash/<n>` |
+| `settings` | retained | current settings |
+| `ack` | per command | whether a command was applied, and why not |
+
+The interval defaults to 5 minutes. No Spotify or WiFi credentials are ever sent.
+
+Commands are messages to `cube/<id>/set/<name>`:
+
+| Name | Value |
+|---|---|
+| `pattern` | a pattern id (see `/api/v1/patterns`) |
+| `brightness` | 0-255 |
+| `ticker`, `timezone`, `weather_location` | text |
+| `weather_metric`, `github_updates`, `development`, `ota` | `true` / `false` |
+| `telemetry_interval` | seconds, 60-86400 |
+| `report_health`, `report_usage`, `report_perf` | `true` / `false` |
+| `restart`, `check_updates`, `resend_crash` | anything (actions) |
+
+### Broker setup
+
+The firmware connects with `wss://` (MQTT over WebSockets, TLS on a standard HTTPS port), checking the certificate against ESP-IDF's bundle, so the broker needs a publicly trusted certificate. Every cube shares one login, which is readable from any published image, so the broker must confine it. With EMQX:
+
+```
+{allow, {username, "admin"}, all, ["#"]}.
+{deny,  {username, "cube"}, publish, ["cube/${clientid}/set/#"]}.
+{allow, {username, "cube"}, publish, ["cube/${clientid}/#"]}.
+{allow, {username, "cube"}, subscribe, ["cube/${clientid}/set/#"]}.
+{deny, all}.
+```
+
+A cube can then only publish its own reports and read its own commands; commands come from a separate admin login that never goes in firmware.
 
 ## Recording the pattern animations
 

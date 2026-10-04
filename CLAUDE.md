@@ -30,9 +30,11 @@ the dashboard first (a fresh cube has it off). To flash over USB, comment out
 ## Configuration
 
 `sdkconfig.defaults` is the source of truth. `sdkconfig.esp32-s3-devkitc-1` is
-generated from it on every build and is gitignored. To change a setting, run
-`pio run -t menuconfig`, then `pio run -t save-defconfig`, and diff before
-committing — save-defconfig strips comments.
+generated from it and gitignored -- but only when it is missing, so after
+editing `sdkconfig.defaults` delete it to make the change take effect (a full
+rebuild follows). To change a setting, run `pio run -t menuconfig`, then
+`pio run -t save-defconfig`, and diff before committing — save-defconfig
+strips comments.
 
 `lib/cube/config.h` holds pins, panel geometry and build identity. Runtime
 settings live in `lib/cube/settings.*`: one NVS key each in namespace `cube`,
@@ -55,6 +57,8 @@ lib/cube/cube.*              Cube: startup, display, WiFi/time, dashboard cards,
 lib/cube/renderer.*          the render task, canvas and pattern switching
 lib/cube/updates.*           upload card, ArduinoOTA, GitHub updater, update progress screen
 lib/cube/settings.*          persistent settings (NVS)
+lib/cube/boot_log.*          the last few boots: version, reset reason, how far startup got
+lib/cube/telemetry.*         MQTT reports to the broker and settings from it (see README, Telemetry)
 lib/cube_utils/              Pattern base class; SinglePanel/BottomPanels views (one ChainView base)
 lib/cube_geometry/           hardware-free: face mappings, seam stepping, 3D surface mapping, projection
 lib/life/                    hardware-free Game of Life step
@@ -71,6 +75,7 @@ lib/langton/                 hardware-free Langton's ant and turmites on any cel
 lib/arcade/                  hardware-free game rules: Pong and Breakout
 lib/wordclock/               hardware-free word clock: which letters spell the time
 lib/weather/                 hardware-free weather codes, units and URL encoding for the Weather pattern
+lib/remote/                  hardware-free names, types and checks for settings set over MQTT
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts, each defined once in fonts.cpp: include fonts.h, never a font's own header
@@ -85,7 +90,7 @@ for a pixel's 3D position on the cube surface (`cube::fromCube` back), and `cube
 isometric projection continuous across the seams.
 
 `lib/cube_geometry`, `lib/life`, `lib/timezones`, `lib/firmware_image`,
-`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce`, `lib/particles`, `lib/maze`, `lib/langton`, `lib/arcade`, `lib/wordclock` and `lib/weather` include nothing from Arduino or ESP-IDF, so
+`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce`, `lib/particles`, `lib/maze`, `lib/langton`, `lib/arcade`, `lib/wordclock`, `lib/weather` and `lib/remote` include nothing from Arduino or ESP-IDF, so
 `[env:native]` can test them on the host. Keep it that way, and put new pure
 logic in libraries like these so it can be tested too. The board env takes its
 settings from `[esp32_base]` rather than `[env]`, which would leak the
@@ -164,6 +169,11 @@ scripts/capture_patterns.py --host cube.local <pattern id>` (frames come from
   A reset before that point rolls the update back. `BootLog` records every
   boot's version, reset reason and how far startup got (`/api/v1/boots`,
   and the Startup card): a failed startup shows the stage it stopped at.
+- **Telemetry credentials are public.** `MQTT_URL`, `MQTT_USER` and
+  `MQTT_PASSWORD` come from the gitignored `secrets.h` (CI writes it from
+  repository secrets), but anything compiled in can be read out of a release.
+  The broker's ACL is what keeps the shared login to a cube's own topics; a
+  new setting reachable over MQTT goes in `lib/remote` and `Cube::applyRemote`.
 - **Updates only go forwards.** The GitHub updater installs a release only
   if `firmware_image::isNewer()` says its tag is newer than `FW_VERSION`.
   GitHub's "latest" is the newest *stable* release, older than any beta.

@@ -27,8 +27,7 @@
 
 // Array of all patterns. The count is checked against the list in
 // all_patterns.cpp at compile time.
-#define PATTERN_COUNT 16
-#define PATTERN_COUNT 18
+#define PATTERN_COUNT 19
 extern Pattern *patternList[PATTERN_COUNT];
 
 #endif

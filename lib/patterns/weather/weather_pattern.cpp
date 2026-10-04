@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <NetworkClientSecure.h>
+#include "waiting_stream.h"
 #include <WiFi.h>
 #include <math.h>
 
@@ -84,7 +85,8 @@ namespace
             http.end();
             return false;
         }
-        const DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+        WaitingStream body(http.getStream());
+        const DeserializationError err = deserializeJson(doc, body, DeserializationOption::Filter(filter));
         http.end();
         if (err)
         {

@@ -30,4 +30,5 @@ Pattern *patternList[] = {
     new LavaLamp(),
     new Aurora(),
     new Hyperspace(),
+    new LostPattern(), // hidden: lost mode only
 };

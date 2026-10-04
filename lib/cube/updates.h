@@ -80,6 +80,14 @@ public:
     void setOta(bool ota);
     /// Turns GitHub updates on or off and saves the choice. Idempotent.
     void setGithub(bool github);
+    /// Checks GitHub now rather than at the next hourly check. False if
+    /// GitHub updates are off.
+    bool checkNow();
+
+    /// Lost mode: refuse firmware from the upload card and ArduinoOTA, so
+    /// the cube cannot be wiped over the network. GitHub updates (the
+    /// owner's own releases) still install.
+    void setLocked(bool locked);
 
 private:
     void initFirmwareUpload();
@@ -132,6 +140,7 @@ private:
     SemaphoreHandle_t animationDone = nullptr;
 
     TaskHandle_t otaTask = nullptr;
+    volatile bool locked = false;
     TaskHandle_t githubTask = nullptr;
 };
 

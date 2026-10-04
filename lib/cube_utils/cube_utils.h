@@ -39,6 +39,7 @@ struct PatternData
 {
     std::string id;   // stable, saved in settings; never shown
     std::string name; // shown on the dashboard
+    bool hidden = false; // never listed or selectable (the Lost pattern)
 };
 
 /**
@@ -64,6 +65,7 @@ public:
     /// next one straight away (after a one-tick yield), not by catching up.
     virtual uint32_t frameInterval() const { return 33; }
     std::string getName() { return data.name; };
+    bool isHidden() const { return data.hidden; };
     std::string getId() { return data.id; };
 
 protected:

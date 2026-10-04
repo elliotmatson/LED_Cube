@@ -32,6 +32,7 @@ Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the
     - [Uploading](#uploading)
   - [Spotify](#spotify)
   - [Weather](#weather)
+  - [Telemetry](#telemetry)
 
 ## Development
 
@@ -88,6 +89,69 @@ The Weather pattern shows the conditions outside on the side faces (sun or moon,
 By default the cube works out where it is from its IP address, which can be off by a town or two. To set it, open the dashboard's **Weather** tab and type a city or postcode into **Weather Location**; the status card shows the place it found. Clear the box to go back to the IP address. **Weather in °C and km/h** switches units.
 
 The same settings are at `/api/v1/weather`: GET for what the pattern knows, POST `location=` and/or `metric=true|false`. POST `preview=<WMO code>` (and `day=false` for night) shows a kind of weather for two minutes, to try the animations: 0 clear, 2 partly cloudy, 3 overcast, 45 fog, 53 drizzle, 63 rain, 73 snow, 95 thunderstorm.
+
+## Telemetry
+
+Release builds report to an MQTT broker, and take settings from it, so cubes in the field can be followed and managed. **While the project is in testing this is always on, with no opt-out.** A build reports only if it was given a broker (`MQTT_URL`, `MQTT_USER`, `MQTT_PASSWORD` in `lib/cube/secrets.h`, written by CI from repository secrets); other builds never connect.
+
+Each cube picks a random ID once and publishes under `cube/<id>/`, as JSON:
+
+| Topic | When | Contents |
+|---|---|---|
+| `status` | retained | `online`, or `offline` (the broker publishes that if the cube drops) |
+| `boot` | each boot (retained) | firmware version and build, chip, MAC address, WiFi network (SSID, BSSID, signal, channel), local and **public IP**, the boot log (reset reasons, rollbacks, how far startup got) |
+| `network` | each (re)connection (retained) | SSID, BSSID, signal, local and public IP, and whether it is on its own network or an open one |
+| `health` | every interval | uptime, memory and its low-water marks, signal, current network (SSID, BSSID), pattern |
+| `usage` | every interval | seconds per pattern, brightness, whether Spotify, a weather location and a ticker message are set |
+| `perf` | every interval | the renderer's frame rate and tick/push times |
+| `wifi` | boot, then hourly (retained) | a scan of the networks in range: SSID, BSSID, signal, channel, security |
+| `location` | while lost: every 2 minutes (retained) | a fresh public IP, its network and access point, and a scan of what is in range |
+| `lost` | when lost mode changes (retained) | whether it is on, silent, its message, whether a PIN is set |
+| `crash` | once per crash | a summary (task, PC, cause, backtrace), then the core dump in base64 parts on `crash/<n>` |
+| `settings` | retained | current settings |
+| `ack` | per command | whether a command was applied, and why not |
+
+The interval defaults to 5 minutes. No Spotify or WiFi credentials are ever sent.
+
+Commands are messages to `cube/<id>/set/<name>`:
+
+| Name | Value |
+|---|---|
+| `pattern` | a pattern id (see `/api/v1/patterns`) |
+| `brightness` | 0-255 |
+| `ticker`, `timezone`, `weather_location` | text |
+| `weather_metric`, `github_updates`, `development`, `ota` | `true` / `false` |
+| `telemetry_interval` | seconds, 60-86400 |
+| `report_health`, `report_usage`, `report_perf` | `true` / `false` |
+| `lost_message` | text shown in lost mode (up to 120 characters) |
+| `lost_pin` | 4-12 digits that unlock it on its dashboard; empty removes it |
+| `lost_silent` | `true`: in lost mode, keep looking normal |
+| `lost_mode` | `true` / `false` |
+| `restart`, `check_updates`, `resend_crash` | anything (actions) |
+
+### Lost mode
+
+If a cube goes missing, set `lost_message` (and `lost_pin`, if whoever finds it should be able to unlock it), then `lost_mode` `true`:
+
+- It shows the message, scrolling round the sides, with LOST and its ID on top -- unless `lost_silent` is set, when it keeps showing patterns as usual.
+- Its dashboard and API refuse changes (status still reads), and the upload card and ArduinoOTA refuse firmware. GitHub updates still install.
+- It reports a `location` every two minutes, and `network` whenever it comes online anywhere.
+- WiFi setup stays open on purpose: someone setting it up on their own network is its likeliest way back online. If it is offline for a few minutes, it also tries nearby open networks, keeping one only if the broker can be reached through it; its saved network is never overwritten.
+- It persists through restarts, power loss and WiFi resets. `lost_mode` `false`, or the PIN on the dashboard's System tab, turns it off. PIN guesses are limited: after five wrong ones, one every 15 minutes.
+
+### Broker setup
+
+The firmware connects with `wss://` (MQTT over WebSockets, TLS on a standard HTTPS port), checking the certificate against ESP-IDF's bundle, so the broker needs a publicly trusted certificate. Every cube shares one login, which is readable from any published image, so the broker must confine it. With EMQX:
+
+```
+{allow, {username, "admin"}, all, ["#"]}.
+{deny,  {username, "cube"}, publish, ["cube/${clientid}/set/#"]}.
+{allow, {username, "cube"}, publish, ["cube/${clientid}/#"]}.
+{allow, {username, "cube"}, subscribe, ["cube/${clientid}/set/#"]}.
+{deny, all}.
+```
+
+A cube can then only publish its own reports and read its own commands; commands come from a separate admin login that never goes in firmware.
 
 ## Recording the pattern animations
 

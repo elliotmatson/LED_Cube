@@ -349,7 +349,7 @@ void Updates::fadeOut()
 void Updates::setOta(bool ota)
 {
     settings->setOta(ota);
-    if (ota)
+    if (ota && !locked)
     {
         if (otaTask)
         {
@@ -479,6 +479,11 @@ void Updates::initFirmwareUpload()
             if (index == 0)
             {
                 ESP_LOGI(__func__, "Firmware upload starting: %s", filename.c_str());
+                if (locked)
+                {
+                    request->send(423, "text/plain", "Locked: this cube is in lost mode");
+                    return;
+                }
                 if (updateRequest != nullptr)
                 {
                     request->send(409, "text/plain", "An update is already in progress");
@@ -567,8 +572,36 @@ void Updates::checkForUpdates()
                 ESP.restart();
             }
         }
-        vTaskDelay((CHECK_FOR_UPDATES_INTERVAL * 1000) / portTICK_PERIOD_MS);
+        // Woken early by checkNow().
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CHECK_FOR_UPDATES_INTERVAL * 1000UL));
     }
+}
+
+void Updates::setLocked(bool lock)
+{
+    locked = lock;
+    if (lock && otaTask)
+    {
+        // Stop listening, but keep the setting for when it is unlocked.
+        ESP_LOGI("Updates", "Lost mode: ArduinoOTA off");
+        vTaskDelete(otaTask);
+        otaTask = nullptr;
+        ArduinoOTA.end();
+    }
+    else if (!lock && settings->ota())
+    {
+        setOta(true);
+    }
+}
+
+bool Updates::checkNow()
+{
+    if (githubTask == nullptr)
+    {
+        return false;
+    }
+    xTaskNotifyGive(githubTask);
+    return true;
 }
 
 /**

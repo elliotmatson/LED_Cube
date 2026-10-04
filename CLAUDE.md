@@ -49,7 +49,6 @@ and `SPOTIFY_CLIENT_SECRET` for local builds.
 
 ## Layout
 
-```
 src/main.cpp                 setup() calls Cube::init(); loop() deletes itself
 lib/cube/cube.*              Cube: startup, display, WiFi/time, dashboard cards, REST API
 lib/cube/renderer.*          the render task, canvas and pattern switching
@@ -69,7 +68,6 @@ test/                        host unit tests for the hardware-free libraries ([e
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts, each defined once in fonts.cpp: include fonts.h, never a font's own header
 api/                         Bruno collection for the REST API
-```
 
 Physical panel *p* of the 192×64 chain is `x ∈ [64p, 64p+63]`. `SinglePanel`
 gives a rotated 64×64 view of one face; `BottomPanels` a 128×64 upright strip

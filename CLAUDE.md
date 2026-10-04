@@ -198,6 +198,10 @@ Callers of the shared workflows in `elliotmatson/pio-actions@v1`:
 (`pio test -e native`), plus
 `dependency-updates.yml` (weekly `platformio.ini` bumps through
 `elliotmatson/platformio-dependency-updater`) and Dependabot for actions.
+`build-release.yml` passes the `MQTT_URL`, `MQTT_USER` and `MQTT_PASSWORD`
+repository secrets through pio-actions' `build-env` (v1.9.0+), and
+`scripts/write_secrets.py` turns them into `lib/cube/secrets.h` before the
+build; without them the firmware just does not report.
 `docs.yml` publishes Doxygen to GitHub Pages from `main`.
 
 ## Conventions

@@ -1,8 +1,6 @@
 #include "clock.h"
 
-#include <Fonts/FreeSansBold9pt7b.h>
-#include <Fonts/FreeSansBold12pt7b.h>
-#include <Fonts/FreeSansBold18pt7b.h>
+#include "fonts.h"
 #include <math.h>
 
 static const char *WEEKDAYS[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};

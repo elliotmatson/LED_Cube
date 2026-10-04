@@ -5,7 +5,9 @@
 
 namespace
 {
-    float SIN[256];
+    // One cycle, in PSRAM while the pattern runs: as a global it took 1 KB
+    // of scarce internal RAM all the time.
+    float *SIN = nullptr;
     inline float sinAt(float x) { return SIN[uint8_t(int32_t(x))]; }
 
     // Fish, facing left: B body, S stripe, F fin/tail, K eye, . clear.
@@ -82,6 +84,11 @@ void Aquarium::begin(PatternServices *services)
 {
     pattern = services;
     rng = esp_random() | 1;
+    SIN = static_cast<float *>(heap_caps_malloc(256 * sizeof(float), MALLOC_CAP_SPIRAM));
+    if (SIN == nullptr)
+    {
+        return;
+    }
     for (int i = 0; i < 256; i++)
     {
         SIN[i] = sinf(i * 2 * float(M_PI) / 256);
@@ -146,6 +153,8 @@ void Aquarium::end()
 {
     free(background);
     background = nullptr;
+    free(SIN);
+    SIN = nullptr;
 }
 
 /// Sets strip pixel (sx, sy), y down from the top.

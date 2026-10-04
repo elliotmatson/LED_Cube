@@ -25,10 +25,14 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                spotifyClientId(dashboard, "Spotify Client ID", "From developer.spotify.com"),
                spotifyClientSecret(dashboard, "Spotify Client Secret", "Saved; type to replace"),
                spotifyLogout(dashboard, "Log out of Spotify"),
+               weatherStatus(dashboard, "Weather", dash::Status::NONE),
+               weatherLocation(dashboard, "Weather Location", "City or postcode; blank to use the cube's IP address"),
+               weatherMetric(dashboard, "Weather in \u00b0C and km/h"),
                updates(dashboard),
                systemTab(dashboard, "System"),
                developerTab(dashboard, "Development"),
-               spotifyTab(dashboard, "Spotify")
+               spotifyTab(dashboard, "Spotify"),
+               weatherTab(dashboard, "Weather")
 {
     fwVersion.setValue(FW_VERSION);
 }
@@ -185,6 +189,50 @@ void Cube::refreshSpotifyStatus()
     {
         spotifyStatus.setFeedback("Logged in", dash::Status::SUCCESS);
     }
+}
+
+void Cube::refreshWeatherStatus()
+{
+    const WeatherPattern::Report r = WeatherPattern::report();
+    if (r.error[0] && !r.current)
+    {
+        weatherStatus.setFeedback(r.error, dash::Status::DANGER);
+    }
+    else if (r.current)
+    {
+        char text[128];
+        snprintf(text, sizeof(text), "%s%s: %d\u00b0%s, %s", r.place, r.fromIp ? " (from the cube's IP address)" : "",
+                 weather::temperature(r.tempC, r.metric), r.metric ? "C" : "F", weather::describe(r.code));
+        weatherStatus.setFeedback(text, dash::Status::SUCCESS);
+    }
+    else if (r.located)
+    {
+        weatherStatus.setFeedback((std::string(r.place) + ": fetching the forecast").c_str(), dash::Status::INFO);
+    }
+    else
+    {
+        weatherStatus.setFeedback("Looked up when the Weather pattern runs", dash::Status::INFO);
+    }
+}
+
+/// From the dashboard or the API: save, pass on, and show the result.
+void Cube::setWeatherLocation(std::string text)
+{
+    while (!text.empty() && isspace((unsigned char)text.back()))
+        text.pop_back();
+    while (!text.empty() && isspace((unsigned char)text.front()))
+        text.erase(text.begin());
+    if (text.size() > 60)
+    {
+        text.resize(60);
+    }
+    settings.setWeatherLocation(text);
+    WeatherPattern::setLocation(text);
+    weatherLocation.setValue(text.c_str());
+    // Show it: the pattern looks the place up, and the status follows.
+    showPattern("weather");
+    refreshWeatherStatus();
+    dashboard.sendUpdates();
 }
 
 /// The saved time zone, or the default if none is saved or it is unknown.
@@ -419,8 +467,28 @@ void Cube::initUI()
         if (!changesOnly)
         {
             refreshSpotifyStatus();
+            refreshWeatherStatus();
         } });
     refreshSpotifyStatus();
+
+    WeatherPattern::setLocation(settings.weatherLocation());
+    WeatherPattern::setMetric(settings.weatherMetric());
+    weatherLocation.setValue(settings.weatherLocation().c_str());
+    weatherLocation.onChange([this](const std::optional<dash::string> &value)
+                             { setWeatherLocation(value ? std::string(value->c_str()) : std::string()); });
+    weatherMetric.setValue(settings.weatherMetric());
+    weatherMetric.onChange([this](bool metric)
+                           {
+            settings.setWeatherMetric(metric);
+            WeatherPattern::setMetric(metric);
+            weatherMetric.setValue(metric);
+            refreshWeatherStatus();
+            dashboard.sendUpdates(); });
+    for (dash::Widget *w : std::initializer_list<dash::Widget *>{&weatherStatus, &weatherLocation, &weatherMetric})
+    {
+        w->setTab(weatherTab);
+    }
+    refreshWeatherStatus();
 
     Ticker::setMessage(settings.tickerText());
     tickerInput.setValue(settings.tickerText().c_str());
@@ -622,6 +690,66 @@ void Cube::initAPI()
         String body;
         serializeJson(doc, body);
         request->send(200, "application/json", body); });
+
+    // The Weather pattern: GET what it knows; POST location=<place>
+    // (empty for the IP address's) and/or metric=true|false, or
+    // preview=<WMO code>[&day=false] to show a kind of weather for two
+    // minutes (-1 to stop).
+    sprintf(uri, "%s/v1/weather", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        const WeatherPattern::Report r = WeatherPattern::report();
+        JsonDocument doc;
+        doc["location_setting"] = settings.weatherLocation();
+        doc["metric"] = r.metric;
+        doc["located"] = r.located;
+        doc["place"] = r.place;
+        doc["from_ip"] = r.fromIp;
+        doc["current"] = r.current;
+        if (r.current)
+        {
+            doc["temperature"] = weather::temperature(r.tempC, r.metric);
+            doc["high"] = weather::temperature(r.highC, r.metric);
+            doc["low"] = weather::temperature(r.lowC, r.metric);
+            doc["wind"] = weather::windSpeed(r.windKmh, r.metric);
+            doc["code"] = r.code;
+            doc["conditions"] = weather::describe(r.code);
+            doc["day"] = r.day;
+            doc["age_s"] = r.ageS;
+        }
+        doc["error"] = r.error;
+        doc["preview"] = r.preview;
+        String body;
+        serializeJson(doc, body);
+        request->send(200, "application/json", body); });
+    server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
+              {
+        if (!request->hasArg("location") && !request->hasArg("metric") && !request->hasArg("preview"))
+        {
+            request->send(400, "application/json", "{\"error\": \"Give location, metric or preview\"}");
+            return;
+        }
+        if (request->hasArg("preview"))
+        {
+            WeatherPattern::preview(request->arg("preview").toInt(), request->arg("day") != "false");
+            showPattern("weather");
+        }
+        if (request->hasArg("metric"))
+        {
+            const bool metric = request->arg("metric") == "true" || request->arg("metric") == "1";
+            settings.setWeatherMetric(metric);
+            WeatherPattern::setMetric(metric);
+            weatherMetric.setValue(metric);
+        }
+        if (request->hasArg("location"))
+        {
+            setWeatherLocation(request->arg("location").c_str());
+        }
+        else
+        {
+            dashboard.sendUpdates();
+        }
+        request->send(200, "application/json", "{\"ok\": true}"); });
 
     // redirect to docs on api root request
     server.on(API_ENDPOINT, HTTP_GET, [&](AsyncWebServerRequest *request)

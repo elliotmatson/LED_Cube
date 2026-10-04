@@ -1,0 +1,16 @@
+meta {
+  name: Preview Weather
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseURL}}/v1/weather
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  preview: 95
+  day: false
+}

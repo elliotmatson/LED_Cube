@@ -18,6 +18,7 @@ Pattern *patternList[] = {
     new PlaneSweep(),
     new Ticker(),
     new Dvd(),
+    new WeatherPattern(),
     new WordClock(),
     new PongPattern(),
     new BreakoutPattern(),

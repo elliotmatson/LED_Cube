@@ -19,7 +19,7 @@ Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the
 <tr><td align="center" width="33%"><img src="docs/patterns/aurora.webp" alt="Aurora" width="220"><br><b>Aurora</b><br><sub>Green curtains with violet tops rippling round the sides, ribbons and stars overhead.</sub></td><td align="center" width="33%"><img src="docs/patterns/lava_lamp.webp" alt="Lava Lamp" width="220"><br><b>Lava Lamp</b><br><sub>Blobs of wax rising and sinking through the cube, glowing where they meet the faces.</sub></td><td align="center" width="33%"><img src="docs/patterns/fire.webp" alt="Fire" width="220"><br><b>Fire</b><br><sub>Flames licking up the sides, embers drifting over the edge onto the top.</sub></td></tr>
 <tr><td align="center" width="33%"><img src="docs/patterns/fireworks.webp" alt="Fireworks" width="220"><br><b>Fireworks</b><br><sub>Rockets climbing the sides and bursting, sparks spilling over the edges.</sub></td><td align="center" width="33%"><img src="docs/patterns/aquarium.webp" alt="Aquarium" width="220"><br><b>Aquarium</b><br><sub>Fish, seaweed and bubbles in the tank; caustics and ripples on the surface above.</sub></td><td align="center" width="33%"><img src="docs/patterns/maze.webp" alt="Maze" width="220"><br><b>Maze</b><br><sub>A maze grown across all three faces and over the seams, then solved.</sub></td></tr>
 <tr><td align="center" width="33%"><img src="docs/patterns/langtons_ant.webp" alt="Langton's Ant" width="220"><br><b>Langton's Ant</b><br><sub>Ants and their multi-colour cousins building highways and blooms across the seams.</sub></td><td align="center" width="33%"><img src="docs/patterns/pong.webp" alt="Pong" width="220"><br><b>Pong</b><br><sub>The cube playing itself at Pong round the sides, the net down the corner, the score on top.</sub></td><td align="center" width="33%"><img src="docs/patterns/breakout.webp" alt="Breakout" width="220"><br><b>Breakout</b><br><sub>The cube playing Breakout round the sides; score, lives and level on top.</sub></td></tr>
-<tr><td align="center" width="33%"><img src="docs/patterns/word_clock.webp" alt="Word Clock" width="220"><br><b>Word Clock</b><br><sub>The time in words, lit in a grid of letters round the sides, with a seconds ring on top.</sub></td></tr>
+<tr><td align="center" width="33%"><img src="docs/patterns/word_clock.webp" alt="Word Clock" width="220"><br><b>Word Clock</b><br><sub>The time in words, lit in a grid of letters round the sides, with a seconds ring on top.</sub></td><td align="center" width="33%"><img src="docs/patterns/weather.webp" alt="Weather" width="220"><br><b>Weather</b><br><sub>The sky outside round the sides -- sun, moon, clouds, rain, snow or storm -- and the forecast on top.</sub></td></tr>
 </table>
 
 ## Table of Contents
@@ -31,6 +31,7 @@ Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the
     - [Building](#building)
     - [Uploading](#uploading)
   - [Spotify](#spotify)
+  - [Weather](#weather)
 
 ## Development
 
@@ -79,6 +80,14 @@ The Spotify pattern shows what is playing on your account: album art on one side
 If something goes wrong, the Spotify card on that tab says what (also at `/api/v1/spotify`). **Log out of Spotify** forgets the linked account. To use another account in development mode, add its email under the app's **User Management** first.
 
 For local builds you can instead put `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in `lib/cube/secrets.h` (gitignored); they are used only when the dashboard fields are empty. Never put the secret in a build you publish.
+
+## Weather
+
+The Weather pattern shows the conditions outside on the side faces (sun or moon, clouds, fog, rain, snow or a storm, by day or night) and the temperature, conditions and today's high and low on top. Forecasts come from [Open-Meteo](https://open-meteo.com), which needs no account or key, every 15 minutes while the pattern runs.
+
+By default the cube works out where it is from its IP address, which can be off by a town or two. To set it, open the dashboard's **Weather** tab and type a city or postcode into **Weather Location**; the status card shows the place it found. Clear the box to go back to the IP address. **Weather in °C and km/h** switches units.
+
+The same settings are at `/api/v1/weather`: GET for what the pattern knows, POST `location=` and/or `metric=true|false`. POST `preview=<WMO code>` (and `day=false` for night) shows a kind of weather for two minutes, to try the animations: 0 clear, 2 partly cloudy, 3 overcast, 45 fog, 53 drizzle, 63 rain, 73 snow, 95 thunderstorm.
 
 ## Recording the pattern animations
 

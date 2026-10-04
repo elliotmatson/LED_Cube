@@ -44,6 +44,10 @@ jobs:
       # releases API instead. Drop this once no cube runs the old updater.
       # Runs before the workflow stages dist/, which only adds to it.
       post-build-run: mkdir -p dist && cp -v ".pio/build/$PIO_ENV/firmware.bin" dist/esp32s3.bin
+      # The telemetry broker and its shared login (lib/cube/telemetry.h),
+      # from repository secrets through build-env below. Without them the
+      # build just does not report.
+      pre-build-run: python3 scripts/write_secrets.py
       # GitHub-hosted for now. Switching to a self-hosted runner is this one
       # line (a single label -- the input is a string).
       # runs-on: platformio
@@ -51,3 +55,9 @@ jobs:
       # ESP-DASH-Pro is a private repository (its license forbids publishing
       # the source), so cloning it needs a token that can read it.
       gh-token: ${{ secrets.GH_PAT }}
+      # Compiled into the firmware, so readable from any release: the broker's
+      # ACL confines this login to each cube's own topics (README, Telemetry).
+      build-env: |
+        MQTT_URL=${{ secrets.MQTT_URL }}
+        MQTT_USER=${{ secrets.MQTT_USER }}
+        MQTT_PASSWORD=${{ secrets.MQTT_PASSWORD }}

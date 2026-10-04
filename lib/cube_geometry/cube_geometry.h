@@ -127,6 +127,14 @@ namespace cube
      */
     Vec3 toCube(Point p);
 
+    /**
+     * The inverse of toCube(): the chain pixel showing point `v` of the
+     * cube's visible surface (one of x, y, z at 64, the others in [0, 64]),
+     * or NO_POINT if `v` is not on it. On an edge shared by two faces the
+     * top face wins, then face 1.
+     */
+    Point fromCube(Vec3 v);
+
     /// Isometric projection of a chain pixel onto the plane facing the shared
     /// corner, continuous across all three seams. X is roughly ±56; Y runs
     /// from about -64 (far corners of faces 1 and 2) to 65 (far corner of

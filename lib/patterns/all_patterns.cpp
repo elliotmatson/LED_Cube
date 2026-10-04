@@ -17,4 +17,5 @@ Pattern *patternList[] = {
     new FallingSand(),
     new PlaneSweep(),
     new Ticker(),
+    new Dvd(),
 };

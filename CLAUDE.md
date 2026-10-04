@@ -66,10 +66,10 @@ lib/rubiks/                  hardware-free Rubik's cube model (stickers as 3D po
 lib/sand/                    hardware-free falling-sand step
 lib/particles/               hardware-free points moving over the visible surface, folding across seams
 lib/bounce/                  hardware-free bouncing body (the DVD logo), with corner detection
-lib/wordclock/               hardware-free word clock: which letters spell the time
 lib/maze/                    hardware-free maze generation and solving on any cell graph
 lib/langton/                 hardware-free Langton's ant and turmites on any cell graph
 lib/arcade/                  hardware-free game rules: Pong and Breakout
+lib/wordclock/               hardware-free word clock: which letters spell the time
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts, each defined once in fonts.cpp: include fonts.h, never a font's own header
@@ -84,8 +84,7 @@ for a pixel's 3D position on the cube surface (`cube::fromCube` back), and `cube
 isometric projection continuous across the seams.
 
 `lib/cube_geometry`, `lib/life`, `lib/timezones`, `lib/firmware_image`,
-`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce` and `lib/wordclock` include nothing from Arduino or ESP-IDF, so
-`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce`, `lib/particles`, `lib/maze`, `lib/langton` and `lib/arcade` include nothing from Arduino or ESP-IDF, so
+`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce`, `lib/particles`, `lib/maze`, `lib/langton`, `lib/arcade` and `lib/wordclock` include nothing from Arduino or ESP-IDF, so
 `[env:native]` can test them on the host. Keep it that way, and put new pure
 logic in libraries like these so it can be tested too. The board env takes its
 settings from `[esp32_base]` rather than `[env]`, which would leak the

@@ -19,11 +19,15 @@
 #include "ticker/ticker.h"
 #include "dvd/dvd.h"
 #include "fire/fire.h"
+#include "lava_lamp/lava_lamp.h"
+#include "aurora/aurora.h"
+#include "hyperspace/hyperspace.h"
 
 
 // Array of all patterns. The count is checked against the list in
 // all_patterns.cpp at compile time.
 #define PATTERN_COUNT 15
+#define PATTERN_COUNT 17
 extern Pattern *patternList[PATTERN_COUNT];
 
 #endif

@@ -19,4 +19,7 @@ Pattern *patternList[] = {
     new Ticker(),
     new Dvd(),
     new Fire(),
+    new LavaLamp(),
+    new Aurora(),
+    new Hyperspace(),
 };

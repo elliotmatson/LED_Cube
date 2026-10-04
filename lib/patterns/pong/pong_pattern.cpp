@@ -1,6 +1,6 @@
 #include "pong_pattern.h"
+#include "fonts.h"
 
-#include <Fonts/FreeSansBold18pt7b.h>
 #include <math.h>
 
 namespace

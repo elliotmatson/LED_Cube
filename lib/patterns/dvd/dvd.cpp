@@ -4,9 +4,12 @@
 
 namespace
 {
-    const int16_t LOGO_W = 28;
+    const int16_t LOGO_W = 27;
     const int16_t LOGO_H = 14;
-    // A pixel-art take on the logo: the letters over the disc.
+    // Where the logo sits in the block.
+    const int16_t LOGO_LEFT = 2, LOGO_TOP = 2;
+    // A pixel-art take on the logo, cut out of the block: the letters over
+    // the disc.
     const char *const LOGO[LOGO_H] = {
         "######...##.....##.######...",
         "##...##..##.....##.##...##..",
@@ -46,8 +49,17 @@ void Dvd::begin(PatternServices *services)
     pattern = services;
     strip = new BottomPanels(*pattern->display);
     top = new SinglePanel(*pattern->display, 0, 0);
-    body.x = int32_t(esp_random() % ((strip->width() - LOGO_W) * 256));
-    body.y = int32_t(esp_random() % ((strip->height() - LOGO_H) * 256));
+    for (int16_t y = 0; y < BLOCK_H; y++)
+    {
+        for (int16_t x = 0; x < BLOCK_W; x++)
+        {
+            const int16_t lx = x - LOGO_LEFT, ly = y - LOGO_TOP;
+            const bool cut = lx >= 0 && lx < LOGO_W && ly >= 0 && ly < LOGO_H && LOGO[ly][lx] == '#';
+            coverage[y * BLOCK_W + x] = cut ? 0 : 255;
+        }
+    }
+    body.x = int32_t(esp_random() % ((strip->width() - BLOCK_W) * 256));
+    body.y = int32_t(esp_random() % ((strip->height() - BLOCK_H) * 256));
     body.vx = (esp_random() & 1 ? SPEED_X : -SPEED_X) * 256;
     body.vy = (esp_random() & 1 ? SPEED_Y : -SPEED_Y) * 256;
     hue = uint8_t(esp_random());
@@ -56,8 +68,7 @@ void Dvd::begin(PatternServices *services)
     corners = 0;
     flashing = false;
     lastMs = millis();
-    const color::RGB c = color::hsv(hue, 255, 255);
-    drawLogo(shownX, shownY, Canvas::color565(c.r, c.g, c.b));
+    drawBlock();
     drawTop(lastMs);
 }
 
@@ -75,7 +86,7 @@ void Dvd::tick()
     // Capped so a stall (a slow push, a flash write) does not teleport it.
     const uint32_t dt = min<uint32_t>(now - lastMs, 100);
     lastMs = now;
-    const bounce::Hits hits = bounce::step(body, (strip->width() - LOGO_W) * 256, (strip->height() - LOGO_H) * 256, dt);
+    const bounce::Hits hits = bounce::step(body, (strip->width() - BLOCK_W) * 256, (strip->height() - BLOCK_H) * 256, dt);
     if (hits.x || hits.y)
     {
         // A clearly different colour at every bounce.
@@ -88,31 +99,45 @@ void Dvd::tick()
         flashStartMs = now;
     }
 
-    const int16_t x = int16_t(body.x >> 8), y = int16_t(body.y >> 8);
-    if (x != shownX || y != shownY || hits.x || hits.y)
-    {
-        // Only the logo's old and new rectangles change.
-        strip->fillRect(shownX, shownY, LOGO_W, LOGO_H, 0);
-        const color::RGB c = color::hsv(hue, 255, 255);
-        drawLogo(x, y, Canvas::color565(c.r, c.g, c.b));
-        shownX = x;
-        shownY = y;
-    }
+    drawBlock();
     if (flashing || hits.corner())
     {
         drawTop(now);
     }
 }
 
-void Dvd::drawLogo(int16_t x, int16_t y, uint16_t color)
+/**
+ * Draws the block at its sub-pixel position: each pixel of the box one
+ * larger than the block blends the four coverage samples it overlaps
+ * (bilinear), so the block's edges and the cut-out move by fractions of a
+ * pixel. Only the old box is cleared and the new one written.
+ */
+void Dvd::drawBlock()
 {
-    for (int16_t r = 0; r < LOGO_H; r++)
+    const int16_t ix = int16_t(body.x >> 8), iy = int16_t(body.y >> 8);
+    const int32_t fx = body.x & 0xFF, fy = body.y & 0xFF;
+    strip->fillRect(shownX, shownY, BLOCK_W + 1, BLOCK_H + 1, 0);
+    shownX = ix;
+    shownY = iy;
+
+    const color::RGB c = color::hsv(hue, 255, 255);
+    auto at = [this](int x, int y) -> int32_t
     {
-        for (int16_t c = 0; c < LOGO_W; c++)
+        return x < 0 || y < 0 || x >= BLOCK_W || y >= BLOCK_H ? 0 : coverage[y * BLOCK_W + x];
+    };
+    for (int16_t j = 0; j <= BLOCK_H; j++)
+    {
+        for (int16_t i = 0; i <= BLOCK_W; i++)
         {
-            if (LOGO[r][c] == '#')
+            // Output pixel (ix + i) covers source [i - frac, i + 1 - frac):
+            // mostly sample i, partly sample i - 1.
+            const int32_t v = (at(i, j) * (256 - fx) * (256 - fy) + at(i - 1, j) * fx * (256 - fy) +
+                               at(i, j - 1) * (256 - fx) * fy + at(i - 1, j - 1) * fx * fy) >>
+                              16;
+            if (v > 0)
             {
-                strip->drawPixel(x + c, y + r, color);
+                strip->drawPixelRGB888(ix + i, iy + j, uint8_t(c.r * v / 255), uint8_t(c.g * v / 255),
+                                       uint8_t(c.b * v / 255));
             }
         }
     }

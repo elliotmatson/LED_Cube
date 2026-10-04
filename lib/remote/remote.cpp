@@ -24,6 +24,11 @@ namespace
         {"report_health", Setting::REPORT_HEALTH, Type::FLAG, 0, 0, 0},
         {"report_usage", Setting::REPORT_USAGE, Type::FLAG, 0, 0, 0},
         {"report_perf", Setting::REPORT_PERF, Type::FLAG, 0, 0, 0},
+        // Lost mode: message and PIN first, then lost_mode true.
+        {"lost_mode", Setting::LOST_MODE, Type::FLAG, 0, 0, 0},
+        {"lost_silent", Setting::LOST_SILENT, Type::FLAG, 0, 0, 0},
+        {"lost_message", Setting::LOST_MESSAGE, Type::TEXT, 0, 0, 120},
+        {"lost_pin", Setting::LOST_PIN, Type::TEXT, 0, 0, 12, 4, true},
         {"restart", Setting::RESTART, Type::ACTION, 0, 0, 0},
         {"check_updates", Setting::CHECK_UPDATES, Type::ACTION, 0, 0, 0},
         {"resend_crash", Setting::RESEND_CRASH, Type::ACTION, 0, 0, 0},
@@ -106,6 +111,21 @@ const char *remote::parse(const char *name, const char *payload, size_t length, 
         if (value.size() > spec->maxLength)
         {
             return "too long";
+        }
+        // Empty is allowed whatever the minimum: it clears (a PIN, say).
+        if (!value.empty() && value.size() < spec->minLength)
+        {
+            return "too short";
+        }
+        if (spec->digitsOnly)
+        {
+            for (char c : value)
+            {
+                if (c < '0' || c > '9')
+                {
+                    return "digits only";
+                }
+            }
         }
         if (value.find('\0') != std::string::npos)
         {

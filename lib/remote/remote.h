@@ -25,6 +25,10 @@ namespace remote
         REPORT_HEALTH,
         REPORT_USAGE,
         REPORT_PERF,
+        LOST_MODE,
+        LOST_SILENT,
+        LOST_MESSAGE,
+        LOST_PIN,
         RESTART,
         CHECK_UPDATES,
         RESEND_CRASH,
@@ -43,8 +47,10 @@ namespace remote
         const char *name; // the topic suffix
         Setting id;
         Type type;
-        long min, max;   // NUMBER: inclusive range
+        long min, max;    // NUMBER: inclusive range
         size_t maxLength; // TEXT
+        size_t minLength = 0;    // TEXT, unless empty (which clears it)
+        bool digitsOnly = false; // TEXT: 0-9 only (a PIN)
     };
 
     struct Command

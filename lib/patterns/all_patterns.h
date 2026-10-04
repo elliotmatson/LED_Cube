@@ -19,6 +19,7 @@
 #include "ticker/ticker.h"
 #include "dvd/dvd.h"
 #include "weather/weather_pattern.h"
+#include "lost/lost.h"
 #include "word_clock/word_clock.h"
 #include "pong/pong_pattern.h"
 #include "breakout/breakout_pattern.h"
@@ -34,7 +35,7 @@
 
 // Array of all patterns. The count is checked against the list in
 // all_patterns.cpp at compile time.
-#define PATTERN_COUNT 26
+#define PATTERN_COUNT 27
 extern Pattern *patternList[PATTERN_COUNT];
 
 #endif

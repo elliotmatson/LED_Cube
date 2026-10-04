@@ -17,6 +17,10 @@ static const char *K_TELEMETRY_INTERVAL = "tmInterval";
 static const char *K_REPORT_HEALTH = "tmHealth";
 static const char *K_REPORT_USAGE = "tmUsage";
 static const char *K_REPORT_PERF = "tmPerf";
+static const char *K_LOST_MODE = "lost";
+static const char *K_LOST_SILENT = "lostSilent";
+static const char *K_LOST_MESSAGE = "lostMsg";
+static const char *K_LOST_PIN = "lostPin";
 static const char *K_LEGACY = "cubePrefs";
 
 static const uint64_t FLUSH_DELAY_US = 2 * 1000 * 1000;
@@ -57,6 +61,10 @@ bool Settings::begin()
     _reportHealth = _prefs.getBool(K_REPORT_HEALTH, _reportHealth);
     _reportUsage = _prefs.getBool(K_REPORT_USAGE, _reportUsage);
     _reportPerf = _prefs.getBool(K_REPORT_PERF, _reportPerf);
+    _lostMode = _prefs.getBool(K_LOST_MODE, _lostMode);
+    _lostSilent = _prefs.getBool(K_LOST_SILENT, _lostSilent);
+    _lostMessage = _prefs.getString(K_LOST_MESSAGE, "").c_str();
+    _lostPin = _prefs.getString(K_LOST_PIN, "").c_str();
     if (_prefs.isKey("HW"))
     {
         _hardware = _prefs.getString("HW").c_str();
@@ -140,6 +148,10 @@ SETTER(setTelemetryInterval(uint32_t seconds), _telemetryInterval, TELEMETRY_INT
 SETTER(setReportHealth(bool value), _reportHealth, REPORT_HEALTH, value)
 SETTER(setReportUsage(bool value), _reportUsage, REPORT_USAGE, value)
 SETTER(setReportPerf(bool value), _reportPerf, REPORT_PERF, value)
+SETTER(setLostMode(bool value), _lostMode, LOST_MODE, value)
+SETTER(setLostSilent(bool value), _lostSilent, LOST_SILENT, value)
+SETTER(setLostMessage(const std::string &text), _lostMessage, LOST_MESSAGE, text)
+SETTER(setLostPin(const std::string &saltedHash), _lostPin, LOST_PIN, saltedHash)
 
 #undef SETTER
 
@@ -155,6 +167,22 @@ std::string Settings::tickerText() const
 {
     xSemaphoreTake(_lock, portMAX_DELAY);
     std::string copy = _tickerText;
+    xSemaphoreGive(_lock);
+    return copy;
+}
+
+std::string Settings::lostMessage() const
+{
+    xSemaphoreTake(_lock, portMAX_DELAY);
+    std::string copy = _lostMessage;
+    xSemaphoreGive(_lock);
+    return copy;
+}
+
+std::string Settings::lostPin() const
+{
+    xSemaphoreTake(_lock, portMAX_DELAY);
+    std::string copy = _lostPin;
     xSemaphoreGive(_lock);
     return copy;
 }
@@ -178,7 +206,7 @@ std::string Settings::timezone() const
 void Settings::flush()
 {
     xSemaphoreTake(_lock, portMAX_DELAY);
-    uint16_t dirty = _dirty;
+    uint32_t dirty = _dirty;
     _dirty = 0;
     if (dirty & BRIGHTNESS)
         _prefs.putUChar(K_BRIGHTNESS, _brightness);
@@ -212,6 +240,14 @@ void Settings::flush()
         _prefs.putBool(K_REPORT_USAGE, _reportUsage);
     if (dirty & REPORT_PERF)
         _prefs.putBool(K_REPORT_PERF, _reportPerf);
+    if (dirty & LOST_MODE)
+        _prefs.putBool(K_LOST_MODE, _lostMode);
+    if (dirty & LOST_SILENT)
+        _prefs.putBool(K_LOST_SILENT, _lostSilent);
+    if (dirty & LOST_MESSAGE)
+        _prefs.putString(K_LOST_MESSAGE, _lostMessage.c_str());
+    if (dirty & LOST_PIN)
+        _prefs.putString(K_LOST_PIN, _lostPin.c_str());
     if (dirty)
     {
         log("Saved settings");

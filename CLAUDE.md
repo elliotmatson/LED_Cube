@@ -59,6 +59,7 @@ lib/cube/updates.*           upload card, ArduinoOTA, GitHub updater, update pro
 lib/cube/settings.*          persistent settings (NVS)
 lib/cube/boot_log.*          the last few boots: version, reset reason, how far startup got
 lib/cube/telemetry.*         MQTT reports to the broker and settings from it (see README, Telemetry)
+lib/cube/lost_mode.*         lost mode's unlock PIN and its search for open networks (Cube::setLost does the rest)
 lib/cube_utils/              Pattern base class; SinglePanel/BottomPanels views (one ChainView base)
 lib/cube_geometry/           hardware-free: face mappings, seam stepping, 3D surface mapping, projection
 lib/life/                    hardware-free Game of Life step
@@ -169,6 +170,10 @@ scripts/capture_patterns.py --host cube.local <pattern id>` (frames come from
   A reset before that point rolls the update back. `BootLog` records every
   boot's version, reset reason and how far startup got (`/api/v1/boots`,
   and the Startup card): a failed startup shows the stage it stopped at.
+- **Lost mode locks every control.** A new dashboard handler or API POST
+  needs the `locked()` check its neighbours have, or it becomes a way round
+  lost mode. Reset WiFi and the setup portal stay open deliberately. The Lost
+  pattern is `hidden`: never listed, saved or selectable.
 - **Telemetry credentials are public.** `MQTT_URL`, `MQTT_USER` and
   `MQTT_PASSWORD` come from the gitignored `secrets.h` (CI writes it from
   repository secrets), but anything compiled in can be read out of a release.

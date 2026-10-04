@@ -80,6 +80,19 @@ public:
     bool reportPerf() const { return _reportPerf; }
     void setReportPerf(bool value);
 
+    /// Lost mode (see LostMode): kept apart from the WiFi credentials, so
+    /// setting the cube up on another network never clears it.
+    bool lostMode() const { return _lostMode; }
+    void setLostMode(bool value);
+    /// Lost, but looking normal: no message, patterns as usual.
+    bool lostSilent() const { return _lostSilent; }
+    void setLostSilent(bool value);
+    std::string lostMessage() const;
+    void setLostMessage(const std::string &text);
+    /// "salt:sha256" of the unlock PIN, or empty for none.
+    std::string lostPin() const;
+    void setLostPin(const std::string &saltedHash);
+
     /// Hardware revision written at manufacture (key "HW"), or empty.
     std::string hardware() const { return _hardware; }
 
@@ -93,7 +106,7 @@ public:
     void log(const char *prefix) const;
 
 private:
-    enum Key : uint16_t
+    enum Key : uint32_t
     {
         BRIGHTNESS = 1 << 0,
         DEVELOPMENT = 1 << 1,
@@ -110,7 +123,11 @@ private:
         TELEMETRY_INTERVAL = 1 << 12,
         REPORT_HEALTH = 1 << 13,
         REPORT_USAGE = 1 << 14,
-        REPORT_PERF = 1 << 15, // the last bit of _dirty
+        REPORT_PERF = 1 << 15,
+        LOST_MODE = 1 << 16,
+        LOST_SILENT = 1 << 17,
+        LOST_MESSAGE = 1 << 18,
+        LOST_PIN = 1 << 19,
     };
 
     void changed(Key key);
@@ -119,7 +136,7 @@ private:
     Preferences _prefs;
     SemaphoreHandle_t _lock = nullptr;
     esp_timer_handle_t _flushTimer = nullptr;
-    uint16_t _dirty = 0;
+    uint32_t _dirty = 0;
 
     uint8_t _brightness = 255;
     bool _development = false;
@@ -137,6 +154,10 @@ private:
     bool _reportHealth = true;
     bool _reportUsage = true;
     bool _reportPerf = true;
+    bool _lostMode = false;
+    bool _lostSilent = false;
+    std::string _lostMessage;
+    std::string _lostPin;
     std::string _hardware;
     int _legacyPatternIndex = -1;
 };

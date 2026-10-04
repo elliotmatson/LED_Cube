@@ -79,11 +79,23 @@ void test_every_spec_is_findable(void)
 {
     size_t count = 0;
     const remote::Spec *all = remote::specs(count);
-    TEST_ASSERT_EQUAL_INT(16, (int)count);
+    TEST_ASSERT_EQUAL_INT(20, (int)count);
     for (size_t i = 0; i < count; i++)
     {
         TEST_ASSERT_EQUAL_PTR(&all[i], remote::find(all[i].name));
     }
+}
+
+void test_a_pin_is_four_to_twelve_digits(void)
+{
+    TEST_ASSERT_NULL(parse("lost_pin", "4821"));
+    TEST_ASSERT_EQUAL_STRING("4821", cmd.text.c_str());
+    TEST_ASSERT_NULL(parse("lost_pin", "\"123456789012\""));
+    TEST_ASSERT_EQUAL_STRING("too short", parse("lost_pin", "123"));
+    TEST_ASSERT_EQUAL_STRING("too long", parse("lost_pin", "1234567890123"));
+    TEST_ASSERT_EQUAL_STRING("digits only", parse("lost_pin", "12a4"));
+    TEST_ASSERT_NULL(parse("lost_pin", "")); // removes the PIN
+    TEST_ASSERT_EQUAL_STRING("", cmd.text.c_str());
 }
 
 int main(int, char **)
@@ -95,5 +107,6 @@ int main(int, char **)
     RUN_TEST(test_text_is_unwrapped_and_limited);
     RUN_TEST(test_actions_ignore_their_payload);
     RUN_TEST(test_every_spec_is_findable);
+    RUN_TEST(test_a_pin_is_four_to_twelve_digits);
     return UNITY_END();
 }

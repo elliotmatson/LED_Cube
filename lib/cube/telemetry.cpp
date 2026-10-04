@@ -33,6 +33,8 @@ namespace
     const uint32_t WAKE_SETTINGS = 1 << 1;
     const uint32_t WAKE_RESEND_CRASH = 1 << 2;
     const uint32_t WAKE_RESTART = 1 << 3;
+    const uint32_t WAKE_LOST = 1 << 4;
+    const uint32_t LOCATION_INTERVAL_MS = 2 * 60 * 1000;
 
     // Scanning takes the radio off its channel for a couple of seconds, so
     // not with every report.
@@ -54,9 +56,10 @@ namespace
     }
 }
 
-void Telemetry::begin(Settings &s, BootLog &log, Renderer &r, CommandHandler h)
+void Telemetry::begin(Settings &s, BootLog &log, Renderer &r, LostMode &lost, CommandHandler h)
 {
     settings = &s;
+    lostMode = &lost;
     bootLog = &log;
     renderer = &r;
     handler = h;
@@ -156,6 +159,14 @@ void Telemetry::settingsChanged()
     if (taskHandle)
     {
         xTaskNotify(taskHandle, WAKE_SETTINGS, eSetBits);
+    }
+}
+
+void Telemetry::lostChanged()
+{
+    if (taskHandle)
+    {
+        xTaskNotify(taskHandle, WAKE_LOST, eSetBits);
     }
 }
 
@@ -302,13 +313,37 @@ void Telemetry::task()
         if (!bootSent)
         {
             // Once a boot, after the first connection.
-            fetchPublicIp();
+            fetchPublicIp(true);
             publishBoot();
+            publishNetwork();
             publishSettings();
             publishCrash(false);
             publishWifiScan();
             bootSent = true;
             lastReportMs = lastScanMs = millis();
+            wake |= WAKE_LOST; // report lost mode at once if it is on
+        }
+        else if (wake & WAKE_CONNECTED)
+        {
+            // Back online, perhaps somewhere else: say where.
+            fetchPublicIp(true);
+            publishNetwork();
+            if (settings->lostMode())
+            {
+                wake |= WAKE_LOST;
+            }
+        }
+        if (wake & WAKE_LOST)
+        {
+            publishLost();
+            if (settings->lostMode())
+            {
+                publishLocation();
+            }
+        }
+        else if (settings->lostMode() && millis() - lastLocationMs >= LOCATION_INTERVAL_MS)
+        {
+            publishLocation();
         }
         if (millis() - lastScanMs >= SCAN_INTERVAL_MS)
         {
@@ -347,9 +382,9 @@ void Telemetry::task()
     }
 }
 
-void Telemetry::fetchPublicIp()
+void Telemetry::fetchPublicIp(bool force)
 {
-    if (publicIp.length())
+    if (publicIp.length() && !force)
     {
         return;
     }
@@ -361,6 +396,10 @@ void Telemetry::fetchPublicIp()
     {
         publicIp = http.getString();
         publicIp.trim();
+    }
+    else if (force)
+    {
+        publicIp = ""; // stale: the network may have changed
     }
     http.end();
 }
@@ -418,7 +457,7 @@ void Telemetry::publishBoot()
     }
     String body;
     serializeJson(doc, body);
-    publish("boot", body, 1);
+    publish("boot", body, 1, true);
 }
 
 void Telemetry::publishSettings()
@@ -437,6 +476,10 @@ void Telemetry::publishSettings()
     doc["report_health"] = settings->reportHealth();
     doc["report_usage"] = settings->reportUsage();
     doc["report_perf"] = settings->reportPerf();
+    doc["lost_mode"] = settings->lostMode();
+    doc["lost_silent"] = settings->lostSilent();
+    doc["lost_message"] = settings->lostMessage();
+    doc["lost_pin_set"] = !settings->lostPin().empty();
     String body;
     serializeJson(doc, body);
     publish("settings", body, 1, true);
@@ -452,6 +495,7 @@ void Telemetry::publishHealth()
     doc["free_psram"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     doc["min_free_psram"] = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
     doc["rssi"] = WiFi.RSSI();
+    doc["ssid"] = WiFi.SSID();
     doc["bssid"] = WiFi.BSSIDstr(); // the access point, which can change (roaming, mesh)
     doc["channel"] = WiFi.channel();
     doc["pattern"] = settings->pattern();
@@ -491,28 +535,21 @@ void Telemetry::publishUsage()
     publish("usage", body);
 }
 
-/// The networks in range, strongest first: names, access points, signal,
-/// channel and security.
-void Telemetry::publishWifiScan()
+/// Scans (blocking, in this task: up to ~120 ms a channel, staying
+/// connected) and adds up to `max` networks, strongest first. Returns how many
+/// were found, or a negative error.
+int Telemetry::scanInto(JsonArray nets, int max)
 {
-    const uint32_t start = millis();
-    // Blocking, in this task: up to ~120 ms a channel, staying connected.
     const int16_t found = WiFi.scanNetworks(false, true, false, 120);
     if (found < 0)
     {
         ESP_LOGW(TAG, "WiFi scan failed (%d)", found);
-        return;
+        return found;
     }
     static const char *const AUTH[] = {"open", "wep", "wpa", "wpa2", "wpa/wpa2", "wpa2-enterprise", "wpa3", "wpa2/wpa3",
                                        "wapi", "owe", "wpa3-enterprise-192", "wpa3-ext-psk", "wpa3-ext-psk-mixed",
                                        "dpp", "wpa3-enterprise", "wpa2/wpa3-enterprise"};
-    JsonDocument doc;
-    doc["count"] = found;
-    doc["scan_ms"] = millis() - start;
-    doc["connected_bssid"] = WiFi.BSSIDstr();
-    JsonArray nets = doc["networks"].to<JsonArray>();
-    // Results come back strongest first.
-    for (int i = 0; i < found && i < MAX_SCAN_RESULTS; i++)
+    for (int i = 0; i < found && i < max; i++)
     {
         JsonObject n = nets.add<JsonObject>();
         n["ssid"] = WiFi.SSID(i);
@@ -523,9 +560,94 @@ void Telemetry::publishWifiScan()
         n["auth"] = auth < sizeof(AUTH) / sizeof(AUTH[0]) ? AUTH[auth] : "other";
     }
     WiFi.scanDelete();
+    return found;
+}
+
+/// The networks in range: names, access points, signal, channel, security.
+void Telemetry::publishWifiScan()
+{
+    const uint32_t start = millis();
+    JsonDocument doc;
+    doc["connected_ssid"] = WiFi.SSID();
+    doc["connected_bssid"] = WiFi.BSSIDstr();
+    const int found = scanInto(doc["networks"].to<JsonArray>(), MAX_SCAN_RESULTS);
+    if (found < 0)
+    {
+        return;
+    }
+    doc["count"] = found;
+    doc["scan_ms"] = millis() - start;
     String body;
     serializeJson(doc, body);
-    publish("wifi", body);
+    publish("wifi", body, 0, true);
+}
+
+/// Where the cube is online now. Sent on every (re)connection.
+void Telemetry::publishNetwork()
+{
+    JsonDocument doc;
+    doc["ssid"] = WiFi.SSID();
+    doc["bssid"] = WiFi.BSSIDstr();
+    doc["rssi"] = WiFi.RSSI();
+    doc["channel"] = WiFi.channel();
+    doc["ip"] = WiFi.localIP().toString();
+    doc["public_ip"] = publicIp;
+    doc["via"] = lostMode ? lostMode->via() : "saved";
+    doc["uptime_s"] = millis() / 1000;
+    time_t now = time(nullptr);
+    if (now > 1700000000)
+    {
+        doc["time"] = (long long)now;
+    }
+    String body;
+    serializeJson(doc, body);
+    publish("network", body, 1, true);
+}
+
+/// While lost: everything that could place the cube. A fresh public IP, the
+/// network and access point it is on, and what else is in range (nearby
+/// access points can be geolocated).
+void Telemetry::publishLocation()
+{
+    lastLocationMs = millis();
+    fetchPublicIp(true);
+    JsonDocument doc;
+    doc["lost"] = settings->lostMode();
+    doc["public_ip"] = publicIp;
+    doc["ssid"] = WiFi.SSID();
+    doc["bssid"] = WiFi.BSSIDstr();
+    doc["rssi"] = WiFi.RSSI();
+    doc["channel"] = WiFi.channel();
+    doc["ip"] = WiFi.localIP().toString();
+    doc["via"] = lostMode ? lostMode->via() : "saved";
+    doc["uptime_s"] = millis() / 1000;
+    time_t now = time(nullptr);
+    if (now > 1700000000)
+    {
+        doc["time"] = (long long)now;
+    }
+    scanInto(doc["networks"].to<JsonArray>(), 15);
+    String body;
+    serializeJson(doc, body);
+    publish("location", body, 1, true);
+}
+
+void Telemetry::publishLost()
+{
+    JsonDocument doc;
+    doc["active"] = settings->lostMode();
+    doc["silent"] = settings->lostSilent();
+    doc["message"] = settings->lostMessage();
+    doc["pin_set"] = !settings->lostPin().empty();
+    doc["uptime_s"] = millis() / 1000;
+    time_t now = time(nullptr);
+    if (now > 1700000000)
+    {
+        doc["time"] = (long long)now;
+    }
+    String body;
+    serializeJson(doc, body);
+    publish("lost", body, 1, true);
 }
 
 void Telemetry::publishPerf()

@@ -27,6 +27,8 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                spotifyLogout(dashboard, "Log out of Spotify"),
                bootStatus(dashboard, "Startup", dash::Status::NONE),
                telemetryStatus(dashboard, "Telemetry", dash::Status::NONE),
+               lostStatus(dashboard, "Lost mode", dash::Status::NONE),
+               lostUnlock(dashboard, "Unlock lost mode (PIN)", "Enter the PIN the owner set"),
                weatherStatus(dashboard, "Weather", dash::Status::NONE),
                weatherLocation(dashboard, "Weather Location", "City or postcode; blank to use the cube's IP address"),
                weatherMetric(dashboard, "Weather in \u00b0C and km/h"),
@@ -74,7 +76,11 @@ void Cube::init()
 
     renderer.begin(dma_display, &server, [this](Pattern *pattern)
                    {
-        settings.setPattern(pattern->getId());
+        // Not the Lost pattern: the saved one is where an unlock returns to.
+        if (!pattern->isHidden())
+        {
+            settings.setPattern(pattern->getId());
+        }
         telemetry.patternShown(pattern->getId());
         dashboard.sendUpdates(); });
     bootLog.reached(BootLog::BOOT_PATTERNS);
@@ -86,8 +92,12 @@ void Cube::init()
     updates.begin(server, dma_display, settings, renderer, systemTab);
     bootLog.reached(BootLog::BOOT_UPDATES);
     // Reports to the broker, and settings from it, if this build has one.
-    telemetry.begin(settings, bootLog, renderer, [this](const remote::Command &cmd)
+    lostMode.begin(settings, [this]()
+                   { return telemetry.connectedNow(); });
+    telemetry.begin(settings, bootLog, renderer, lostMode, [this](const remote::Command &cmd)
                     { return applyRemote(cmd); });
+    LostPattern::setLabel(telemetry.status().deviceId);
+    LostPattern::setMessage(settings.lostMessage());
 
     leds.setPixelColor(3, 0, 255, 0);
     leds.show();
@@ -100,12 +110,22 @@ void Cube::init()
     int i = 0;
     for (Pattern *pattern : patternList)
     {
+        if (pattern->isHidden())
+        {
+            i++;
+            continue;
+        }
         const std::string name = pattern->getName();
         patternButtonLabels.push_back(name + " Pattern");
         dash::PushButtonCard *card = new dash::PushButtonCard(dashboard, patternButtonLabels.back().c_str());
         ESPDash *dash = &dashboard;
         card->onPush([this, name, i]()
                      {
+                        if (locked())
+                        {
+                            refuseLocked();
+                            return;
+                        }
                         ESP_LOGI("Cube", "Pattern requested: %s", name.c_str());
                         this->renderer.requestPattern(i); });
         // ESP-DASH sorts cards by index, and a Widget's index is not
@@ -156,6 +176,16 @@ void Cube::init()
         }
     }
 
+    // Lost: locked from the start, and showing the owner's message.
+    if (settings.lostMode())
+    {
+        updates.setLocked(true);
+        if (!settings.lostSilent())
+        {
+            startIndex = size_t(patternIndex("lost"));
+        }
+    }
+    refreshLostStatus();
     renderer.requestPattern(startIndex);
 
     // Startup got this far, so the image works: stop the bootloader rolling
@@ -171,6 +201,11 @@ void Cube::init()
  */
 void Cube::showPattern(const char *id, bool onlyIfShowing)
 {
+    // Only lost mode itself may show something else while it is on.
+    if (locked() && strcmp(id, "lost") != 0)
+    {
+        return;
+    }
     if (onlyIfShowing && settings.pattern() != id)
     {
         return;
@@ -275,15 +310,43 @@ std::string Cube::applyRemote(const remote::Command &cmd)
     switch (cmd.id)
     {
     case Setting::PATTERN:
+        if (locked())
+        {
+            return "in lost mode: clear lost_mode first";
+        }
         for (Pattern *p : patternList)
         {
-            if (p->getId() == cmd.text)
+            if (p->getId() == cmd.text && !p->isHidden())
             {
                 showPattern(cmd.text.c_str());
                 return "";
             }
         }
         return "no such pattern";
+    case Setting::LOST_MODE:
+        setLost(cmd.flag, "mqtt");
+        break;
+    case Setting::LOST_SILENT:
+        settings.setLostSilent(cmd.flag);
+        if (locked())
+        {
+            // Switch between showing the message and looking normal.
+            renderer.requestPattern(cmd.flag ? size_t(patternIndex(settings.pattern().c_str())) : size_t(patternIndex("lost")));
+            telemetry.lostChanged();
+        }
+        break;
+    case Setting::LOST_MESSAGE:
+        settings.setLostMessage(cmd.text);
+        LostPattern::setMessage(cmd.text);
+        if (locked())
+        {
+            telemetry.lostChanged();
+        }
+        break;
+    case Setting::LOST_PIN:
+        lostMode.setPin(cmd.text);
+        refreshLostStatus();
+        break;
     case Setting::BRIGHTNESS:
         setBrightness(uint8_t(cmd.number));
         brightnessSlider.setValue(int(cmd.number));
@@ -353,6 +416,76 @@ std::string Cube::applyRemote(const remote::Command &cmd)
     }
     dashboard.sendUpdates();
     return "";
+}
+
+int Cube::patternIndex(const char *id)
+{
+    for (size_t p = 0; p < std::size(patternList); p++)
+    {
+        if (patternList[p]->getId() == id)
+        {
+            return int(p);
+        }
+    }
+    return 0;
+}
+
+/**
+ * Turns lost mode on or off (see LostMode): saved at once, the dashboard,
+ * API and firmware uploads locked or unlocked, the message shown (unless
+ * silent) or the saved pattern brought back, and the broker told.
+ */
+void Cube::setLost(bool on, const char *source)
+{
+    ESP_LOGW("Lost", "Lost mode %s (%s)", on ? "on" : "off", source);
+    settings.setLostMode(on);
+    settings.flush(); // a power cut right after must not lose it
+    updates.setLocked(on);
+    if (on)
+    {
+        LostPattern::setMessage(settings.lostMessage());
+        if (!settings.lostSilent())
+        {
+            renderer.requestPattern(size_t(patternIndex("lost")));
+        }
+    }
+    else
+    {
+        renderer.requestPattern(size_t(patternIndex(settings.pattern().c_str())));
+    }
+    refreshLostStatus();
+    telemetry.lostChanged();
+    dashboard.sendUpdates();
+}
+
+void Cube::refuseLocked()
+{
+    // Put every control back as it is: the change was not made.
+    otaToggle.setValue(settings.ota());
+    developmentToggle.setValue(settings.development());
+    GHUpdateToggle.setValue(settings.github());
+    signedFWOnlyToggle.setValue(settings.signedFirmwareOnly());
+    brightnessSlider.setValue(settings.brightness());
+    latchSlider.setValue(settings.latchBlanking());
+    use20MHzToggle.setValue(settings.use20MHz());
+    timezoneDropdown.setValue(currentTimezone().name);
+    tickerInput.setValue(settings.tickerText().c_str());
+    weatherLocation.setValue(settings.weatherLocation().c_str());
+    weatherMetric.setValue(settings.weatherMetric());
+    refreshLostStatus();
+    dashboard.sendUpdates();
+}
+
+void Cube::refreshLostStatus()
+{
+    if (!locked())
+    {
+        lostStatus.setFeedback("Off", dash::Status::NONE);
+        return;
+    }
+    lostStatus.setFeedback(lostMode.hasPin() ? "This cube is in lost mode. Settings are locked; enter the PIN to unlock it."
+                                             : "This cube is in lost mode. Settings are locked; only its owner can unlock it.",
+                           dash::Status::DANGER);
 }
 
 void Cube::refreshTelemetryStatus()
@@ -492,37 +625,72 @@ void Cube::initUI()
 
     this->otaToggle.onChange([&](bool state)
                                    {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             updates.setOta(state);
             this->otaToggle.setValue(state);
             this->dashboard.sendUpdates(); });
     this->developmentToggle.onChange([&](bool state)
                                            {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             this->setDevelopment(state);
             this->developmentToggle.setValue(state);
             this->dashboard.sendUpdates(); });
     this->GHUpdateToggle.onChange([&](bool state)
                                         {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             updates.setGithub(state);
             this->GHUpdateToggle.setValue(state);
             this->dashboard.sendUpdates(); });
     this->signedFWOnlyToggle.onChange([&](bool state)
                                             {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             this->setSignedFWOnly(state);
             this->signedFWOnlyToggle.setValue(state);
             this->dashboard.sendUpdates(); });
     brightnessSlider.onChange([&](int value)
                                     {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             this->setBrightness(value);
             this->brightnessSlider.setValue(value);
             this->dashboard.sendUpdates(); });
     latchSlider.onChange([&](int value)
                                {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             this->dma_display->setLatBlanking(value);
             settings.setLatchBlanking(value);
             this->latchSlider.setValue(value);
             this->dashboard.sendUpdates(); });
     use20MHzToggle.onChange([&](bool state)
                                   {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             settings.setUse20MHz(state);
             this->use20MHzToggle.setValue(state);
             this->dashboard.sendUpdates(); });
@@ -541,12 +709,22 @@ void Cube::initUI()
             this->dashboard.sendUpdates(); });
     crashMe.onPush([&]()
                            {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             ESP_LOGI(__func__,"Crashing...");
             int *p = NULL;
             *p = 80;
             this->dashboard.sendUpdates(); });
     timezoneDropdown.onChange([this](const dash::string &name)
                               {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             const timezones::Zone *zone = timezones::find(name.c_str());
             if (zone != nullptr)
             {
@@ -566,6 +744,11 @@ void Cube::initUI()
     spotifyClientId.setValue(Spotify::account().clientId.c_str());
     spotifyClientId.onChange([this](const std::optional<dash::string> &value)
                              {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             std::string id = value ? std::string(value->c_str()) : std::string();
             while (!id.empty() && isspace((unsigned char)id.back()))
                 id.pop_back();
@@ -578,6 +761,11 @@ void Cube::initUI()
     spotifyClientSecret.setValue(Spotify::account().hasSecret ? "saved" : "");
     spotifyClientSecret.onChange([this](const std::optional<const char *> &value)
                                  {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             std::string secret = value && *value ? std::string(*value) : std::string();
             while (!secret.empty() && isspace((unsigned char)secret.back()))
                 secret.pop_back();
@@ -587,6 +775,11 @@ void Cube::initUI()
             refreshSpotifyStatus(); });
     spotifyLogout.onPush([this]()
                          {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             Spotify::logOut();
             showPattern("spotify", true);
             refreshSpotifyStatus(); });
@@ -609,10 +802,20 @@ void Cube::initUI()
     WeatherPattern::setMetric(settings.weatherMetric());
     weatherLocation.setValue(settings.weatherLocation().c_str());
     weatherLocation.onChange([this](const std::optional<dash::string> &value)
-                             { setWeatherLocation(value ? std::string(value->c_str()) : std::string()); });
+                             {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            } setWeatherLocation(value ? std::string(value->c_str()) : std::string()); });
     weatherMetric.setValue(settings.weatherMetric());
     weatherMetric.onChange([this](bool metric)
                            {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             settings.setWeatherMetric(metric);
             WeatherPattern::setMetric(metric);
             weatherMetric.setValue(metric);
@@ -628,6 +831,11 @@ void Cube::initUI()
     tickerInput.setValue(settings.tickerText().c_str());
     tickerInput.onChange([this](const std::optional<dash::string> &value)
                          {
+            if (locked())
+            {
+                refuseLocked();
+                return;
+            }
             std::string text = value ? std::string(value->c_str()) : std::string();
             if (text.size() > TICKER_MAX_LENGTH)
             {
@@ -647,6 +855,37 @@ void Cube::initUI()
         bootStatus.setTab(systemTab);
     }
     telemetryStatus.setTab(systemTab);
+    lostStatus.setTab(systemTab);
+    lostUnlock.setTab(systemTab);
+    lostUnlock.onChange([this](const std::optional<const char *> &value)
+                        {
+            const std::string pin = value && *value ? std::string(*value) : std::string();
+            lostUnlock.setValue("");
+            uint32_t wait = 0;
+            switch (lostMode.tryUnlock(pin, wait))
+            {
+            case LostMode::Unlock::OK:
+                setLost(false, "pin");
+                lostStatus.setFeedback("Unlocked", dash::Status::SUCCESS);
+                break;
+            case LostMode::Unlock::WRONG:
+                lostStatus.setFeedback(wait ? "Wrong PIN. Too many tries: wait 15 minutes." : "Wrong PIN", dash::Status::DANGER);
+                break;
+            case LostMode::Unlock::LOCKED_OUT:
+            {
+                char text[64];
+                snprintf(text, sizeof(text), "Too many tries: wait %lu minutes", (unsigned long)(wait + 59) / 60);
+                lostStatus.setFeedback(text, dash::Status::DANGER);
+                break;
+            }
+            case LostMode::Unlock::NO_PIN:
+                lostStatus.setFeedback("No PIN was set: only the owner can unlock this cube", dash::Status::DANGER);
+                break;
+            case LostMode::Unlock::NOT_LOST:
+                lostStatus.setFeedback("Not in lost mode", dash::Status::NONE);
+                break;
+            }
+            dashboard.sendUpdates(); });
 
     this->rebootButton.setTab(systemTab);
     this->resetWifiButton.setTab(systemTab);
@@ -682,6 +921,11 @@ void Cube::initAPI()
               { request->send(200, "application/json", String("{\"brightness\":") + this->getBrightness() + "}"); });
     server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
               {
+        if (locked())
+        {
+            request->send(423, "application/json", "{\"error\": \"locked: this cube is in lost mode\"}");
+            return;
+        }
         //print request
         ESP_LOGI(__func__,"POST %s", request->url().c_str());
         if (request->hasArg("brightness"))
@@ -790,6 +1034,10 @@ void Cube::initAPI()
         JsonArray list = doc["patterns"].to<JsonArray>();
         for (Pattern *pattern : patternList)
         {
+            if (pattern->isHidden())
+            {
+                continue;
+            }
             JsonObject p = list.add<JsonObject>();
             p["id"] = pattern->getId();
             p["name"] = pattern->getName();
@@ -799,10 +1047,15 @@ void Cube::initAPI()
         request->send(200, "application/json", body); });
     server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
               {
+        if (locked())
+        {
+            request->send(423, "application/json", "{\"error\": \"locked: this cube is in lost mode\"}");
+            return;
+        }
         const String id = request->hasArg("id") ? request->arg("id") : String();
         for (size_t i = 0; i < std::size(patternList); i++)
         {
-            if (id == patternList[i]->getId().c_str())
+            if (id == patternList[i]->getId().c_str() && !patternList[i]->isHidden())
             {
                 renderer.requestPattern(i);
                 request->send(202, "application/json", String("{\"requested\":\"") + id + "\"}");
@@ -859,6 +1112,11 @@ void Cube::initAPI()
         request->send(200, "application/json", body); });
     server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
               {
+        if (locked())
+        {
+            request->send(423, "application/json", "{\"error\": \"locked: this cube is in lost mode\"}");
+            return;
+        }
         if (!request->hasArg("text"))
         {
             request->send(400, "application/json", "{\"error\": \"No text parameter\"}");
@@ -912,6 +1170,11 @@ void Cube::initAPI()
         request->send(200, "application/json", body); });
     server.on(uri, HTTP_POST, [&](AsyncWebServerRequest *request)
               {
+        if (locked())
+        {
+            request->send(423, "application/json", "{\"error\": \"locked: this cube is in lost mode\"}");
+            return;
+        }
         if (!request->hasArg("location") && !request->hasArg("metric") && !request->hasArg("preview"))
         {
             request->send(400, "application/json", "{\"error\": \"Give location, metric or preview\"}");

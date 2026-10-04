@@ -36,6 +36,7 @@
 #include "settings.h"
 #include "boot_log.h"
 #include "telemetry.h"
+#include "lost_mode.h"
 #include "renderer.h"
 #include "updates.h"
 #include "timezones.h"
@@ -61,6 +62,7 @@ private:
     Settings settings;
     BootLog bootLog;
     Telemetry telemetry;
+    LostMode lostMode;
     Renderer renderer;
     std::unordered_map<std::string, Pattern *> patterns;
     std::vector<std::string> patternButtonLabels;
@@ -91,6 +93,8 @@ private:
     dash::PushButtonCard spotifyLogout;
     dash::FeedbackCard<> bootStatus;
     dash::FeedbackCard<> telemetryStatus;
+    dash::FeedbackCard<> lostStatus;
+    dash::PasswordCard lostUnlock;
     dash::FeedbackCard<> weatherStatus;
     dash::InputCard<dash::string> weatherLocation;
     dash::ToggleButtonCard weatherMetric;
@@ -124,6 +128,13 @@ private:
     void setTimezone(const timezones::Zone &zone);
     std::string applyRemote(const remote::Command &cmd);
     void refreshTelemetryStatus();
+    /// Lost mode: the dashboard and API refuse changes while it is on.
+    bool locked() { return settings.lostMode(); }
+    void setLost(bool on, const char *source);
+    /// Puts the dashboard back as it was after refusing a change.
+    void refuseLocked();
+    void refreshLostStatus();
+    int patternIndex(const char *id);
 };
 
 #endif

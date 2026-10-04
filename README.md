@@ -99,11 +99,14 @@ Each cube picks a random ID once and publishes under `cube/<id>/`, as JSON:
 | Topic | When | Contents |
 |---|---|---|
 | `status` | retained | `online`, or `offline` (the broker publishes that if the cube drops) |
-| `boot` | each boot | firmware version and build, chip, MAC address, WiFi network (SSID, BSSID, signal, channel), local and **public IP**, the boot log (reset reasons, rollbacks, how far startup got) |
-| `health` | every interval | uptime, memory and its low-water marks, signal, current access point (BSSID), pattern |
+| `boot` | each boot (retained) | firmware version and build, chip, MAC address, WiFi network (SSID, BSSID, signal, channel), local and **public IP**, the boot log (reset reasons, rollbacks, how far startup got) |
+| `network` | each (re)connection (retained) | SSID, BSSID, signal, local and public IP, and whether it is on its own network or an open one |
+| `health` | every interval | uptime, memory and its low-water marks, signal, current network (SSID, BSSID), pattern |
 | `usage` | every interval | seconds per pattern, brightness, whether Spotify, a weather location and a ticker message are set |
 | `perf` | every interval | the renderer's frame rate and tick/push times |
-| `wifi` | boot, then hourly | a scan of the networks in range: SSID, BSSID, signal, channel, security |
+| `wifi` | boot, then hourly (retained) | a scan of the networks in range: SSID, BSSID, signal, channel, security |
+| `location` | while lost: every 2 minutes (retained) | a fresh public IP, its network and access point, and a scan of what is in range |
+| `lost` | when lost mode changes (retained) | whether it is on, silent, its message, whether a PIN is set |
 | `crash` | once per crash | a summary (task, PC, cause, backtrace), then the core dump in base64 parts on `crash/<n>` |
 | `settings` | retained | current settings |
 | `ack` | per command | whether a command was applied, and why not |
@@ -120,7 +123,21 @@ Commands are messages to `cube/<id>/set/<name>`:
 | `weather_metric`, `github_updates`, `development`, `ota` | `true` / `false` |
 | `telemetry_interval` | seconds, 60-86400 |
 | `report_health`, `report_usage`, `report_perf` | `true` / `false` |
+| `lost_message` | text shown in lost mode (up to 120 characters) |
+| `lost_pin` | 4-12 digits that unlock it on its dashboard; empty removes it |
+| `lost_silent` | `true`: in lost mode, keep looking normal |
+| `lost_mode` | `true` / `false` |
 | `restart`, `check_updates`, `resend_crash` | anything (actions) |
+
+### Lost mode
+
+If a cube goes missing, set `lost_message` (and `lost_pin`, if whoever finds it should be able to unlock it), then `lost_mode` `true`:
+
+- It shows the message, scrolling round the sides, with LOST and its ID on top -- unless `lost_silent` is set, when it keeps showing patterns as usual.
+- Its dashboard and API refuse changes (status still reads), and the upload card and ArduinoOTA refuse firmware. GitHub updates still install.
+- It reports a `location` every two minutes, and `network` whenever it comes online anywhere.
+- WiFi setup stays open on purpose: someone setting it up on their own network is its likeliest way back online. If it is offline for a few minutes, it also tries nearby open networks, keeping one only if the broker can be reached through it; its saved network is never overwritten.
+- It persists through restarts, power loss and WiFi resets. `lost_mode` `false`, or the PIN on the dashboard's System tab, turns it off. PIN guesses are limited: after five wrong ones, one every 15 minutes.
 
 ### Broker setup
 

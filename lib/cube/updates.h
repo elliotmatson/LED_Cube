@@ -84,6 +84,11 @@ public:
     /// GitHub updates are off.
     bool checkNow();
 
+    /// Lost mode: refuse firmware from the upload card and ArduinoOTA, so
+    /// the cube cannot be wiped over the network. GitHub updates (the
+    /// owner's own releases) still install.
+    void setLocked(bool locked);
+
 private:
     void initFirmwareUpload();
     firmware_image::Expected expectedImage();
@@ -135,6 +140,7 @@ private:
     SemaphoreHandle_t animationDone = nullptr;
 
     TaskHandle_t otaTask = nullptr;
+    volatile bool locked = false;
     TaskHandle_t githubTask = nullptr;
 };
 

@@ -18,11 +18,12 @@
 #include "plane_sweep/plane_sweep.h"
 #include "ticker/ticker.h"
 #include "dvd/dvd.h"
+#include "lava_lamp/lava_lamp.h"
 
 
 // Array of all patterns. The count is checked against the list in
 // all_patterns.cpp at compile time.
-#define PATTERN_COUNT 14
+#define PATTERN_COUNT 15
 extern Pattern *patternList[PATTERN_COUNT];
 
 #endif

@@ -1,6 +1,6 @@
 #include "dvd.h"
 
-#include <Fonts/FreeSansBold18pt7b.h>
+#include "fonts.h"
 
 namespace
 {

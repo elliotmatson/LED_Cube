@@ -19,4 +19,12 @@ Pattern *patternList[] = {
     new Ticker(),
     new Dvd(),
     new PongPattern(),
+    new MazePattern(),
+    new LangtonsAnt(),
+    new Fire(),
+    new Aquarium(),
+    new Fireworks(),
+    new LavaLamp(),
+    new Aurora(),
+    new Hyperspace(),
 };

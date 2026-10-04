@@ -11,6 +11,8 @@ static const char *K_20MHZ = "use20MHz";
 static const char *K_PATTERN = "pattern";
 static const char *K_TIMEZONE = "timezone";
 static const char *K_TICKER = "ticker";
+static const char *K_WEATHER_LOCATION = "wxLocation";
+static const char *K_WEATHER_METRIC = "wxMetric";
 static const char *K_LEGACY = "cubePrefs";
 
 static const uint64_t FLUSH_DELAY_US = 2 * 1000 * 1000;
@@ -44,6 +46,8 @@ bool Settings::begin()
     _pattern = _prefs.getString(K_PATTERN, "").c_str();
     _timezone = _prefs.getString(K_TIMEZONE, "").c_str();
     _tickerText = _prefs.getString(K_TICKER, "").c_str();
+    _weatherLocation = _prefs.getString(K_WEATHER_LOCATION, "").c_str();
+    _weatherMetric = _prefs.getBool(K_WEATHER_METRIC, _weatherMetric);
     if (_prefs.isKey("HW"))
     {
         _hardware = _prefs.getString("HW").c_str();
@@ -121,6 +125,8 @@ SETTER(setUse20MHz(bool value), _use20MHz, CLOCK_20MHZ, value)
 SETTER(setPattern(const std::string &id), _pattern, PATTERN, id)
 SETTER(setTimezone(const std::string &name), _timezone, TIMEZONE, name)
 SETTER(setTickerText(const std::string &text), _tickerText, TICKER, text)
+SETTER(setWeatherLocation(const std::string &text), _weatherLocation, WEATHER_LOCATION, text)
+SETTER(setWeatherMetric(bool value), _weatherMetric, WEATHER_METRIC, value)
 
 #undef SETTER
 
@@ -136,6 +142,14 @@ std::string Settings::tickerText() const
 {
     xSemaphoreTake(_lock, portMAX_DELAY);
     std::string copy = _tickerText;
+    xSemaphoreGive(_lock);
+    return copy;
+}
+
+std::string Settings::weatherLocation() const
+{
+    xSemaphoreTake(_lock, portMAX_DELAY);
+    std::string copy = _weatherLocation;
     xSemaphoreGive(_lock);
     return copy;
 }
@@ -173,6 +187,10 @@ void Settings::flush()
         _prefs.putString(K_TIMEZONE, _timezone.c_str());
     if (dirty & TICKER)
         _prefs.putString(K_TICKER, _tickerText.c_str());
+    if (dirty & WEATHER_LOCATION)
+        _prefs.putString(K_WEATHER_LOCATION, _weatherLocation.c_str());
+    if (dirty & WEATHER_METRIC)
+        _prefs.putBool(K_WEATHER_METRIC, _weatherMetric);
     if (dirty)
     {
         log("Saved settings");

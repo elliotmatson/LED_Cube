@@ -85,10 +85,14 @@ private:
     dash::InputCard<dash::string> spotifyClientId;
     dash::PasswordCard spotifyClientSecret;
     dash::PushButtonCard spotifyLogout;
+    dash::FeedbackCard<> weatherStatus;
+    dash::InputCard<dash::string> weatherLocation;
+    dash::ToggleButtonCard weatherMetric;
     Updates updates; // owns the firmware upload cards
     dash::Tab systemTab;
     dash::Tab developerTab;
     dash::Tab spotifyTab;
+    dash::Tab weatherTab;
 
     // FreeRTOS Tasks
     TaskHandle_t printMemTask = nullptr;
@@ -109,6 +113,8 @@ private:
     const timezones::Zone &currentTimezone();
     void showPattern(const char *id, bool onlyIfShowing = false);
     void refreshSpotifyStatus();
+    void refreshWeatherStatus();
+    void setWeatherLocation(std::string text);
 };
 
 #endif

@@ -15,7 +15,7 @@ Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the
 <tr><td align="center" width="33%"><img src="docs/patterns/clock.webp" alt="Clock" width="220"><br><b>Clock</b><br><sub>An analog dial on top, the time on the right, the date on the left.</sub></td><td align="center" width="33%"><img src="docs/patterns/game_of_life.webp" alt="Game of Life" width="220"><br><b>Game of Life</b><br><sub>Conway's Life on all three faces as one surface; gliders cross the seams.</sub></td><td align="center" width="33%"><img src="docs/patterns/ripples.webp" alt="Ripples" width="220"><br><b>Ripples</b><br><sub>Rings spreading from the corner, plus raindrops.</sub></td></tr>
 <tr><td align="center" width="33%"><img src="docs/patterns/matrix_rain.webp" alt="Matrix Rain" width="220"><br><b>Matrix Rain</b><br><sub>Rain across the top, over the edges and down the sides.</sub></td><td align="center" width="33%"><img src="docs/patterns/nebula.webp" alt="Nebula" width="220"><br><b>Nebula</b><br><sub>A drifting 3D noise cloud the cube is cut out of.</sub></td><td align="center" width="33%"><img src="docs/patterns/wireframes.webp" alt="Wireframes" width="220"><br><b>Wireframes</b><br><sub>Rotating solids floating inside the cube.</sub></td></tr>
 <tr><td align="center" width="33%"><img src="docs/patterns/rubiks_cube.webp" alt="Rubik's Cube" width="220"><br><b>Rubik's Cube</b><br><sub>Scrambles, then solves itself.</sub></td><td align="center" width="33%"><img src="docs/patterns/falling_sand.webp" alt="Falling Sand" width="220"><br><b>Falling Sand</b><br><sub>Sand poured from the top piles up down the sides.</sub></td><td align="center" width="33%"><img src="docs/patterns/plane_sweep.webp" alt="Plane Sweep" width="220"><br><b>Plane Sweep</b><br><sub>Coloured planes sweeping through the cube's volume.</sub></td></tr>
-<tr><td align="center" width="33%"><img src="docs/patterns/ticker.webp" alt="Ticker" width="220"><br><b>Ticker</b><br><sub>Your message, the time and the date scrolling around the sides.</sub></td><td align="center" width="33%"><img src="docs/patterns/dvd.webp" alt="DVD" width="220"><br><b>DVD</b><br><sub>The screensaver logo, cut out of a coloured block, gliding around the sides; the top counts perfect corner hits.</sub></td></tr>
+<tr><td align="center" width="33%"><img src="docs/patterns/ticker.webp" alt="Ticker" width="220"><br><b>Ticker</b><br><sub>Your message, the time and the date scrolling around the sides.</sub></td><td align="center" width="33%"><img src="docs/patterns/dvd.webp" alt="DVD" width="220"><br><b>DVD</b><br><sub>The screensaver logo, cut out of a coloured block, gliding around the sides; the top counts perfect corner hits.</sub></td><td align="center" width="33%"><img src="docs/patterns/weather.webp" alt="Weather" width="220"><br><b>Weather</b><br><sub>The sky outside round the sides -- sun, moon, clouds, rain, snow or storm -- and the forecast on top.</sub></td></tr>
 </table>
 
 ## Table of Contents
@@ -27,6 +27,7 @@ Recorded from a running cube with `scripts/capture_patterns.py` and drawn as the
     - [Building](#building)
     - [Uploading](#uploading)
   - [Spotify](#spotify)
+  - [Weather](#weather)
 
 ## Development
 
@@ -75,6 +76,14 @@ The Spotify pattern shows what is playing on your account: album art on one side
 If something goes wrong, the Spotify card on that tab says what (also at `/api/v1/spotify`). **Log out of Spotify** forgets the linked account. To use another account in development mode, add its email under the app's **User Management** first.
 
 For local builds you can instead put `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in `lib/cube/secrets.h` (gitignored); they are used only when the dashboard fields are empty. Never put the secret in a build you publish.
+
+## Weather
+
+The Weather pattern shows the conditions outside on the side faces (sun or moon, clouds, fog, rain, snow or a storm, by day or night) and the temperature, conditions and today's high and low on top. Forecasts come from [Open-Meteo](https://open-meteo.com), which needs no account or key, every 15 minutes while the pattern runs.
+
+By default the cube works out where it is from its IP address, which can be off by a town or two. To set it, open the dashboard's **Weather** tab and type a city or postcode into **Weather Location**; the status card shows the place it found. Clear the box to go back to the IP address. **Weather in °C and km/h** switches units.
+
+The same settings are at `/api/v1/weather`: GET for what the pattern knows, POST `location=` and/or `metric=true|false`. POST `preview=<WMO code>` (and `day=false` for night) shows a kind of weather for two minutes, to try the animations: 0 clear, 2 partly cloudy, 3 overcast, 45 fog, 53 drizzle, 63 rain, 73 snow, 95 thunderstorm.
 
 ## Recording the pattern animations
 

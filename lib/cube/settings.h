@@ -60,6 +60,15 @@ public:
     std::string tickerText() const;
     void setTickerText(const std::string &text);
 
+    /// Where the Weather pattern reports from: a place name or postcode, or
+    /// empty to locate the cube by its IP address.
+    std::string weatherLocation() const;
+    void setWeatherLocation(const std::string &text);
+
+    /// Weather in degrees C and km/h rather than F and mph.
+    bool weatherMetric() const { return _weatherMetric; }
+    void setWeatherMetric(bool value);
+
     /// Hardware revision written at manufacture (key "HW"), or empty.
     std::string hardware() const { return _hardware; }
 
@@ -85,6 +94,8 @@ private:
         PATTERN = 1 << 7,
         TIMEZONE = 1 << 8,
         TICKER = 1 << 9,
+        WEATHER_LOCATION = 1 << 10,
+        WEATHER_METRIC = 1 << 11,
     };
 
     void changed(Key key);
@@ -105,6 +116,8 @@ private:
     std::string _pattern;
     std::string _timezone;
     std::string _tickerText;
+    std::string _weatherLocation;
+    bool _weatherMetric = false;
     std::string _hardware;
     int _legacyPatternIndex = -1;
 };

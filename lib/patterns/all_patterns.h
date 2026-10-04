@@ -19,6 +19,7 @@
 #include "ticker/ticker.h"
 #include "dvd/dvd.h"
 #include "maze/maze_pattern.h"
+#include "langtons_ant/langtons_ant.h"
 #include "fire/fire.h"
 #include "aquarium/aquarium.h"
 #include "fireworks/fireworks.h"
@@ -29,7 +30,7 @@
 
 // Array of all patterns. The count is checked against the list in
 // all_patterns.cpp at compile time.
-#define PATTERN_COUNT 21
+#define PATTERN_COUNT 22
 extern Pattern *patternList[PATTERN_COUNT];
 
 #endif

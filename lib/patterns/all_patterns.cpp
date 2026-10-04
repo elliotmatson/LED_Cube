@@ -19,6 +19,7 @@ Pattern *patternList[] = {
     new Ticker(),
     new Dvd(),
     new MazePattern(),
+    new LangtonsAnt(),
     new Fire(),
     new Aquarium(),
     new Fireworks(),

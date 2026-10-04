@@ -95,6 +95,21 @@ namespace cube
      */
     void buildNeighbours(int16_t *out);
 
+    /**
+     * Neighbours of square blocks of `size` pixels (size divides FACE_SIZE),
+     * across the seams: block (bx, by) covers chain pixels from (bx * size,
+     * by * size) and has index by * (CHAIN_WIDTH / size) + bx.
+     * out[block * 4 + d] is the block reached by leaving it in direction d
+     * (in its face's coordinates), or -1 past an outer edge. Because 64 is a
+     * multiple of `size`, blocks line up across the seams.
+     *
+     * @param out blockCount(size) * 4 entries.
+     */
+    void buildBlockNeighbours(int16_t size, int16_t *out);
+
+    /// How many blocks of `size` pixels tile the chain.
+    inline int blockCount(int16_t size) { return (CHAIN_WIDTH / size) * (CHAIN_HEIGHT / size); }
+
     /// A point in the cube's own 3D space, [0, 64] on each axis.
     struct Vec3
     {

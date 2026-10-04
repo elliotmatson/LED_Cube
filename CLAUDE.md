@@ -66,6 +66,7 @@ lib/rubiks/                  hardware-free Rubik's cube model (stickers as 3D po
 lib/sand/                    hardware-free falling-sand step
 lib/particles/               hardware-free points moving over the visible surface, folding across seams
 lib/bounce/                  hardware-free bouncing body (the DVD logo), with corner detection
+lib/maze/                    hardware-free maze generation and solving on any cell graph
 test/                        host unit tests for the hardware-free libraries ([env:native])
 lib/patterns/<name>/         one folder per pattern; registered in lib/patterns/all_patterns.cpp
 lib/fonts/                   GFX fonts, each defined once in fonts.cpp: include fonts.h, never a font's own header
@@ -75,12 +76,12 @@ api/                         Bruno collection for the REST API
 Physical panel *p* of the 192×64 chain is `x ∈ [64p, 64p+63]`. `SinglePanel`
 gives a rotated 64×64 view of one face; `BottomPanels` a 128×64 upright strip
 across the two side faces. `lib/cube_geometry` (namespace `cube`) has
-`cube::step` for moving across seams (it rotates the heading), `cube::toCube`
+`cube::step` for moving across seams (it rotates the heading; `cube::buildBlockNeighbours` does the same for square blocks), `cube::toCube`
 for a pixel's 3D position on the cube surface (`cube::fromCube` back), and `cube::projectX/Y`, an
 isometric projection continuous across the seams.
 
 `lib/cube_geometry`, `lib/life`, `lib/timezones`, `lib/firmware_image`,
-`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce` and `lib/particles` include nothing from Arduino or ESP-IDF, so
+`lib/noise`, `lib/color`, `lib/rubiks`, `lib/sand`, `lib/bounce`, `lib/particles` and `lib/maze` include nothing from Arduino or ESP-IDF, so
 `[env:native]` can test them on the host. Keep it that way, and put new pure
 logic in libraries like these so it can be tested too. The board env takes its
 settings from `[esp32_base]` rather than `[env]`, which would leak the

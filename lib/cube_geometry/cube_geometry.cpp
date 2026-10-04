@@ -149,6 +149,36 @@ namespace cube
         }
     }
 
+    void buildBlockNeighbours(int16_t size, int16_t *out)
+    {
+        const int across = CHAIN_WIDTH / size;
+        const int blocks = blockCount(size);
+        for (int b = 0; b < blocks; b++)
+        {
+            const Point start{int16_t((b % across) * size), int16_t((b / across) * size)};
+            for (int d = 0; d < 4; d++)
+            {
+                // Walk `size` pixels in direction d, turning with the seams;
+                // any pixel of the block lands in the same neighbour.
+                Point p = start;
+                Dir dir = Dir(d);
+                bool off = false;
+                for (int i = 0; i < size; i++)
+                {
+                    const Step s = step(p, dir);
+                    if (!s.valid())
+                    {
+                        off = true;
+                        break;
+                    }
+                    p = s.to;
+                    dir = s.dir;
+                }
+                out[b * 4 + d] = off ? -1 : int16_t((p.y / size) * across + p.x / size);
+            }
+        }
+    }
+
     Point fromCube(Vec3 v)
     {
         const float S = FACE_SIZE;

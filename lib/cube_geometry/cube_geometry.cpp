@@ -177,6 +177,8 @@ namespace cube
                 out[b * 4 + d] = off ? -1 : int16_t((p.y / size) * across + p.x / size);
             }
         }
+    }
+
     Point fromCube(Vec3 v)
     {
         const float S = FACE_SIZE;

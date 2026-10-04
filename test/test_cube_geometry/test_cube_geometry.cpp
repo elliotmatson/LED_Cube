@@ -379,6 +379,8 @@ void test_block_neighbours_are_symmetric_and_bounded(void)
     }
     // Each face has two outer edges of 16 blocks.
     TEST_ASSERT_EQUAL_INT(3 * 2 * 16, outer);
+}
+
 void test_fromCube_inverts_toCube_for_every_pixel(void)
 {
     for (int16_t y = 0; y < cube::CHAIN_HEIGHT; y++)

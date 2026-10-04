@@ -349,6 +349,58 @@ void test_unproject_rejects_points_outside_the_hexagon(void)
     TEST_ASSERT_FALSE(unproject(0, -200).valid());
 }
 
+void test_block_neighbours_are_symmetric_and_bounded(void)
+{
+    static int16_t nbr[48 * 16 * 4];
+    cube::buildBlockNeighbours(4, nbr);
+    const int blocks = cube::blockCount(4);
+    TEST_ASSERT_EQUAL_INT(768, blocks);
+    int outer = 0;
+    for (int b = 0; b < blocks; b++)
+    {
+        for (int d = 0; d < 4; d++)
+        {
+            const int n = nbr[b * 4 + d];
+            if (n < 0)
+            {
+                outer++;
+                continue;
+            }
+            TEST_ASSERT_TRUE(n < blocks);
+            TEST_ASSERT_NOT_EQUAL(b, n);
+            // Whoever b leads to leads back to b.
+            bool back = false;
+            for (int e = 0; e < 4; e++)
+            {
+                back |= nbr[n * 4 + e] == b;
+            }
+            TEST_ASSERT_TRUE(back);
+        }
+    }
+    // Each face has two outer edges of 16 blocks.
+    TEST_ASSERT_EQUAL_INT(3 * 2 * 16, outer);
+}
+
+void test_fromCube_inverts_toCube_for_every_pixel(void)
+{
+    for (int16_t y = 0; y < cube::CHAIN_HEIGHT; y++)
+    {
+        for (int16_t x = 0; x < cube::CHAIN_WIDTH; x++)
+        {
+            const cube::Point p = cube::fromCube(cube::toCube({x, y}));
+            TEST_ASSERT_EQUAL_INT16(x, p.x);
+            TEST_ASSERT_EQUAL_INT16(y, p.y);
+        }
+    }
+}
+
+void test_fromCube_rejects_points_off_the_visible_surface(void)
+{
+    TEST_ASSERT_FALSE(cube::fromCube({10, 10, 10}).valid()); // inside
+    TEST_ASSERT_FALSE(cube::fromCube({-1, 64, 10}).valid()); // past an outer edge
+    TEST_ASSERT_FALSE(cube::fromCube({10, 10, 65}).valid()); // above the top
+}
+
 int main(int, char **)
 {
     UNITY_BEGIN();
@@ -371,5 +423,8 @@ int main(int, char **)
     RUN_TEST(test_integer_projection_tracks_the_float_one);
     RUN_TEST(test_unproject_inverts_the_projection_for_every_pixel);
     RUN_TEST(test_unproject_rejects_points_outside_the_hexagon);
+    RUN_TEST(test_block_neighbours_are_symmetric_and_bounded);
+    RUN_TEST(test_fromCube_inverts_toCube_for_every_pixel);
+    RUN_TEST(test_fromCube_rejects_points_off_the_visible_surface);
     return UNITY_END();
 }

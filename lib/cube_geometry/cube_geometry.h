@@ -95,6 +95,21 @@ namespace cube
      */
     void buildNeighbours(int16_t *out);
 
+    /**
+     * Neighbours of square blocks of `size` pixels (size divides FACE_SIZE),
+     * across the seams: block (bx, by) covers chain pixels from (bx * size,
+     * by * size) and has index by * (CHAIN_WIDTH / size) + bx.
+     * out[block * 4 + d] is the block reached by leaving it in direction d
+     * (in its face's coordinates), or -1 past an outer edge. Because 64 is a
+     * multiple of `size`, blocks line up across the seams.
+     *
+     * @param out blockCount(size) * 4 entries.
+     */
+    void buildBlockNeighbours(int16_t size, int16_t *out);
+
+    /// How many blocks of `size` pixels tile the chain.
+    inline int blockCount(int16_t size) { return (CHAIN_WIDTH / size) * (CHAIN_HEIGHT / size); }
+
     /// A point in the cube's own 3D space, [0, 64] on each axis.
     struct Vec3
     {
@@ -111,6 +126,14 @@ namespace cube
      * patterns sample a 3D field and look continuous across the edges.
      */
     Vec3 toCube(Point p);
+
+    /**
+     * The inverse of toCube(): the chain pixel showing point `v` of the
+     * cube's visible surface (one of x, y, z at 64, the others in [0, 64]),
+     * or NO_POINT if `v` is not on it. On an edge shared by two faces the
+     * top face wins, then face 1.
+     */
+    Point fromCube(Vec3 v);
 
     /// Isometric projection of a chain pixel onto the plane facing the shared
     /// corner, continuous across all three seams. X is roughly ±56; Y runs

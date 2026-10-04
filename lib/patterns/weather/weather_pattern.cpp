@@ -1,10 +1,10 @@
 #include "weather_pattern.h"
+#include "fonts.h"
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <NetworkClientSecure.h>
 #include <WiFi.h>
-#include <Fonts/FreeSansBold18pt7b.h>
 #include <math.h>
 
 // ESP-IDF's certificate bundle (see updates.h).

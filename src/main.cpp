@@ -4,8 +4,12 @@ Cube ledCube; // not "cube": that is the geometry namespace (lib/cube_geometry)
 
 // Tells the Arduino core not to confirm a freshly updated image as soon as it
 // boots. Cube::init() confirms it instead, once the cube is actually working,
-// so an image that crashes during startup is rolled back.
-bool verifyRollbackLater()
+// so an image that resets during startup is rolled back.
+//
+// extern "C": the core declares its weak default in C (esp32-hal-misc.c).
+// Without it this was a separate, C++-named function the core never called,
+// so every update was confirmed the moment it started.
+extern "C" bool verifyRollbackLater()
 {
   return true;
 }

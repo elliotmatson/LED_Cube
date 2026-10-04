@@ -159,8 +159,14 @@ scripts/capture_patterns.py --host cube.local <pattern id>` (frames come from
   `setIndex()` on anything you allocate.
 - **Rollback.** A freshly updated image is confirmed at the end of
   `Cube::init()` (`verifyRollbackLater()` in `main.cpp` stops the Arduino
-  core doing it at boot). Anything that can hang before that point will
-  roll the update back on the next reset.
+  core doing it at boot; it must stay `extern "C"`, or it silently stops
+  overriding the core's weak default and every update is confirmed at once).
+  A reset before that point rolls the update back. `BootLog` records every
+  boot's version, reset reason and how far startup got (`/api/v1/boots`,
+  and the Startup card): a failed startup shows the stage it stopped at.
+- **Updates only go forwards.** The GitHub updater installs a release only
+  if `firmware_image::isNewer()` says its tag is newer than `FW_VERSION`.
+  GitHub's "latest" is the newest *stable* release, older than any beta.
 - **Firmware image checks.** All three update paths use `lib/firmware_image`:
   the upload card checks the first chunk with `check()`; ArduinoOTA and the
   GitHub updater read the written image back with `checkDescriptor()`,

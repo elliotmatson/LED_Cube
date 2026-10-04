@@ -25,6 +25,7 @@ Cube::Cube() : leds(4, USR_LED, NEO_GRB + NEO_KHZ800),
                spotifyClientId(dashboard, "Spotify Client ID", "From developer.spotify.com"),
                spotifyClientSecret(dashboard, "Spotify Client Secret", "Saved; type to replace"),
                spotifyLogout(dashboard, "Log out of Spotify"),
+               bootStatus(dashboard, "Startup", dash::Status::NONE),
                weatherStatus(dashboard, "Weather", dash::Status::NONE),
                weatherLocation(dashboard, "Weather Location", "City or postcode; blank to use the cube's IP address"),
                weatherMetric(dashboard, "Weather in \u00b0C and km/h"),
@@ -46,21 +47,26 @@ void Cube::init()
     leds.fill(leds.Color(255, 0, 0), 0, 0);
     leds.show(); // Initialize all pixels to 'off'
     Serial.begin(115200);
+    // First, so a startup that resets is on record (see BootLog).
+    bootLog.begin();
     if (settings.begin())
     {
         leds.setPixelColor(0, 0, 255, 0);
         leds.show();
     }
+    bootLog.reached(BootLog::BOOT_SETTINGS);
     if (initDisplay())
     {
         leds.setPixelColor(1, 0, 255, 0);
         leds.show();
     }
+    bootLog.reached(BootLog::BOOT_DISPLAY);
     if (initWifi())
     {
         leds.setPixelColor(2, 0, 255, 0);
         leds.show();
     }
+    bootLog.reached(BootLog::BOOT_WIFI);
 
     showDebug();
     delay(5000);
@@ -69,10 +75,14 @@ void Cube::init()
                    {
         settings.setPattern(pattern->getId());
         dashboard.sendUpdates(); });
+    bootLog.reached(BootLog::BOOT_PATTERNS);
 
     initAPI();
+    bootLog.reached(BootLog::BOOT_API);
     initUI();
+    bootLog.reached(BootLog::BOOT_UI);
     updates.begin(server, dma_display, settings, renderer, systemTab);
+    bootLog.reached(BootLog::BOOT_UPDATES);
 
     leds.setPixelColor(3, 0, 255, 0);
     leds.show();
@@ -147,6 +157,7 @@ void Cube::init()
     // it back (see verifyRollbackLater() in main.cpp). A no-op unless this is
     // the first boot after an update.
     esp_ota_mark_app_valid_cancel_rollback();
+    bootLog.reached(BootLog::BOOT_CONFIRMED);
 }
 
 /**
@@ -309,6 +320,10 @@ bool Cube::initWifi()
     // for the next DTIM wake: pings of 1-3 s and a sluggish dashboard, though
     // bulk transfers stay fast. The cube is on mains power; stay awake.
     WiFi.setSleep(false);
+    // Try the saved network a few times before falling back to the setup
+    // portal: one failed attempt (the router slow to answer after the cube
+    // resets) otherwise put the cube in setup mode for three minutes.
+    wifiManager.setConnectRetries(3);
     bool status = wifiManager.autoConnect("Cube", apPassword);
     if (!status)
     {
@@ -504,6 +519,14 @@ void Cube::initUI()
             tickerInput.setValue(text.c_str());
             dashboard.sendUpdates(); });
     this->timezoneDropdown.setTab(systemTab);
+    {
+        // How the last startup went: a warning after a rollback or a boot
+        // that never finished starting.
+        const BootLog::Entry *previous = bootLog.entry(1);
+        const bool trouble = bootLog.rolledBackFrom()[0] || (previous && previous->stage != BootLog::BOOT_CONFIRMED);
+        bootStatus.setFeedback(bootLog.summary().c_str(), trouble ? dash::Status::WARNING : dash::Status::SUCCESS);
+        bootStatus.setTab(systemTab);
+    }
 
     this->rebootButton.setTab(systemTab);
     this->resetWifiButton.setTab(systemTab);
@@ -579,17 +602,44 @@ void Cube::initAPI()
                                               "jtag", "efuse", "power glitch", "cpu lockup"};
         const int reason = int(esp_reset_reason());
         const char *resetReason = reason >= 0 && reason < int(sizeof(REASONS) / sizeof(REASONS[0])) ? REASONS[reason] : "unknown";
-        char body[600];
+        char body[700];
         snprintf(body, sizeof(body),
-                 "{\"reset_reason\":\"%s\",\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
+                 "{\"reset_reason\":\"%s\",\"rolled_back_from\":\"%s\",\"local_time\":\"%s\",\"timezone\":\"%s\",\"pattern\":\"%s\",\"fps\":%.1f,\"tick_avg_us\":%u,\"tick_max_us\":%u,"
                  "\"push_avg_us\":%u,\"push_max_us\":%u,\"free_internal\":%u,\"largest_internal\":%u,"
                  "\"free_psram\":%u,\"uptime_s\":%lu}",
-                 resetReason, localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
+                 resetReason, bootLog.rolledBackFrom(), localTime, currentTimezone().name, s.pattern, s.windowMs ? s.frames * 1000.0f / s.windowMs : 0.0f,
                  s.tickAvgUs, s.tickMaxUs, s.pushAvgUs, s.pushMaxUs,
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                  (unsigned long)(millis() / 1000));
+        request->send(200, "application/json", body); });
+
+    // The last few boots, newest first: version, how each started (the
+    // previous one's reset reason), whether it was the first boot of an
+    // update, and how far startup got. See BootLog.
+    sprintf(uri, "%s/v1/boots", API_ENDPOINT);
+    server.on(uri, HTTP_GET, [&](AsyncWebServerRequest *request)
+              {
+        JsonDocument doc;
+        doc["rolled_back_from"] = bootLog.rolledBackFrom();
+        doc["summary"] = bootLog.summary();
+        JsonArray boots = doc["boots"].to<JsonArray>();
+        for (int i = 0; i < BootLog::ENTRIES; i++)
+        {
+            const BootLog::Entry *e = bootLog.entry(i);
+            if (e == nullptr)
+            {
+                break;
+            }
+            JsonObject b = boots.add<JsonObject>();
+            b["version"] = e->version;
+            b["started_by"] = BootLog::reasonName(e->reason);
+            b["after_update"] = e->afterUpdate != 0;
+            b["reached"] = BootLog::stageName(e->stage);
+        }
+        String body;
+        serializeJson(doc, body);
         request->send(200, "application/json", body); });
 
     // The patterns, and which one is showing. POST with id=<pattern id> to

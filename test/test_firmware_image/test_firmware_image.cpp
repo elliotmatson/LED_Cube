@@ -106,6 +106,48 @@ void test_the_descriptor_check_still_rejects_other_projects_and_unsigned_images(
     TEST_ASSERT_EQUAL_STRING("Missing the cube firmware signature", checkDescriptor(image, sizeof(image), CUBE));
 }
 
+
+static int cmp(const char *a, const char *b) { return firmware_image::compareVersions(a, b); }
+
+void test_versions_compare_by_number(void)
+{
+    TEST_ASSERT_TRUE(cmp("v0.10.0", "v0.9.0") > 0); // not as strings
+    TEST_ASSERT_TRUE(cmp("v0.6.0", "v0.5.9") > 0);
+    TEST_ASSERT_TRUE(cmp("v1", "v0.99.99") > 0);
+    TEST_ASSERT_EQUAL_INT(0, cmp("v0.6.0", "0.6.0"));
+    TEST_ASSERT_EQUAL_INT(0, cmp("v0.6", "v0.6.0"));
+}
+
+void test_pre_releases_come_before_the_release(void)
+{
+    TEST_ASSERT_TRUE(cmp("v0.6.0-b1", "v0.6.0") < 0);
+    TEST_ASSERT_TRUE(cmp("v0.6.0-b2", "v0.6.0-b1") > 0);
+    TEST_ASSERT_TRUE(cmp("v0.6.0-b10", "v0.6.0-b2") > 0); // b10 after b2
+    TEST_ASSERT_TRUE(cmp("v0.6.0-b1", "v0.5.9") > 0);
+    TEST_ASSERT_TRUE(cmp("v0.6.0-rc1", "v0.6.0-b9") > 0); // letters, then number
+    TEST_ASSERT_EQUAL_INT(0, cmp("v0.6.0+abc", "v0.6.0"));
+}
+
+void test_only_newer_versions_are_updates(void)
+{
+    TEST_ASSERT_TRUE(firmware_image::isNewer("v0.6.0", "v0.6.0-b1"));
+    TEST_ASSERT_FALSE(firmware_image::isNewer("v0.6.0-b1", "v0.6.0-b1"));
+    // The case that could have bitten: the stable channel's "latest" is an
+    // old release, and it must never be installed over a newer beta.
+    TEST_ASSERT_FALSE(firmware_image::isNewer("v0.4.10", "v0.6.0-b1"));
+}
+
+void test_non_versions_never_update(void)
+{
+    bool ok = true;
+    TEST_ASSERT_EQUAL_INT(0, firmware_image::compareVersions("v0.6.0", "DEV", &ok));
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_FALSE(firmware_image::isNewer("v9.9.9", "DEV"));
+    TEST_ASSERT_FALSE(firmware_image::isNewer("latest", "v0.6.0"));
+    TEST_ASSERT_FALSE(firmware_image::isNewer("v0.6.0-", "v0.5.0"));
+    TEST_ASSERT_FALSE(firmware_image::isNewer(nullptr, "v0.5.0"));
+}
+
 int main(int, char **)
 {
     UNITY_BEGIN();
@@ -119,5 +161,9 @@ int main(int, char **)
     RUN_TEST(test_a_missing_signature_is_rejected_only_when_required);
     RUN_TEST(test_the_descriptor_check_ignores_the_held_back_header);
     RUN_TEST(test_the_descriptor_check_still_rejects_other_projects_and_unsigned_images);
+    RUN_TEST(test_versions_compare_by_number);
+    RUN_TEST(test_pre_releases_come_before_the_release);
+    RUN_TEST(test_only_newer_versions_are_updates);
+    RUN_TEST(test_non_versions_never_update);
     return UNITY_END();
 }

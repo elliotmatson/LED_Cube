@@ -743,7 +743,6 @@ bool Updates::findFirmwareRelease(String &tag, String &firmwareUrl)
     JsonObject releaseFilter = development ? filter[0].to<JsonObject>() : filter.to<JsonObject>();
     releaseFilter["tag_name"] = true;
     releaseFilter["draft"] = true;
-    releaseFilter["published_at"] = true;
     releaseFilter["assets"][0]["name"] = true;
     releaseFilter["assets"][0]["browser_download_url"] = true;
 
@@ -759,15 +758,23 @@ bool Updates::findFirmwareRelease(String &tag, String &firmwareUrl)
     JsonObject release;
     if (development)
     {
-        // ISO 8601 timestamps in the same zone compare correctly as strings.
-        const char *newest = "";
+        // The highest version, betas included -- not the most recently
+        // published, which could be a fix to an older line.
+        const char *highest = nullptr;
         for (JsonObject candidate : doc.as<JsonArray>())
         {
-            const char *published = candidate["published_at"] | "";
-            if (!(candidate["draft"] | false) && strcmp(published, newest) > 0)
+            const char *candidateTag = candidate["tag_name"] | "";
+            if (candidate["draft"] | false)
+            {
+                continue;
+            }
+            bool ok = false;
+            // Against itself, just to see whether it is a version at all.
+            const int order = firmware_image::compareVersions(candidateTag, highest ? highest : candidateTag, &ok);
+            if (ok && (highest == nullptr || order > 0))
             {
                 release = candidate;
-                newest = published;
+                highest = candidateTag;
             }
         }
     }
@@ -782,10 +789,12 @@ bool Updates::findFirmwareRelease(String &tag, String &firmwareUrl)
     }
 
     tag = release["tag_name"].as<const char *>();
-    // Exact match: a substring test would treat v0.2.1 as already running v0.2.10.
-    if (tag == FW_VERSION)
+    // Only ever forwards. GitHub's "latest" is the newest stable release,
+    // which is older than any beta a cube may be running; installing it
+    // because its tag differed would be a downgrade.
+    if (!firmware_image::isNewer(tag.c_str(), FW_VERSION))
     {
-        ESP_LOGI(__func__, "Already running %s", FW_VERSION);
+        ESP_LOGI(__func__, "Running %s; %s is not newer", FW_VERSION, tag.c_str());
         return false;
     }
 

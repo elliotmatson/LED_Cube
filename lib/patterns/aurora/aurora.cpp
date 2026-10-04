@@ -4,8 +4,10 @@
 
 namespace
 {
-    float SIN[256];   // one cycle
-    float GLOW[64];   // a ribbon's brightness by distance, quarter pixels
+    // Lookup tables, in one PSRAM block while the pattern runs: as globals
+    // they took 2.3 KB of scarce internal RAM all the time.
+    float *SIN = nullptr;  // 256: one cycle
+    float *GLOW = nullptr; // 64: a ribbon's brightness by distance, quarter pixels
 
     struct Ribbon
     {
@@ -41,7 +43,7 @@ namespace
         {38.0f, 9.0f, 3.1f, 19.0f, 3.0f, 26.0f, 1.0f},
         {26.0f, 7.0f, 2.2f, -13.0f, 2.5f, 20.0f, 0.55f},
     };
-    float FADE[256]; // brightness by height above the edge, quarter pixels
+    float *FADE = nullptr; // 256: brightness by height above the edge, quarter pixels
 
     const color::RGB AURORA_GREEN = {30, 255, 110};
     const color::RGB AURORA_VIOLET = {150, 40, 255};
@@ -63,6 +65,14 @@ Aurora::~Aurora()
 void Aurora::begin(PatternServices *services)
 {
     pattern = services;
+    float *tables = static_cast<float *>(heap_caps_malloc((256 + 64 + 256) * sizeof(float), MALLOC_CAP_SPIRAM));
+    if (tables == nullptr)
+    {
+        return;
+    }
+    SIN = tables;
+    GLOW = tables + 256;
+    FADE = tables + 256 + 64;
     for (int i = 0; i < 256; i++)
     {
         SIN[i] = sinf(i * 2 * float(M_PI) / 256);
@@ -106,6 +116,8 @@ void Aurora::end()
 {
     free(places);
     places = nullptr;
+    free(SIN); // the start of the tables' block
+    SIN = GLOW = FADE = nullptr;
 }
 
 void Aurora::tick()

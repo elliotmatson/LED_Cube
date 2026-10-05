@@ -152,6 +152,12 @@ scripts/capture_patterns.py --host cube.local <pattern id>` (frames come from
   watchdog's backtrace, printed mid-write, panicked the cube ("Cache disabled
   but cached memory region accessed", reset reason "interrupt watchdog"). Sleep
   a minimum each pass, as `Updates::animationLoop` and `Renderer::loop` do.
+- **The image must fit 0x1E0000 bytes.** Some cubes still have Arduino's old
+  `min_spiffs.csv` partition table (1,966,080-byte app slots), and a partition
+  table only changes over USB. A bigger image fails every update path at 99%
+  with `ESP_ERR_INVALID_SIZE`; v0.6.0 was 17 KB over. `scripts/size_guard.py`
+  fails the build first. Silent assertions buy ~59 KB; `-Os` would buy more
+  but slows rendering.
 - **Never flash `firmware.factory.bin` to a cube that is set up.** The merged
   image's padding covers NVS (0x9000-0xDFFF) and wipes WiFi, settings and the
   Spotify login. Update with the upload card or ArduinoOTA; over USB write only

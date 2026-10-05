@@ -30,8 +30,12 @@ CONFIG_ARDUINO_RUN_NO_AFFINITY=y
 CONFIG_ARDUHAL_LOG_DEFAULT_LEVEL_INFO=y
 
 # Optimize for speed. The IDF default (-Og) is for debugging; the render loop's
-# per-pixel work runs measurably faster at -O2. Flash has plenty of room.
+# per-pixel work runs measurably faster at -O2.
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# Assertions still stop the cube, but without compiling in each one's file
+# name and expression: about 59 KB, which keeps the image inside the 0x1E0000
+# app slots of cubes still on the old partition table (scripts/size_guard.py).
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
 
 # CPU, RTOS, console
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
